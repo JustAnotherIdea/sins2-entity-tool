@@ -154,12 +154,19 @@ class EntityToolGUI(QMainWindow):
             logging.info(f"File validates against schema: {schema_name}")
             self.status_label.setText(f"Valid {schema_name}")
             self.status_label.setProperty("status", "success")
+            self.status_label.style().unpolish(self.status_label)
+            self.status_label.style().polish(self.status_label)
         except jsonschema.exceptions.ValidationError as e:
             logging.error(f"Validation error: {str(e)}")
             self.status_label.setText(f"Invalid {schema_name}")
             self.status_label.setProperty("status", "error")
+            self.status_label.style().unpolish(self.status_label)
+            self.status_label.style().polish(self.status_label)
         except Exception as e:
             logging.error(f"Error during validation: {str(e)}")
+            self.status_label.setProperty("status", "error")
+            self.status_label.style().unpolish(self.status_label)
+            self.status_label.style().polish(self.status_label)
     
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
