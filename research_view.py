@@ -110,11 +110,11 @@ class ResearchTreeView(QGraphicsView):
         # Node layout settings
         self.field_width = 400  # Width for field background/label area
         self.horizontal_spacing = 300  # Spacing between tiers
-        self.vertical_spacing = 180  # Spacing between fields
+        self.vertical_spacing = 250  # Increased spacing between fields
         self.node_vertical_spacing = 25  # Spacing between nodes in the same field
         self.top_margin = 50  # Space from top of scene to first field
         self.base_field_height = 120  # Base height for fields with single row
-        self.row_height = 40  # Height per row in a field
+        self.row_height = 80  # Increased height per row to prevent overlap
         self.nodes = {}  # Store nodes by subject_id
         self.current_domain = None
         self.domains = set()  # Track available domains
