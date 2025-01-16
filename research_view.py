@@ -132,7 +132,7 @@ class ResearchTreeView(QGraphicsView):
             
             # Position header above the tier's nodes, offset by field area width
             x = self.field_width + i * self.horizontal_spacing - text.boundingRect().width() / 2
-            y = -50  # Position closer to nodes
+            y = -100  # Increased margin above nodes
             text.setPos(x, y)
             self.scene.addItem(text)
     
