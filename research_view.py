@@ -113,13 +113,15 @@ class ResearchTreeView(QGraphicsView):
         self.vertical_spacing = 180  # Spacing between fields
         self.node_vertical_spacing = 25  # Spacing between nodes in the same field
         self.top_margin = 50  # Space from top of scene to first field
-        self.field_height = 120  # Height of each field area
+        self.base_field_height = 120  # Base height for fields with single row
+        self.row_height = 40  # Height per row in a field
         self.nodes = {}  # Store nodes by subject_id
         self.current_domain = None
         self.domains = set()  # Track available domains
         self.fields_by_domain = {}  # Track fields per domain {domain: {field: y_pos}}
         self.field_backgrounds = {}  # Store field background images {field: QPixmap}
         self.nodes_by_field = {}  # Track nodes in each field {field: [nodes]}
+        self.field_max_rows = {}  # Track maximum row number for each field {domain: {field: max_row}}
         
         # Add tier headers
         self.add_tier_headers()
@@ -236,33 +238,56 @@ class ResearchTreeView(QGraphicsView):
         if domain not in self.fields_by_domain:
             self.fields_by_domain[domain] = {}
             self.nodes_by_field[domain] = {}
+            self.field_max_rows[domain] = {}
         
         # Initialize nodes list for this field if not exists
         if field not in self.nodes_by_field[domain]:
             self.nodes_by_field[domain][field] = []
+            self.field_max_rows[domain][field] = 0
+        
+        # Update max row for this field if needed
+        if field_coord and len(field_coord) >= 2:
+            current_max = self.field_max_rows[domain][field]
+            self.field_max_rows[domain][field] = max(current_max, field_coord[1])
         
         # Adjust tier (tier 0 in file = tier 1 in display)
         display_tier = tier + 1
         
-        # Calculate position based on tier and field
-        x = self.field_width + display_tier * self.horizontal_spacing
+        # Calculate position based on tier and field_coord
+        tier_x = self.field_width + display_tier * self.horizontal_spacing
+        
+        # Each tier has two columns. field_coord[0] determines which column (0,1,2 = left, 3,4,5 = right)
+        if field_coord and len(field_coord) >= 2:
+            is_right_column = field_coord[0] >= 3
+            x = tier_x + (self.horizontal_spacing/2 if is_right_column else 0)
+        else:
+            # Default to left column if no field_coord
+            x = tier_x
         
         # Use field for vertical positioning
         if field not in self.fields_by_domain[domain]:
             # Calculate new field position based on number of existing fields
             field_index = len(self.fields_by_domain[domain])
-            field_center = self.top_margin + field_index * self.vertical_spacing + self.field_height/2
+            # Calculate total height of previous fields
+            total_previous_height = 0
+            for prev_field in list(self.fields_by_domain[domain].keys()):
+                max_row = self.field_max_rows[domain][prev_field]
+                field_height = max(self.base_field_height, (max_row + 1) * self.row_height)
+                total_previous_height += field_height + self.vertical_spacing
+            
+            field_height = max(self.base_field_height, (self.field_max_rows[domain][field] + 1) * self.row_height)
+            field_center = self.top_margin + total_previous_height + field_height/2
             self.fields_by_domain[domain][field] = field_center
         
-        # Get field center position
+        # Get field center position and calculate field height
         field_center = self.fields_by_domain[domain][field]
+        field_height = max(self.base_field_height, (self.field_max_rows[domain][field] + 1) * self.row_height)
         
         # Calculate y position using field_coord
         if field_coord and len(field_coord) >= 2:
-            # Scale the field_coord[1] to be between -1 and 1
-            relative_pos = field_coord[1]  # Assuming field_coord[1] is already in the right range
-            # Calculate y position relative to field center
-            y = field_center + relative_pos * (self.field_height/2 - node.height/2)
+            # Calculate position based on row number
+            row_spacing = field_height / (self.field_max_rows[domain][field] + 1)
+            y = field_center - field_height/2 + (field_coord[1] + 0.5) * row_spacing
         else:
             # If no field_coord, center the node in its field
             y = field_center
