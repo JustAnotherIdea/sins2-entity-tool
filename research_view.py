@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QGraphicsScene, QGraphicsView, QGraphicsItem, QGraphicsPathItem, 
                             QGraphicsTextItem, QGraphicsPixmapItem, QGraphicsRectItem)
-from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal
+from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal, QRect
 from PyQt6.QtGui import (QPixmap, QPainter, QPen, QColor, QBrush, 
                         QPainterPath, QLinearGradient)
 
@@ -59,10 +59,11 @@ class ResearchNode(QGraphicsItem):
                                          Qt.AspectRatioMode.KeepAspectRatio,
                                          Qt.TransformationMode.SmoothTransformation)
             
-            # Center icon horizontally and place near top
-            icon_x = -scaled_icon.width() / 2
-            icon_y = -self.height/2 + 10
-            painter.drawPixmap(icon_x, icon_y, scaled_icon)
+            # Create a QRect for the icon position and size
+            icon_x = int(-scaled_icon.width() / 2)
+            icon_y = int(-self.height/2 + 10)
+            icon_rect = QRect(icon_x, icon_y, scaled_icon.width(), scaled_icon.height())
+            painter.drawPixmap(icon_rect, scaled_icon)
         
         # Draw text
         if self.is_base_game:
