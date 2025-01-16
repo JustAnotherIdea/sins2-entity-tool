@@ -107,10 +107,22 @@ class ResearchTreeView(QGraphicsView):
         self.setViewportUpdateMode(QGraphicsView.ViewportUpdateMode.FullViewportUpdate)
         self.setBackgroundBrush(QBrush(QColor(0, 20, 30)))
         
+        # Enable mouse tracking for zoom
+        self.setMouseTracking(True)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setResizeAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.setDragMode(QGraphicsView.DragMode.ScrollHandDrag)
+        
+        # Zoom settings
+        self.zoom_factor = 1.15
+        self.min_zoom = 0.1
+        self.max_zoom = 3.0
+        self.current_zoom = 0.6  # Default zoom level (60%)
+        
         # Node layout settings
         self.field_width = 400  # Width for field background/label area
         self.horizontal_spacing = 300  # Spacing between tiers
-        self.vertical_spacing = 250  # Increased spacing between fields
+        self.vertical_spacing = 800  # Increased spacing between fields (was 250)
         self.node_vertical_spacing = 25  # Spacing between nodes in the same field
         self.top_margin = 50  # Space from top of scene to first field
         self.base_field_height = 120  # Base height for fields with single row
@@ -125,6 +137,9 @@ class ResearchTreeView(QGraphicsView):
         
         # Add tier headers
         self.add_tier_headers()
+        
+        # Set initial zoom level
+        self.scale(self.current_zoom, self.current_zoom)
     
     def add_tier_headers(self):
         """Add tier headers to the scene"""
@@ -347,16 +362,34 @@ class ResearchTreeView(QGraphicsView):
         from_node.connections.append(connection)
         to_node.connections.append(connection)
     
+    def wheelEvent(self, event):
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            # Calculate zoom factor
+            if event.angleDelta().y() > 0:
+                factor = self.zoom_factor
+            else:
+                factor = 1 / self.zoom_factor
+            
+            # Calculate new zoom level
+            new_zoom = self.transform().m11() * factor
+            
+            # Check zoom bounds
+            if self.min_zoom <= new_zoom <= self.max_zoom:
+                self.scale(factor, factor)
+                self.current_zoom = new_zoom
+        else:
+            super().wheelEvent(event)
+    
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Fit the view to the scene when first shown
+        self.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+        # Then apply the default zoom
+        self.scale(self.current_zoom / self.transform().m11(), self.current_zoom / self.transform().m11())
+    
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        # Maintain zoom level when resizing
+        current_zoom = self.transform().m11()
         self.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
-        
-    def wheelEvent(self, event):
-        # Handle zoom with mouse wheel
-        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
-            factor = 1.2
-            if event.angleDelta().y() < 0:
-                factor = 1.0 / factor
-            self.scale(factor, factor)
-        else:
-            super().wheelEvent(event) 
+        self.scale(current_zoom / self.transform().m11(), current_zoom / self.transform().m11()) 
