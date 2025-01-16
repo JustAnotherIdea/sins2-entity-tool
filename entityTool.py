@@ -634,7 +634,7 @@ class EntityToolGUI(QMainWindow):
         self.load_main_file(player_file)
     
     def load_research_subject(self, subject_id: str):
-        """Load a research subject file and display its details"""
+        """Load a research subject file and display its details using the schema"""
         if not self.current_folder or not hasattr(self, 'research_details_layout'):
             return
             
@@ -647,65 +647,33 @@ class EntityToolGUI(QMainWindow):
             return
             
         try:
-            # Create a details widget
+            # Get the research subject schema
+            schema_name = "research-subject-schema"
+            if schema_name not in self.schemas:
+                logging.error(f"Schema not found: {schema_name}")
+                return
+                
+            self.current_schema = self.schemas[schema_name]
+            
+            # Create the details widget using the schema
             title = "Research Subject Details (Base Game)" if is_base_game else "Research Subject Details"
             details_group = QGroupBox(title)
             if is_base_game:
                 details_group.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
             
-            details_form = QFormLayout()
+            # Create scrollable area for the content
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             
-            # Add basic information
-            details_form.addRow("ID:", QLabel(subject_id))
-            details_form.addRow("Domain:", QLabel(subject_data.get("domain", "")))
-            details_form.addRow("Tier:", QLabel(str(subject_data.get("tier", ""))))
-            details_form.addRow("Field:", QLabel(subject_data.get("field", "")))
-            details_form.addRow("Research Time:", QLabel(str(subject_data.get("research_time", ""))))
+            # Create the content widget using the schema
+            content_widget = self.create_widget_for_schema(subject_data, self.current_schema, is_base_game)
+            scroll.setWidget(content_widget)
             
-            # Add tooltip picture if available
-            if "tooltip_picture" in subject_data:
-                details_form.addRow("Picture:", self.create_texture_label(subject_data["tooltip_picture"]))
-            
-            # Add localized name and description
-            name_text, is_base_game_name = self.get_localized_text(subject_data.get("name", ""))
-            desc_text, is_base_game_desc = self.get_localized_text(subject_data.get("description", ""))
-            
-            name_label = QLabel(name_text)
-            desc_label = QLabel(desc_text)
-            name_label.setWordWrap(True)
-            desc_label.setWordWrap(True)
-            
-            if is_base_game_name:
-                name_label.setStyleSheet("color: #666666; font-style: italic;")
-            if is_base_game_desc:
-                desc_label.setStyleSheet("color: #666666; font-style: italic;")
-            
-            details_form.addRow("Name:", name_label)
-            details_form.addRow("Description:", desc_label)
-            
-            # Add price information if available
-            if "price" in subject_data:
-                price_group = QGroupBox("Price")
-                price_form = QFormLayout()
-                price = subject_data["price"]
-                price_form.addRow("Credits:", QLabel(str(price.get("credits", ""))))
-                price_form.addRow("Metal:", QLabel(str(price.get("metal", ""))))
-                price_form.addRow("Crystal:", QLabel(str(price.get("crystal", ""))))
-                price_group.setLayout(price_form)
-                details_form.addRow(price_group)
-            
-            # Add prerequisites if available
-            if "prerequisites" in subject_data:
-                prereq_group = QGroupBox("Prerequisites")
-                prereq_layout = QVBoxLayout()
-                for prereq_list in subject_data["prerequisites"]:
-                    prereq_label = QLabel(" OR ".join(prereq_list))
-                    prereq_label.setWordWrap(True)
-                    prereq_layout.addWidget(prereq_label)
-                prereq_group.setLayout(prereq_layout)
-                details_form.addRow(prereq_group)
-            
-            details_group.setLayout(details_form)
+            # Add the scroll area to the details group
+            details_layout = QVBoxLayout()
+            details_layout.addWidget(scroll)
+            details_group.setLayout(details_layout)
             
             # Clear any existing details and add the new ones
             while self.research_details_layout.count():
@@ -1007,3 +975,160 @@ class EntityToolGUI(QMainWindow):
             self.load_field_backgrounds(domain, fields)
         
         # Rest of existing code... 
+
+    def create_widget_for_schema(self, data: dict, schema: dict, is_base_game: bool = False) -> QWidget:
+        """Create a widget to display data according to a JSON schema"""
+        if not schema or "type" not in schema:
+            return QLabel("Invalid schema")
+            
+        if schema["type"] == "object":
+            group = QGroupBox()
+            layout = QFormLayout() if len(schema.get("properties", {})) < 5 else QVBoxLayout()
+            
+            # Sort properties alphabetically but prioritize common fields
+            priority_fields = ["name", "description", "id", "type", "version"]
+            properties = schema.get("properties", {}).items()
+            sorted_properties = sorted(properties, 
+                                    key=lambda x: (x[0] not in priority_fields, x[0].lower()))
+            
+            for prop_name, prop_schema in sorted_properties:
+                if prop_name in data:
+                    widget = self.create_widget_for_property(
+                        prop_name, data[prop_name], prop_schema, is_base_game
+                    )
+                    if widget:
+                        if isinstance(layout, QFormLayout):
+                            layout.addRow(prop_name.replace("_", " ").title() + ":", widget)
+                        else:
+                            prop_group = QGroupBox(prop_name.replace("_", " ").title())
+                            prop_layout = QVBoxLayout()
+                            prop_layout.addWidget(widget)
+                            prop_group.setLayout(prop_layout)
+                            layout.addWidget(prop_group)
+            
+            group.setLayout(layout)
+            return group
+            
+        elif schema["type"] == "array":
+            group = QGroupBox()
+            layout = QVBoxLayout()
+            
+            for i, item in enumerate(data):
+                widget = self.create_widget_for_schema(
+                    item, schema.get("items", {}), is_base_game
+                )
+                if widget:
+                    if isinstance(item, dict) and "modifier_type" in item:
+                        # Special handling for modifier arrays
+                        layout.addWidget(widget)
+                    else:
+                        item_group = QGroupBox(f"Item {i+1}")
+                        item_layout = QVBoxLayout()
+                        item_layout.addWidget(widget)
+                        item_group.setLayout(item_layout)
+                        layout.addWidget(item_group)
+            
+            group.setLayout(layout)
+            return group
+            
+        else:
+            return self.create_widget_for_value(data, schema, is_base_game)
+    
+    def create_widget_for_property(self, prop_name: str, value: any, schema: dict, is_base_game: bool) -> QWidget:
+        """Create a widget for a specific property based on its schema"""
+        if "$ref" in schema:
+            # Handle references to other schema definitions
+            ref_path = schema["$ref"].split("/")[1:]  # Skip the '#'
+            current = self.current_schema
+            for part in ref_path:
+                if part in current:
+                    current = current[part]
+                else:
+                    return QLabel(f"Invalid reference: {schema['$ref']}")
+            return self.create_widget_for_schema(value, current, is_base_game)
+            
+        if schema.get("type") == "array":
+            return self.create_widget_for_schema(value, schema, is_base_game)
+            
+        if schema.get("type") == "object":
+            return self.create_widget_for_schema(value, schema, is_base_game)
+            
+        return self.create_widget_for_value(value, schema, is_base_game)
+    
+    def create_widget_for_value(self, value: any, schema: dict, is_base_game: bool) -> QWidget:
+        """Create a widget for a simple value based on its schema type"""
+        if isinstance(value, str) and schema.get("type") == "string":
+            if schema.get("format") == "localized_text":
+                # Handle localized text
+                text, is_base = self.get_localized_text(value)
+                label = QLabel(text)
+                label.setWordWrap(True)
+                if is_base or is_base_game:
+                    label.setStyleSheet("color: #666666; font-style: italic;")
+                return label
+            elif schema.get("format") == "texture":
+                # Handle texture references
+                return self.create_texture_label(value)
+            else:
+                # Regular string
+                label = QLabel(value)
+                label.setWordWrap(True)
+                return label
+        else:
+            # Handle numbers, booleans, etc.
+            label = QLabel(str(value))
+            label.setWordWrap(True)
+            return label
+    
+    def load_research_subject(self, subject_id: str):
+        """Load a research subject file and display its details using the schema"""
+        if not self.current_folder or not hasattr(self, 'research_details_layout'):
+            return
+            
+        # Look for the research subject file in the entities folder
+        subject_file = self.current_folder / "entities" / f"{subject_id}.research_subject"
+        subject_data, is_base_game = self.load_file(subject_file)
+        
+        if not subject_data:
+            logging.error(f"Research subject file not found: {subject_file}")
+            return
+            
+        try:
+            # Get the research subject schema
+            schema_name = "research-subject-schema"
+            if schema_name not in self.schemas:
+                logging.error(f"Schema not found: {schema_name}")
+                return
+                
+            self.current_schema = self.schemas[schema_name]
+            
+            # Create the details widget using the schema
+            title = "Research Subject Details (Base Game)" if is_base_game else "Research Subject Details"
+            details_group = QGroupBox(title)
+            if is_base_game:
+                details_group.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
+            
+            # Create scrollable area for the content
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+            
+            # Create the content widget using the schema
+            content_widget = self.create_widget_for_schema(subject_data, self.current_schema, is_base_game)
+            scroll.setWidget(content_widget)
+            
+            # Add the scroll area to the details group
+            details_layout = QVBoxLayout()
+            details_layout.addWidget(scroll)
+            details_group.setLayout(details_layout)
+            
+            # Clear any existing details and add the new ones
+            while self.research_details_layout.count():
+                item = self.research_details_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+            
+            self.research_details_layout.addWidget(details_group)
+            
+        except Exception as e:
+            logging.error(f"Error loading research subject {subject_id}: {str(e)}") 
