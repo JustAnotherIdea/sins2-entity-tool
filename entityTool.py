@@ -13,6 +13,7 @@ class EntityToolGUI(QMainWindow):
     def __init__(self):
         super().__init__()
         self.current_folder = None
+        self.base_game_folder = None
         self.current_file = None
         self.current_data = None
         self.schema_dir = None
@@ -21,6 +22,7 @@ class EntityToolGUI(QMainWindow):
         self.schema_extensions = {}
         self.manifest_files = {}
         self.localized_text = {}  # Store localized text data
+        self.base_game_localized_text = {}  # Store base game localized text
         self.current_language = "en"  # Default language
         
         self.init_ui()
@@ -47,6 +49,16 @@ class EntityToolGUI(QMainWindow):
         schema_layout.addWidget(self.schema_path_label)
         schema_layout.addWidget(schema_btn)
         left_layout.addLayout(schema_layout)
+        
+        # Base game directory selection
+        base_game_layout = QHBoxLayout()
+        self.base_game_path_label = QLabel('No base game directory selected')
+        self.base_game_path_label.setWordWrap(True)
+        base_game_btn = QPushButton('Select Base Game Directory')
+        base_game_btn.clicked.connect(self.select_base_game_directory)
+        base_game_layout.addWidget(self.base_game_path_label)
+        base_game_layout.addWidget(base_game_btn)
+        left_layout.addLayout(base_game_layout)
         
         # Player selector
         self.player_selector = QComboBox()
@@ -147,8 +159,18 @@ class EntityToolGUI(QMainWindow):
         
         # Basic Info Tab
         self.basic_info_form.addRow("Version:", QLabel(str(self.current_data.get("version", ""))))
-        self.basic_info_form.addRow("Race:", self.create_localized_label(str(self.current_data.get("race", ""))))
-        self.basic_info_form.addRow("Fleet:", self.create_localized_label(str(self.current_data.get("fleet", ""))))
+        race_text, is_base_game_race = self.get_localized_text(str(self.current_data.get("race", "")))
+        fleet_text, is_base_game_fleet = self.get_localized_text(str(self.current_data.get("fleet", "")))
+        
+        race_label = QLabel(race_text)
+        fleet_label = QLabel(fleet_text)
+        if is_base_game_race:
+            race_label.setStyleSheet("color: #666666; font-style: italic;")
+        if is_base_game_fleet:
+            fleet_label.setStyleSheet("color: #666666; font-style: italic;")
+            
+        self.basic_info_form.addRow("Race:", race_label)
+        self.basic_info_form.addRow("Fleet:", fleet_label)
         
         if "default_starting_assets" in self.current_data:
             assets_group = QGroupBox("Starting Assets")
@@ -219,7 +241,10 @@ class EntityToolGUI(QMainWindow):
             # Create a group for each research domain
             if "research_domains" in research_data:
                 for domain_name, domain_data in research_data["research_domains"].items():
-                    domain_group = QGroupBox(self.get_localized_text(domain_data.get("full_name", domain_name.title())))
+                    domain_text, is_base_game_domain = self.get_localized_text(domain_data.get("full_name", domain_name.title()))
+                    domain_group = QGroupBox(domain_text)
+                    if is_base_game_domain:
+                        domain_group.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
                     domain_layout = QVBoxLayout()
                     
                     # Add tiers information
@@ -262,7 +287,10 @@ class EntityToolGUI(QMainWindow):
                         fields_layout = QVBoxLayout()
                         
                         for field in domain_data["research_fields"]:
-                            field_widget = QGroupBox(self.get_localized_text(field.get("name", field["id"])))
+                            field_text, is_base_game_field = self.get_localized_text(field.get("name", field["id"]))
+                            field_widget = QGroupBox(field_text)
+                            if is_base_game_field:
+                                field_widget.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
                             field_form = QFormLayout()
                             field_form.addRow("ID:", QLabel(field["id"]))
                             if "picture" in field:
@@ -364,6 +392,42 @@ class EntityToolGUI(QMainWindow):
             self.schema_path_label.setText(str(self.schema_dir))
             self.load_schemas()
     
+    def select_base_game_directory(self):
+        """Open directory dialog to select base game directory"""
+        dir_path = QFileDialog.getExistingDirectory(
+            self,
+            "Select Base Game Directory",
+            str(self.base_game_folder) if self.base_game_folder else ""
+        )
+        if dir_path:
+            self.base_game_folder = Path(dir_path)
+            self.base_game_path_label.setText(str(self.base_game_folder))
+            self.load_base_game_localized_text()
+    
+    def load_base_game_localized_text(self):
+        """Load localized text files from the base game folder"""
+        if not self.base_game_folder:
+            return
+            
+        localized_text_dir = self.base_game_folder / "localized_text"
+        if not localized_text_dir.exists():
+            logging.warning("No localized_text directory found in base game folder")
+            return
+            
+        # Clear existing base game localized text
+        self.base_game_localized_text.clear()
+        
+        # Load all localized text files
+        for text_file in localized_text_dir.glob("*.localized_text"):
+            try:
+                language_code = text_file.stem
+                with open(text_file, encoding='utf-8') as f:
+                    text_data = json.load(f)
+                self.base_game_localized_text[language_code] = text_data
+                logging.info(f"Loaded base game localized text for {language_code}")
+            except Exception as e:
+                logging.error(f"Error loading base game localized text file {text_file}: {str(e)}")
+    
     def open_folder_dialog(self):
         """Open directory dialog to select mod folder"""
         dir_path = QFileDialog.getExistingDirectory(
@@ -417,8 +481,8 @@ class EntityToolGUI(QMainWindow):
                     try:
                         with open(file_path) as f:
                             data = json.load(f)
-                            self.process_manifest_file(file_path, data)
-                            logging.info(f"Processed manifest file: {file_path.name}")
+                        self.process_manifest_file(file_path, data)
+                        logging.info(f"Processed manifest file: {file_path.name}")
                     except Exception as e:
                         logging.error(f"Error processing manifest file {file_path}: {str(e)}")
             
@@ -448,7 +512,7 @@ class EntityToolGUI(QMainWindow):
                     # Check if this file extension has a corresponding schema
                     if file_path.suffix in self.schema_extensions:
                         try:
-                            with open(file_path) as f:
+                            with open(file_path, encoding='utf-8') as f:
                                 data = json.load(f)
                             file_type = self.get_file_type_from_extension(file_path)
                             if file_type not in self.files_by_type:
@@ -485,14 +549,10 @@ class EntityToolGUI(QMainWindow):
         
         try:
             file_path = Path(file_path_str)
-            if not file_path.exists():
-                logging.error(f"File not found: {file_path}")
-                return
-                
             if file_path.is_file() and (file_path.suffix in self.schema_extensions or 
                                       file_path.suffix == '.entity_manifest'):
                 logging.info(f"Selected file: {file_path}")
-                self.load_file(file_path)
+                self.load_main_file(file_path)
             
         except Exception as e:
             logging.error(f"Error handling file selection: {str(e)}")
@@ -560,36 +620,27 @@ class EntityToolGUI(QMainWindow):
         # This functionality has been removed
         pass
     
-    def load_file(self, file_path: Path):
+    def load_file(self, file_path: Path, try_base_game: bool = True) -> tuple[dict, bool]:
+        """Load a file from mod folder or base game folder.
+        Returns tuple of (data, is_from_base_game)"""
         try:
-            with open(file_path) as f:
-                self.current_data = json.load(f)
+            # Try mod folder first
+            if file_path.exists():
+                with open(file_path, encoding='utf-8') as f:
+                    return json.load(f), False
             
-            self.current_file = file_path
+            # Try base game folder if enabled
+            if try_base_game and self.base_game_folder:
+                base_game_path = self.base_game_folder / file_path.relative_to(self.current_folder)
+                if base_game_path.exists():
+                    with open(base_game_path, encoding='utf-8') as f:
+                        return json.load(f), True
             
-            # Process manifest if applicable
-            if file_path.suffix == '.entity_manifest':
-                self.process_manifest_file(file_path, self.current_data)
-            
-            # If it's a player file, update the display
-            if file_path.suffix == '.player':
-                self.update_player_display()
-            
-            # Log data details
-            logging.info(f"Successfully loaded: {file_path}")
-            logging.info(f"Data type: {type(self.current_data)}")
-            if isinstance(self.current_data, dict):
-                logging.info(f"Top-level keys: {list(self.current_data.keys())}")
-                for key, value in self.current_data.items():
-                    logging.info(f"{key}: {type(value)}")
-                    if isinstance(value, (list, dict)):
-                        logging.info(f"{key} length: {len(value)}")
+            raise FileNotFoundError(f"File not found in mod or base game folder: {file_path}")
             
         except Exception as e:
-            self.status_label.setText('Error loading file')
-            logging.error(f"Error loading file: {str(e)}")
-            self.current_file = None
-            self.current_data = None
+            logging.error(f"Error loading file {file_path}: {str(e)}")
+            return None, False
     
     def validate_current_file(self):
         """Validate the current file against the selected schema"""
@@ -680,9 +731,7 @@ class EntityToolGUI(QMainWindow):
             
         # Find and load the selected player file
         player_file = self.current_folder / "entities" / f"{player_name}.player"
-        if player_file.exists():
-            self.load_file(player_file)
-            self.update_player_display()
+        self.load_main_file(player_file)
     
     def load_research_subject(self, subject_id: str):
         """Load a research subject file and display its details"""
@@ -691,16 +740,19 @@ class EntityToolGUI(QMainWindow):
             
         # Look for the research subject file in the entities folder
         subject_file = self.current_folder / "entities" / f"{subject_id}.research_subject"
-        if not subject_file.exists():
+        subject_data, is_base_game = self.load_file(subject_file)
+        
+        if not subject_data:
             logging.error(f"Research subject file not found: {subject_file}")
             return
             
         try:
-            with open(subject_file) as f:
-                subject_data = json.load(f)
-                
             # Create a details widget
-            details_group = QGroupBox("Research Subject Details")
+            title = "Research Subject Details (Base Game)" if is_base_game else "Research Subject Details"
+            details_group = QGroupBox(title)
+            if is_base_game:
+                details_group.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
+            
             details_form = QFormLayout()
             
             # Add basic information
@@ -709,8 +761,23 @@ class EntityToolGUI(QMainWindow):
             details_form.addRow("Tier:", QLabel(str(subject_data.get("tier", ""))))
             details_form.addRow("Field:", QLabel(subject_data.get("field", "")))
             details_form.addRow("Research Time:", QLabel(str(subject_data.get("research_time", ""))))
-            details_form.addRow("Name:", self.create_localized_label(subject_data.get("name", "")))
-            details_form.addRow("Description:", self.create_localized_label(subject_data.get("description", "")))
+            
+            # Add localized name and description
+            name_text, is_base_game_name = self.get_localized_text(subject_data.get("name", ""))
+            desc_text, is_base_game_desc = self.get_localized_text(subject_data.get("description", ""))
+            
+            name_label = QLabel(name_text)
+            desc_label = QLabel(desc_text)
+            name_label.setWordWrap(True)
+            desc_label.setWordWrap(True)
+            
+            if is_base_game_name:
+                name_label.setStyleSheet("color: #666666; font-style: italic;")
+            if is_base_game_desc:
+                desc_label.setStyleSheet("color: #666666; font-style: italic;")
+            
+            details_form.addRow("Name:", name_label)
+            details_form.addRow("Description:", desc_label)
             
             # Add price information if available
             if "price" in subject_data:
@@ -769,35 +836,83 @@ class EntityToolGUI(QMainWindow):
         for text_file in localized_text_dir.glob("*.localized_text"):
             try:
                 language_code = text_file.stem  # Get language code from filename
-                with open(text_file) as f:
+                with open(text_file, encoding='utf-8') as f:
                     text_data = json.load(f)
                 self.localized_text[language_code] = text_data
                 logging.info(f"Loaded localized text for {language_code}")
             except Exception as e:
                 logging.error(f"Error loading localized text file {text_file}: {str(e)}")
     
-    def get_localized_text(self, text_key: str) -> str:
-        """Get localized text for a key. If not found, return the key itself."""
-        if text_key.startswith(":"):  # Raw string
-            return text_key[1:]
+    def get_localized_text(self, text_key: str) -> tuple[str, bool]:
+        """Get localized text for a key and whether it's from base game.
+        Returns tuple of (text, is_from_base_game)"""
+        if not text_key:
+            return "", False
             
-        # Try current language first
+        if text_key.startswith(":"):  # Raw string
+            return text_key[1:], False
+        
+        # Try current language in mod folder first
         if self.current_language in self.localized_text:
             if text_key in self.localized_text[self.current_language]:
-                return self.localized_text[self.current_language][text_key]
+                return self.localized_text[self.current_language][text_key], False
         
-        # Try English as fallback
+        # Try English in mod folder
         if "en" in self.localized_text:
             if text_key in self.localized_text["en"]:
-                return self.localized_text["en"][text_key]
+                return self.localized_text["en"][text_key], False
         
-        return text_key  # Return key if no translation found
+        # Try base game current language
+        if self.current_language in self.base_game_localized_text:
+            if text_key in self.base_game_localized_text[self.current_language]:
+                return self.base_game_localized_text[self.current_language][text_key], True
+        
+        # Try base game English
+        if "en" in self.base_game_localized_text:
+            if text_key in self.base_game_localized_text["en"]:
+                return self.base_game_localized_text["en"][text_key], True
+        
+        return text_key, False  # Return key if no translation found
     
     def create_localized_label(self, text_key: str) -> QLabel:
         """Create a QLabel with localized text"""
-        label = QLabel(self.get_localized_text(text_key))
+        text, is_base_game = self.get_localized_text(text_key)
+        label = QLabel(text)
         label.setWordWrap(True)
+        if is_base_game:
+            label.setStyleSheet("color: #666666; font-style: italic;")  # Gray and italic for base game content
         return label
+    
+    def load_main_file(self, file_path: Path):
+        """Load a file as the main displayed file"""
+        data, is_base_game = self.load_file(file_path)
+        if data is None:
+            self.status_label.setText('Error loading file')
+            self.current_file = None
+            self.current_data = None
+            return
+            
+        self.current_file = file_path
+        self.current_data = data
+        
+        # Process manifest if applicable
+        if file_path.suffix == '.entity_manifest':
+            self.process_manifest_file(file_path, self.current_data)
+        
+        # If it's a player file, update the display
+        if file_path.suffix == '.player':
+            self.update_player_display()
+        
+        # Log data details
+        source = "base game" if is_base_game else "mod"
+        logging.info(f"Successfully loaded from {source}: {file_path}")
+        logging.info(f"Data type: {type(self.current_data)}")
+        if isinstance(self.current_data, dict):
+            logging.info(f"Top-level keys: {list(self.current_data.keys())}")
+            for key, value in self.current_data.items():
+                logging.info(f"{key}: {type(value)}")
+                if isinstance(value, (list, dict)):
+                    logging.info(f"{key} length: {len(value)}")
 
 class GUILogHandler(logging.Handler):
     def __init__(self, log_widget):
