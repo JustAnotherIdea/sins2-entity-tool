@@ -205,7 +205,119 @@ class EntityToolGUI(QMainWindow):
         units_group.setLayout(units_layout)
         self.units_layout.addWidget(units_group)
         
-        # Add more sections as needed...
+        # Research Tab
+        if "research" in self.current_data:
+            research_data = self.current_data["research"]
+            
+            # Create a split layout for research tab
+            research_split = QHBoxLayout()
+            left_panel = QVBoxLayout()
+            right_panel = QVBoxLayout()
+            
+            # Create a group for each research domain
+            if "research_domains" in research_data:
+                for domain_name, domain_data in research_data["research_domains"].items():
+                    domain_group = QGroupBox(domain_data.get("full_name", domain_name.title()))
+                    domain_layout = QVBoxLayout()
+                    
+                    # Add tiers information
+                    if "research_tiers" in domain_data:
+                        tiers_group = QGroupBox("Research Tiers")
+                        tiers_layout = QVBoxLayout()
+                        
+                        for i, tier in enumerate(domain_data["research_tiers"]):
+                            tier_widget = QGroupBox(f"Tier {i+1}")
+                            tier_form = QFormLayout()
+                            
+                            # Add tier details
+                            tier_form.addRow("Research Points Required:", QLabel(str(tier.get("required_research_points", ""))))
+                            tier_form.addRow("Research Time:", QLabel(str(tier.get("acquire_time", ""))))
+                            
+                            if "price" in tier:
+                                price = tier["price"]
+                                tier_form.addRow("Credits Cost:", QLabel(str(price.get("credits", ""))))
+                                tier_form.addRow("Metal Cost:", QLabel(str(price.get("metal", ""))))
+                                tier_form.addRow("Crystal Cost:", QLabel(str(price.get("crystal", ""))))
+                            
+                            if "exotic_price" in tier:
+                                exotic_group = QGroupBox("Exotic Costs")
+                                exotic_layout = QFormLayout()
+                                for exotic in tier["exotic_price"]:
+                                    exotic_layout.addRow(f"{exotic['exotic_type'].title()}:", 
+                                                       QLabel(str(exotic.get("count", ""))))
+                                exotic_group.setLayout(exotic_layout)
+                                tier_form.addRow(exotic_group)
+                            
+                            tier_widget.setLayout(tier_form)
+                            tiers_layout.addWidget(tier_widget)
+                        
+                        tiers_group.setLayout(tiers_layout)
+                        domain_layout.addWidget(tiers_group)
+                    
+                    # Add research fields information
+                    if "research_fields" in domain_data:
+                        fields_group = QGroupBox("Research Fields")
+                        fields_layout = QVBoxLayout()
+                        
+                        for field in domain_data["research_fields"]:
+                            field_widget = QGroupBox(field.get("name", field["id"]))
+                            field_form = QFormLayout()
+                            field_form.addRow("ID:", QLabel(field["id"]))
+                            if "picture" in field:
+                                field_form.addRow("Picture:", QLabel(field["picture"]))
+                            field_widget.setLayout(field_form)
+                            fields_layout.addWidget(field_widget)
+                        
+                        fields_group.setLayout(fields_layout)
+                        domain_layout.addWidget(fields_group)
+                    
+                    domain_group.setLayout(domain_layout)
+                    left_panel.addWidget(domain_group)
+            
+            # Add list of available research subjects
+            if "research_subjects" in research_data:
+                subjects_group = QGroupBox("Available Research Subjects")
+                subjects_list = QListWidget()
+                subjects_list.addItems(sorted(research_data["research_subjects"]))
+                subjects_list.itemClicked.connect(self.on_research_subject_clicked)
+                subjects_layout = QVBoxLayout()
+                subjects_layout.addWidget(subjects_list)
+                subjects_group.setLayout(subjects_layout)
+                right_panel.addWidget(subjects_group)
+            
+            # Add faction-specific research subjects
+            if "faction_research_subjects" in research_data:
+                faction_subjects_group = QGroupBox("Faction-Specific Research")
+                faction_subjects_list = QListWidget()
+                faction_subjects_list.addItems(sorted(research_data["faction_research_subjects"]))
+                faction_subjects_list.itemClicked.connect(self.on_research_subject_clicked)
+                faction_subjects_layout = QVBoxLayout()
+                faction_subjects_layout.addWidget(faction_subjects_list)
+                faction_subjects_group.setLayout(faction_subjects_layout)
+                right_panel.addWidget(faction_subjects_group)
+            
+            # Add panels to split layout
+            left_widget = QWidget()
+            left_widget.setLayout(left_panel)
+            right_widget = QWidget()
+            right_widget.setLayout(right_panel)
+            
+            # Create scroll areas for both panels
+            left_scroll = QScrollArea()
+            left_scroll.setWidget(left_widget)
+            left_scroll.setWidgetResizable(True)
+            right_scroll = QScrollArea()
+            right_scroll.setWidget(right_widget)
+            right_scroll.setWidgetResizable(True)
+            
+            # Add scroll areas to split layout
+            research_split.addWidget(left_scroll)
+            research_split.addWidget(right_scroll)
+            
+            # Create container widget for split layout
+            research_container = QWidget()
+            research_container.setLayout(research_split)
+            self.research_layout.addWidget(research_container)
         
         self.tab_widget.setCurrentIndex(0)  # Show first tab
     
@@ -566,6 +678,74 @@ class EntityToolGUI(QMainWindow):
         if player_file.exists():
             self.load_file(player_file)
             self.update_player_display()
+    
+    def load_research_subject(self, subject_id: str):
+        """Load a research subject file and display its details"""
+        if not self.current_folder:
+            return
+            
+        # Look for the research subject file in the entities folder
+        subject_file = self.current_folder / "entities" / f"{subject_id}.research_subject"
+        if not subject_file.exists():
+            logging.error(f"Research subject file not found: {subject_file}")
+            return
+            
+        try:
+            with open(subject_file) as f:
+                subject_data = json.load(f)
+                
+            # Create a details widget
+            details_group = QGroupBox("Research Subject Details")
+            details_form = QFormLayout()
+            
+            # Add basic information
+            details_form.addRow("ID:", QLabel(subject_id))
+            details_form.addRow("Domain:", QLabel(subject_data.get("domain", "")))
+            details_form.addRow("Tier:", QLabel(str(subject_data.get("tier", ""))))
+            details_form.addRow("Field:", QLabel(subject_data.get("field", "")))
+            details_form.addRow("Research Time:", QLabel(str(subject_data.get("research_time", ""))))
+            details_form.addRow("Name:", QLabel(subject_data.get("name", "")))
+            details_form.addRow("Description:", QLabel(subject_data.get("description", "")))
+            
+            # Add price information if available
+            if "price" in subject_data:
+                price_group = QGroupBox("Price")
+                price_form = QFormLayout()
+                price = subject_data["price"]
+                price_form.addRow("Credits:", QLabel(str(price.get("credits", ""))))
+                price_form.addRow("Metal:", QLabel(str(price.get("metal", ""))))
+                price_form.addRow("Crystal:", QLabel(str(price.get("crystal", ""))))
+                price_group.setLayout(price_form)
+                details_form.addRow(price_group)
+            
+            # Add prerequisites if available
+            if "prerequisites" in subject_data:
+                prereq_group = QGroupBox("Prerequisites")
+                prereq_layout = QVBoxLayout()
+                for prereq_list in subject_data["prerequisites"]:
+                    prereq_label = QLabel(" OR ".join(prereq_list))
+                    prereq_label.setWordWrap(True)
+                    prereq_layout.addWidget(prereq_label)
+                prereq_group.setLayout(prereq_layout)
+                details_form.addRow(prereq_group)
+            
+            details_group.setLayout(details_form)
+            
+            # Clear any existing details widget and add the new one
+            while self.research_layout.count() > 0:
+                item = self.research_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+            
+            self.research_layout.addWidget(details_group)
+            
+        except Exception as e:
+            logging.error(f"Error loading research subject {subject_id}: {str(e)}")
+    
+    def on_research_subject_clicked(self, item):
+        """Handle clicking on a research subject in the list"""
+        subject_id = item.text()
+        self.load_research_subject(subject_id)
 
 class GUILogHandler(logging.Handler):
     def __init__(self, log_widget):
