@@ -1036,6 +1036,11 @@ class EntityToolGUI(QMainWindow):
     
     def create_widget_for_property(self, prop_name: str, value: any, schema: dict, is_base_game: bool) -> QWidget:
         """Create a widget for a specific property based on its schema"""
+        # Add property name to schema for special handling
+        if isinstance(schema, dict):
+            schema = schema.copy()  # Create a copy to avoid modifying the original
+            schema["property_name"] = prop_name
+            
         if "$ref" in schema:
             # Handle references to other schema definitions
             ref_path = schema["$ref"].split("/")[1:]  # Skip the '#'
@@ -1045,6 +1050,10 @@ class EntityToolGUI(QMainWindow):
                     current = current[part]
                 else:
                     return QLabel(f"Invalid reference: {schema['$ref']}")
+            # Pass along the property name when resolving references
+            if isinstance(current, dict):
+                current = current.copy()
+                current["property_name"] = prop_name
             return self.create_widget_for_schema(value, current, is_base_game)
             
         if schema.get("type") == "array":
@@ -1058,7 +1067,15 @@ class EntityToolGUI(QMainWindow):
     def create_widget_for_value(self, value: any, schema: dict, is_base_game: bool) -> QWidget:
         """Create a widget for a simple value based on its schema type"""
         if isinstance(value, str) and schema.get("type") == "string":
-            if schema.get("format") == "localized_text":
+            # Special handling for name and description fields - treat them as localized text
+            if schema.get("property_name", "").lower() in ["name", "name_uppercase", "description"]:
+                text, is_base = self.get_localized_text(value)
+                label = QLabel(text)
+                label.setWordWrap(True)
+                if is_base or is_base_game:
+                    label.setStyleSheet("color: #666666; font-style: italic;")
+                return label
+            elif schema.get("format") == "localized_text":
                 # Handle localized text
                 text, is_base = self.get_localized_text(value)
                 label = QLabel(text)
