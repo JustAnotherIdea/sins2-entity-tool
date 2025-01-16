@@ -161,27 +161,17 @@ class ResearchTreeView(QGraphicsView):
                     item.is_field_background = True
                     item.setZValue(-2)  # Behind connections
                     
-                    # Scale background to fit field area width while maintaining aspect ratio
-                    scale = self.field_width / background.width()
-                    scaled_height = background.height() * scale
+                    # Scale to maintain 810x450 aspect ratio while fitting the field width
+                    target_width = 810
+                    target_height = 450
+                    scale = min(self.field_width / target_width, 1.0)  # Don't scale up, only down if needed
+                    scaled_height = target_height * scale
                     
                     # Position background on the left side, centered on field's y position
                     item.setPos(0, y_pos - scaled_height/2)
                     item.setScale(scale)
                     
-                    # Add a gradient overlay to fade the right edge
-                    gradient = QLinearGradient(0, 0, self.field_width, 0)
-                    gradient.setColorAt(0.0, QColor(0, 0, 0, 0))  # Fully transparent
-                    gradient.setColorAt(0.7, QColor(0, 20, 30, 200))  # Semi-transparent background color
-                    gradient.setColorAt(1.0, QColor(0, 20, 30, 255))  # Fully opaque background color
-                    
-                    overlay = QGraphicsRectItem(0, y_pos - scaled_height/2, self.field_width, scaled_height)
-                    overlay.setBrush(QBrush(gradient))
-                    overlay.setPen(QPen(Qt.PenStyle.NoPen))  # Create a QPen with NoPen style
-                    overlay.setZValue(-1)  # Above background but below nodes
-                    
                     self.scene.addItem(item)
-                    self.scene.addItem(overlay)
     
     def add_field_labels(self):
         """Add field labels for the current domain"""
