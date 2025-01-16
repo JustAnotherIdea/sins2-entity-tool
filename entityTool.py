@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
-                            QLineEdit, QListWidget, QComboBox, QTreeWidget, QTreeWidgetItem)
+                            QLineEdit, QListWidget, QComboBox, QTreeWidget, QTreeWidgetItem, QListWidgetItem)
 from PyQt6.QtCore import Qt, QMimeData
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 import json
@@ -18,6 +18,7 @@ class EntityToolGUI(QMainWindow):
         self.schemas = {}  # Cache for loaded schemas
         self.files_by_type = {}  # Dictionary to store files by their type
         self.schema_extensions = {}  # Maps schema names to file extensions
+        self.manifest_files = {}  # Dictionary to store manifest data
         
         # Initialize UI
         self.init_ui()
@@ -86,6 +87,17 @@ class EntityToolGUI(QMainWindow):
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         
+        # Add manifest info section
+        self.manifest_label = QLabel('Related Files:')
+        self.manifest_label.setVisible(False)
+        right_layout.addWidget(self.manifest_label)
+        
+        self.manifest_list = QListWidget()
+        self.manifest_list.setObjectName("manifestList")
+        self.manifest_list.itemClicked.connect(self.on_manifest_item_clicked)
+        self.manifest_list.setVisible(False)
+        right_layout.addWidget(self.manifest_list)
+        
         # Add editor label with scrollable text
         self.editor_label = QLabel('Entity Editor\n(No file loaded)')
         self.editor_label.setObjectName("editorLabel")
@@ -133,10 +145,24 @@ class EntityToolGUI(QMainWindow):
         try:
             self.current_folder = folder_path.resolve()  # Get absolute path
             self.files_by_type.clear()
+            self.manifest_files.clear()  # Clear existing manifest data
             self.file_tree.clear()
             
             # Create root item
             root_item = QTreeWidgetItem(self.file_tree, [self.current_folder.name])
+            
+            # First, look for and process manifest files in the entities folder
+            entities_folder = self.current_folder / "entities"
+            if entities_folder.exists():
+                logging.info(f"Found entities folder: {entities_folder}")
+                for file_path in entities_folder.glob("*.entity_manifest"):
+                    try:
+                        with open(file_path) as f:
+                            data = json.load(f)
+                            self.process_manifest_file(file_path, data)
+                            logging.info(f"Processed manifest file: {file_path.name}")
+                    except Exception as e:
+                        logging.error(f"Error processing manifest file {file_path}: {str(e)}")
             
             # Process all files recursively
             for file_path in self.current_folder.rglob("*"):
@@ -174,11 +200,19 @@ class EntityToolGUI(QMainWindow):
                         except Exception as e:
                             logging.error(f"Error loading file {file_path}: {str(e)}")
             
-            # Expand root item
+            # Expand root item and entities folder
             root_item.setExpanded(True)
-            self.status_label.setText(f'Loaded folder: {self.current_folder.name}\n{len(self.files_by_type)} file types found')
+            for i in range(root_item.childCount()):
+                if root_item.child(i).text(0) == "entities":
+                    root_item.child(i).setExpanded(True)
+                    break
+            
+            self.status_label.setText(f'Loaded folder: {self.current_folder.name}\n'
+                                    f'{len(self.files_by_type)} file types found\n'
+                                    f'{len(self.manifest_files)} manifest files found')
             logging.info(f"Successfully loaded folder: {self.current_folder}")
             logging.info(f"Found files of types: {list(self.files_by_type.keys())}")
+            logging.info(f"Found manifest files: {list(self.manifest_files.keys())}")
             
         except Exception as e:
             self.status_label.setText('Error loading folder')
@@ -197,7 +231,8 @@ class EntityToolGUI(QMainWindow):
                 logging.error(f"File not found: {file_path}")
                 return
                 
-            if file_path.is_file() and file_path.suffix in self.schema_extensions:
+            if file_path.is_file() and (file_path.suffix in self.schema_extensions or 
+                                      file_path.suffix == '.entity_manifest'):
                 logging.info(f"Selected file: {file_path}")
                 self.load_file(file_path)
             
@@ -208,12 +243,90 @@ class EntityToolGUI(QMainWindow):
             self.status_label.style().unpolish(self.status_label)
             self.status_label.style().polish(self.status_label)
     
+    def process_manifest_file(self, file_path: Path, data: dict):
+        """Process an entity manifest file and store its data"""
+        try:
+            if 'ids' in data:
+                base_name = file_path.stem  # Remove .entity_manifest
+                self.manifest_files[base_name] = {
+                    'path': file_path,
+                    'ids': data['ids']
+                }
+                logging.info(f"Processed manifest {base_name} with {len(data['ids'])} entries")
+        except Exception as e:
+            logging.error(f"Error processing manifest {file_path}: {str(e)}")
+    
+    def find_related_files(self, file_path: Path) -> list:
+        """Find files related through manifests"""
+        try:
+            entities_folder = self.current_folder / "entities"
+            
+            # If this is a manifest file, return paths for all referenced IDs
+            if file_path.suffix == '.entity_manifest':
+                base_name = file_path.stem
+                if base_name in self.manifest_files:
+                    manifest_data = self.manifest_files[base_name]
+                    base_type = base_name  # e.g., 'player' from 'player.entity_manifest'
+                    return [
+                        (f"{id_name}", entities_folder / f"{id_name}.{base_type}")
+                        for id_name in manifest_data['ids']
+                    ]
+            
+            # If this is a referenced file, find manifests that reference it
+            base_name = file_path.stem  # e.g., 'trader_loyalist' from 'trader_loyalist.player'
+            file_type = file_path.suffix.lstrip('.')  # e.g., 'player' from '.player'
+            
+            related = []
+            if file_type in self.manifest_files:
+                manifest = self.manifest_files[file_type]
+                if base_name in manifest['ids']:
+                    related.append((
+                        f"{file_type}.entity_manifest",
+                        entities_folder / f"{file_type}.entity_manifest"
+                    ))
+            
+            return related
+            
+        except Exception as e:
+            logging.error(f"Error finding related files: {str(e)}")
+            return []
+    
+    def on_manifest_item_clicked(self, item):
+        """Handle clicking on a manifest-related file"""
+        file_path = item.data(Qt.ItemDataRole.UserRole)
+        if file_path and Path(file_path).exists():
+            self.load_file(Path(file_path))
+    
+    def update_manifest_view(self, file_path: Path):
+        """Update the manifest view with related files"""
+        related_files = self.find_related_files(file_path)
+        
+        if related_files:
+            self.manifest_list.clear()
+            for name, path in related_files:
+                item = QListWidgetItem(name)
+                item.setData(Qt.ItemDataRole.UserRole, str(path))
+                self.manifest_list.addItem(item)
+            
+            self.manifest_label.setVisible(True)
+            self.manifest_list.setVisible(True)
+        else:
+            self.manifest_label.setVisible(False)
+            self.manifest_list.setVisible(False)
+    
     def load_file(self, file_path: Path):
         try:
             with open(file_path) as f:
                 self.current_data = json.load(f)
             
             self.current_file = file_path
+            
+            # Process manifest if applicable
+            if file_path.suffix == '.entity_manifest':
+                self.process_manifest_file(file_path, self.current_data)
+            
+            # Update manifest view
+            self.update_manifest_view(file_path)
             
             # Log data details
             logging.info(f"Successfully loaded: {file_path}")

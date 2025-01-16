@@ -116,6 +116,15 @@ QListWidget#logDisplay {
     border-color: #444;
 }
 
+QListWidget#manifestList {
+    background-color: #3b3b3b;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 5px;
+    max-height: 200px;
+    margin-bottom: 10px;
+}
+
 QListWidget::item:hover {
     background-color: #4b4b4b;
 }
