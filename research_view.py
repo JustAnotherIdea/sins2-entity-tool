@@ -1,5 +1,6 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                            QGraphicsScene, QGraphicsView, QGraphicsItem, QGraphicsPathItem, QGraphicsTextItem, QGraphicsPixmapItem)
+                            QGraphicsScene, QGraphicsView, QGraphicsItem, QGraphicsPathItem, 
+                            QGraphicsTextItem, QGraphicsPixmapItem, QGraphicsRectItem)
 from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal
 from PyQt6.QtGui import (QPixmap, QPainter, QPen, QColor, QBrush, 
                         QPainterPath, QLinearGradient)
@@ -52,9 +53,16 @@ class ResearchNode(QGraphicsItem):
         
         # Draw icon if available
         if self.icon and not self.icon.isNull():
-            icon_rect = QRectF(-20, -self.height/2 + 10, 40, 40)
-            source_rect = QRectF(0, 0, self.icon.width(), self.icon.height())
-            painter.drawPixmap(icon_rect, self.icon, source_rect)
+            # Scale icon to fit while maintaining aspect ratio
+            icon_size = min(40, self.height - 20)  # Maximum icon size
+            scaled_icon = self.icon.scaled(icon_size, icon_size, 
+                                         Qt.AspectRatioMode.KeepAspectRatio,
+                                         Qt.TransformationMode.SmoothTransformation)
+            
+            # Center icon horizontally and place near top
+            icon_x = -scaled_icon.width() / 2
+            icon_y = -self.height/2 + 10
+            painter.drawPixmap(icon_x, icon_y, scaled_icon)
         
         # Draw text
         if self.is_base_game:
@@ -147,6 +155,7 @@ class ResearchTreeView(QGraphicsView):
             if field in self.field_backgrounds:
                 background = self.field_backgrounds[field]
                 if background and not background.isNull():
+                    # Create background item
                     item = QGraphicsPixmapItem(background)
                     item.is_field_background = True
                     item.setZValue(-2)  # Behind connections
@@ -167,7 +176,7 @@ class ResearchTreeView(QGraphicsView):
                     
                     overlay = QGraphicsRectItem(0, y_pos - scaled_height/2, self.field_width, scaled_height)
                     overlay.setBrush(QBrush(gradient))
-                    overlay.setPen(Qt.PenStyle.NoPen)
+                    overlay.setPen(QPen(Qt.PenStyle.NoPen))  # Create a QPen with NoPen style
                     overlay.setZValue(-1)  # Above background but below nodes
                     
                     self.scene.addItem(item)

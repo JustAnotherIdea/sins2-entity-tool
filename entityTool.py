@@ -897,16 +897,16 @@ class EntityToolGUI(QMainWindow):
         self.research_details_layout = QVBoxLayout(details_widget)
         split_layout.addWidget(details_widget, 1)  # 1/3 of the width
         
-        # Load field backgrounds from player file
+        # Load field backgrounds from research data
         field_backgrounds = {}
-        if "research" in research_data and "research_domains" in research_data:
+        if "research_domains" in research_data:
             for domain_name, domain_data in research_data["research_domains"].items():
                 if "research_fields" in domain_data:
                     for field_data in domain_data["research_fields"]:
                         field_id = field_data.get("id")
-                        picture = field_data.get("picture")  # Changed from background_picture to picture
+                        picture = field_data.get("picture")
                         if field_id and picture:
-                            pixmap, _ = self.load_texture(picture)
+                            pixmap, is_base_game = self.load_texture(picture)
                             if not pixmap.isNull():
                                 field_backgrounds[field_id] = pixmap
                                 logging.info(f"Loaded background for field {field_id}: {picture}")
@@ -936,7 +936,7 @@ class EntityToolGUI(QMainWindow):
                     if "tooltip_picture" in subject_data:
                         pixmap, _ = self.load_texture(subject_data["tooltip_picture"])
                         if not pixmap.isNull():
-                            icon = pixmap.scaled(40, 40, Qt.AspectRatioMode.KeepAspectRatio)
+                            icon = pixmap
                     
                     field = subject_data.get("field", "")
                     field_coord = subject_data.get("field_coord")
