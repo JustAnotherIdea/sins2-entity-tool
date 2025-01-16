@@ -9,6 +9,7 @@ import logging
 from pathlib import Path
 import jsonschema
 from research_view import ResearchTreeView
+import os
 
 class GUILogHandler(logging.Handler):
     def __init__(self, log_widget):
@@ -877,38 +878,41 @@ class EntityToolGUI(QMainWindow):
         container = QWidget()
         layout = QVBoxLayout(container)
         
-        # Create tier header
-        tier_header = QWidget()
-        tier_layout = QHBoxLayout(tier_header)
-        for i in range(1, 6):
-            tier_label = QLabel(f"Tier {i}")
-            tier_label.setStyleSheet("""
-                QLabel {
-                    color: #00c8ff;
-                    font-size: 16px;
-                    font-weight: bold;
-                    padding: 10px;
-                    background-color: #001820;
-                    border: 1px solid #004060;
-                    border-radius: 5px;
-                }
-            """)
-            tier_layout.addWidget(tier_label)
-        layout.addWidget(tier_header)
-        
-        # Create split layout for tree and details
-        split_widget = QWidget()
-        split_layout = QHBoxLayout(split_widget)
+        # Create domain selector
+        domain_widget = QWidget()
+        domain_layout = QHBoxLayout(domain_widget)
+        domain_layout.setContentsMargins(0, 0, 0, 10)  # Add some bottom margin
         
         # Create research tree view
         tree_view = ResearchTreeView()
         tree_view.node_clicked.connect(self.load_research_subject)
+        
+        # Create split layout for tree and details
+        split_widget = QWidget()
+        split_layout = QHBoxLayout(split_widget)
         split_layout.addWidget(tree_view, 2)  # 2/3 of the width
         
         # Create details panel
         details_widget = QWidget()
         self.research_details_layout = QVBoxLayout(details_widget)
         split_layout.addWidget(details_widget, 1)  # 1/3 of the width
+        
+        # Load field backgrounds from player file
+        field_backgrounds = {}
+        if "research" in research_data and "research_domains" in research_data:
+            for domain_name, domain_data in research_data["research_domains"].items():
+                if "research_fields" in domain_data:
+                    for field_data in domain_data["research_fields"]:
+                        field_id = field_data.get("id")
+                        picture = field_data.get("picture")  # Changed from background_picture to picture
+                        if field_id and picture:
+                            pixmap, _ = self.load_texture(picture)
+                            if not pixmap.isNull():
+                                field_backgrounds[field_id] = pixmap
+                                logging.info(f"Loaded background for field {field_id}: {picture}")
+        
+        # Set field backgrounds in tree view
+        tree_view.set_field_backgrounds(field_backgrounds)
         
         # Add research subjects to the view
         if "research_subjects" in research_data:
@@ -919,7 +923,7 @@ class EntityToolGUI(QMainWindow):
                 subject_data, is_base_game = self.load_file(subject_file)
                 
                 if subject_data:
-                    tier = subject_data.get("tier", 1)
+                    tier = subject_data.get("tier", 0)  # Default to tier 0
                     if tier not in subjects_by_tier:
                         subjects_by_tier[tier] = []
                     subjects_by_tier[tier].append((subject_id, subject_data, is_base_game))
@@ -934,6 +938,7 @@ class EntityToolGUI(QMainWindow):
                         if not pixmap.isNull():
                             icon = pixmap.scaled(40, 40, Qt.AspectRatioMode.KeepAspectRatio)
                     
+                    field = subject_data.get("field", "")
                     field_coord = subject_data.get("field_coord")
                     
                     tree_view.add_research_subject(
@@ -941,12 +946,64 @@ class EntityToolGUI(QMainWindow):
                         name=name_text,
                         icon=icon,
                         domain=subject_data.get("domain", ""),
-                        field=subject_data.get("field", ""),
-                        tier=subject_data.get("tier", 1),
+                        field=field,
+                        tier=tier,
                         field_coord=field_coord,
                         is_base_game=is_base_game or is_base_game_name,
                         prerequisites=subject_data.get("prerequisites", [])
                     )
+            
+            # Add domain buttons after all nodes are added
+            for domain in sorted(tree_view.domains):
+                domain_btn = QPushButton(domain)
+                domain_btn.setCheckable(True)
+                domain_btn.setAutoExclusive(True)  # Make buttons mutually exclusive
+                domain_btn.clicked.connect(lambda checked, d=domain: tree_view.set_domain(d))
+                domain_layout.addWidget(domain_btn)
+                
+                # Select first domain by default
+                if domain == next(iter(tree_view.domains)):
+                    domain_btn.setChecked(True)
+                    tree_view.set_domain(domain)  # Explicitly set initial domain
         
+        layout.addWidget(domain_widget)
         layout.addWidget(split_widget)
         return container 
+
+    def get_research_field_picture_path(self, domain: str, field_id: str) -> str:
+        """Get the path to a research field's background picture."""
+        # First check mod folder
+        mod_path = f"textures/advent_research_field_picture_{domain}_{field_id}.png"
+        if os.path.exists(mod_path):
+            return mod_path
+        
+        # Then check game folder
+        game_path = os.path.join(os.environ.get('SINS2_PATH', ''), 
+                                f"textures/advent_research_field_picture_{domain}_{field_id}.png")
+        if os.path.exists(game_path):
+            return game_path
+        
+        return None 
+
+    def load_field_backgrounds(self, domain: str, fields: list):
+        """Load background images for all fields in a domain."""
+        backgrounds = {}
+        for field in fields:
+            path = self.get_research_field_picture_path(domain, field['id'])
+            if path:
+                pixmap = QPixmap(path)
+                if not pixmap.isNull():
+                    backgrounds[field['id']] = pixmap
+        
+        self.set_field_backgrounds(backgrounds) 
+
+    def set_domain(self, domain: str):
+        """Switch to displaying a different domain"""
+        self.current_domain = domain
+        
+        # Load field backgrounds for this domain
+        if domain in self.research_data['research_domains']:
+            fields = self.research_data['research_domains'][domain]['research_fields']
+            self.load_field_backgrounds(domain, fields)
+        
+        # Rest of existing code... 

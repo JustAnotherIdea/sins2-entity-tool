@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                            QGraphicsScene, QGraphicsView, QGraphicsItem, QGraphicsPathItem)
+                            QGraphicsScene, QGraphicsView, QGraphicsItem, QGraphicsPathItem, QGraphicsTextItem, QGraphicsPixmapItem)
 from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal
 from PyQt6.QtGui import (QPixmap, QPainter, QPen, QColor, QBrush, 
                         QPainterPath, QLinearGradient)
@@ -99,34 +99,165 @@ class ResearchTreeView(QGraphicsView):
         self.setBackgroundBrush(QBrush(QColor(0, 20, 30)))
         
         # Node layout settings
-        self.horizontal_spacing = 250  # Increased spacing between tiers
-        self.vertical_spacing = 100    # Spacing between nodes in the same tier
+        self.field_width = 400  # Width for field background/label area
+        self.horizontal_spacing = 300  # Increased spacing between tiers
+        self.vertical_spacing = 200    # Increased spacing between fields
         self.nodes = {}  # Store nodes by subject_id
-        self.field_positions = {}  # Track used field positions
+        self.current_domain = None
+        self.domains = set()  # Track available domains
+        self.fields_by_domain = {}  # Track fields per domain {domain: {field: y_pos}}
+        self.field_backgrounds = {}  # Store field background images {field: QPixmap}
         
+        # Add tier headers
+        self.add_tier_headers()
+    
+    def add_tier_headers(self):
+        """Add tier headers to the scene"""
+        for i in range(1, 6):
+            text = QGraphicsTextItem(f"Tier {i}")
+            text.setDefaultTextColor(QColor(0, 200, 255))
+            font = text.font()
+            font.setPointSize(12)
+            font.setBold(True)
+            text.setFont(font)
+            
+            # Position header above the tier's nodes, offset by field area width
+            x = self.field_width + i * self.horizontal_spacing - text.boundingRect().width() / 2
+            y = -50  # Position closer to nodes
+            text.setPos(x, y)
+            self.scene.addItem(text)
+    
+    def set_field_backgrounds(self, field_data: dict):
+        """Set background images for research fields"""
+        self.field_backgrounds = field_data
+        self.update_field_backgrounds()
+    
+    def update_field_backgrounds(self):
+        """Update field background images for current domain"""
+        # Clear existing backgrounds
+        for item in self.scene.items():
+            if isinstance(item, QGraphicsPixmapItem) and hasattr(item, 'is_field_background'):
+                self.scene.removeItem(item)
+        
+        if self.current_domain not in self.fields_by_domain:
+            return
+            
+        # Add new backgrounds
+        for field, y_pos in self.fields_by_domain[self.current_domain].items():
+            if field in self.field_backgrounds:
+                background = self.field_backgrounds[field]
+                if background and not background.isNull():
+                    item = QGraphicsPixmapItem(background)
+                    item.is_field_background = True
+                    item.setZValue(-2)  # Behind connections
+                    
+                    # Scale background to fit field area width while maintaining aspect ratio
+                    scale = self.field_width / background.width()
+                    scaled_height = background.height() * scale
+                    
+                    # Position background on the left side, centered on field's y position
+                    item.setPos(0, y_pos - scaled_height/2)
+                    item.setScale(scale)
+                    
+                    # Add a gradient overlay to fade the right edge
+                    gradient = QLinearGradient(0, 0, self.field_width, 0)
+                    gradient.setColorAt(0.0, QColor(0, 0, 0, 0))  # Fully transparent
+                    gradient.setColorAt(0.7, QColor(0, 20, 30, 200))  # Semi-transparent background color
+                    gradient.setColorAt(1.0, QColor(0, 20, 30, 255))  # Fully opaque background color
+                    
+                    overlay = QGraphicsRectItem(0, y_pos - scaled_height/2, self.field_width, scaled_height)
+                    overlay.setBrush(QBrush(gradient))
+                    overlay.setPen(Qt.PenStyle.NoPen)
+                    overlay.setZValue(-1)  # Above background but below nodes
+                    
+                    self.scene.addItem(item)
+                    self.scene.addItem(overlay)
+    
+    def add_field_labels(self):
+        """Add field labels for the current domain"""
+        # Clear existing field labels
+        for item in self.scene.items():
+            if isinstance(item, QGraphicsTextItem) and hasattr(item, 'is_field_label'):
+                self.scene.removeItem(item)
+        
+        if self.current_domain not in self.fields_by_domain:
+            return
+            
+        for field, y_pos in sorted(self.fields_by_domain[self.current_domain].items()):
+            text = QGraphicsTextItem(field)
+            text.setDefaultTextColor(QColor(0, 200, 255))
+            font = text.font()
+            font.setPointSize(14)  # Increased font size
+            font.setBold(True)
+            text.setFont(font)
+            text.is_field_label = True  # Mark as field label
+            
+            # Position label on the left side
+            x = 20  # Small margin from left edge
+            y = y_pos - text.boundingRect().height() / 2
+            text.setPos(x, y)
+            self.scene.addItem(text)
+    
+    def set_domain(self, domain: str):
+        """Switch to displaying a different domain"""
+        self.current_domain = domain
+        
+        # Hide nodes from other domains
+        for node in self.nodes.values():
+            node.setVisible(node.domain == domain)
+            # Hide connections if either end is hidden
+            for conn in node.connections:
+                conn.setVisible(all(n.isVisible() for n in [conn.from_node, conn.to_node]))
+        
+        # Update field labels and backgrounds
+        self.add_field_labels()
+        self.update_field_backgrounds()
+        
+        # Update scene rect
+        visible_items = [item for item in self.scene.items() if item.isVisible()]
+        if visible_items:
+            rect = self.scene.itemsBoundingRect()
+            self.scene.setSceneRect(rect.adjusted(-150, -200, 150, 100))
+    
     def add_research_subject(self, subject_id: str, name: str, icon: QPixmap, 
                            domain: str, field: str, tier: int, is_base_game: bool,
                            field_coord=None, prerequisites: list = None):
         # Create node
         node = ResearchNode(name, subject_id, icon, is_base_game)
+        node.domain = domain  # Store domain for filtering
         self.nodes[subject_id] = node
         
-        # Calculate position based on tier and field coordinates
-        x = tier * self.horizontal_spacing
+        # Track domain and fields
+        self.domains.add(domain)
+        if domain not in self.fields_by_domain:
+            self.fields_by_domain[domain] = {}
         
+        # Adjust tier (tier 0 in file = tier 1 in display)
+        display_tier = tier + 1
+        
+        # Calculate position based on tier and field
+        x = self.field_width + display_tier * self.horizontal_spacing
+        
+        # Use field for vertical positioning
+        if field not in self.fields_by_domain[domain]:
+            # Calculate new field position based on number of existing fields
+            field_index = len(self.fields_by_domain[domain])
+            self.fields_by_domain[domain][field] = field_index * self.vertical_spacing
+        
+        y = self.fields_by_domain[domain][field]
         if field_coord:
-            # Use provided field coordinates
-            y = field_coord[1] * self.vertical_spacing
-            field_key = (field, field_coord[1])
-        else:
-            # If no field coordinates, generate a position
-            if field not in self.field_positions:
-                self.field_positions[field] = len(self.field_positions)
-            y = self.field_positions[field] * self.vertical_spacing
-            field_key = (field, self.field_positions[field])
+            # Fine-tune y position within field using field_coord
+            y += field_coord[1] * 40  # Smaller spacing for items within same field
         
         node.setPos(x, y)
         self.scene.addItem(node)
+        
+        # Set initial domain if not set
+        if self.current_domain is None:
+            self.current_domain = domain
+        
+        # Set visibility based on current domain
+        node.setVisible(domain == self.current_domain)
         
         # Add connections to prerequisites
         if prerequisites:
@@ -135,8 +266,11 @@ class ResearchTreeView(QGraphicsView):
                     if prereq_id in self.nodes:
                         self.add_connection(self.nodes[prereq_id], node)
         
-        # Update scene rect to ensure all nodes are visible
-        self.scene.setSceneRect(self.scene.itemsBoundingRect().adjusted(-100, -100, 100, 100))
+        # Update scene rect to include field area
+        self.scene.setSceneRect(self.scene.itemsBoundingRect().adjusted(-20, -200, 150, 100))
+        
+        # Update field backgrounds
+        self.update_field_backgrounds()
     
     def add_connection(self, from_node: ResearchNode, to_node: ResearchNode):
         # Create arrow connection
@@ -159,6 +293,8 @@ class ResearchTreeView(QGraphicsView):
         connection = QGraphicsPathItem(path)
         connection.setPen(QPen(QColor(0, 100, 150), 2, Qt.PenStyle.SolidLine))
         connection.setZValue(-1)  # Draw connections behind nodes
+        connection.from_node = from_node  # Store nodes for visibility checks
+        connection.to_node = to_node
         self.scene.addItem(connection)
         
         # Store connection
