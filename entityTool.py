@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                             QLineEdit, QListWidget, QComboBox, QTreeWidget, QTreeWidgetItem,
                             QTabWidget, QScrollArea, QGroupBox, QFormLayout)
 from PyQt6.QtCore import Qt, QMimeData
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QIcon
 import json
 import logging
 from pathlib import Path
@@ -232,123 +232,30 @@ class EntityToolGUI(QMainWindow):
         
         # Research Tab
         if "research" in self.current_data:
-            research_data = self.current_data["research"]
+            # Clear existing content
+            self.clear_layout(self.research_layout)
             
-            # Create a split layout for research tab
+            # Create split layout with tree on left and details on right
             research_split = QHBoxLayout()
-            left_panel = QVBoxLayout()
-            right_panel = QVBoxLayout()
             
-            # Create a group for each research domain
-            if "research_domains" in research_data:
-                for domain_name, domain_data in research_data["research_domains"].items():
-                    domain_text, is_base_game_domain = self.get_localized_text(domain_data.get("full_name", domain_name.title()))
-                    domain_group = QGroupBox(domain_text)
-                    if is_base_game_domain:
-                        domain_group.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
-                    domain_layout = QVBoxLayout()
-                    
-                    # Add tiers information
-                    if "research_tiers" in domain_data:
-                        tiers_group = QGroupBox("Research Tiers")
-                        tiers_layout = QVBoxLayout()
-                        
-                        for i, tier in enumerate(domain_data["research_tiers"]):
-                            tier_widget = QGroupBox(f"Tier {i+1}")
-                            tier_form = QFormLayout()
-                            
-                            # Add tier details
-                            tier_form.addRow("Research Points Required:", QLabel(str(tier.get("required_research_points", ""))))
-                            tier_form.addRow("Research Time:", QLabel(str(tier.get("acquire_time", ""))))
-                            
-                            if "price" in tier:
-                                price = tier["price"]
-                                tier_form.addRow("Credits Cost:", QLabel(str(price.get("credits", ""))))
-                                tier_form.addRow("Metal Cost:", QLabel(str(price.get("metal", ""))))
-                                tier_form.addRow("Crystal Cost:", QLabel(str(price.get("crystal", ""))))
-                            
-                            if "exotic_price" in tier:
-                                exotic_group = QGroupBox("Exotic Costs")
-                                exotic_layout = QFormLayout()
-                                for exotic in tier["exotic_price"]:
-                                    exotic_layout.addRow(f"{exotic['exotic_type'].title()}:", 
-                                                       QLabel(str(exotic.get("count", ""))))
-                                exotic_group.setLayout(exotic_layout)
-                                tier_form.addRow(exotic_group)
-                            
-                            tier_widget.setLayout(tier_form)
-                            tiers_layout.addWidget(tier_widget)
-                        
-                        tiers_group.setLayout(tiers_layout)
-                        domain_layout.addWidget(tiers_group)
-                    
-                    # Add research fields information
-                    if "research_fields" in domain_data:
-                        fields_group = QGroupBox("Research Fields")
-                        fields_layout = QVBoxLayout()
-                        
-                        for field in domain_data["research_fields"]:
-                            field_text, is_base_game_field = self.get_localized_text(field.get("name", field["id"]))
-                            field_widget = QGroupBox(field_text)
-                            if is_base_game_field:
-                                field_widget.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
-                            field_form = QFormLayout()
-                            field_form.addRow("ID:", QLabel(field["id"]))
-                            if "picture" in field:
-                                field_form.addRow("Picture:", self.create_texture_label(field["picture"]))
-                            field_widget.setLayout(field_form)
-                            fields_layout.addWidget(field_widget)
-                        
-                        fields_group.setLayout(fields_layout)
-                        domain_layout.addWidget(fields_group)
-                    
-                    domain_group.setLayout(domain_layout)
-                    left_panel.addWidget(domain_group)
+            # Add tree view
+            tree = self.create_research_tree(self.current_data["research"])
+            research_split.addWidget(tree, 2)  # Give tree 2/3 of the space
             
-            # Add list of available research subjects
-            if "research_subjects" in research_data:
-                subjects_group = QGroupBox("Available Research Subjects")
-                subjects_list = QListWidget()
-                subjects_list.addItems(sorted(research_data["research_subjects"]))
-                subjects_list.itemClicked.connect(self.on_research_subject_clicked)
-                subjects_layout = QVBoxLayout()
-                subjects_layout.addWidget(subjects_list)
-                subjects_group.setLayout(subjects_layout)
-                right_panel.addWidget(subjects_group)
-            
-            # Add faction-specific research subjects
-            if "faction_research_subjects" in research_data:
-                faction_subjects_group = QGroupBox("Faction-Specific Research")
-                faction_subjects_list = QListWidget()
-                faction_subjects_list.addItems(sorted(research_data["faction_research_subjects"]))
-                faction_subjects_list.itemClicked.connect(self.on_research_subject_clicked)
-                faction_subjects_layout = QVBoxLayout()
-                faction_subjects_layout.addWidget(faction_subjects_list)
-                faction_subjects_group.setLayout(faction_subjects_layout)
-                right_panel.addWidget(faction_subjects_group)
-            
-            # Add panels to split layout
-            left_widget = QWidget()
-            left_widget.setLayout(left_panel)
-            right_widget = QWidget()
-            right_widget.setLayout(right_panel)
-            
-            # Create scroll areas for both panels
-            left_scroll = QScrollArea()
-            left_scroll.setWidget(left_widget)
-            left_scroll.setWidgetResizable(True)
-            right_scroll = QScrollArea()
-            right_scroll.setWidget(right_widget)
-            right_scroll.setWidgetResizable(True)
-            
-            # Add scroll areas to split layout
-            research_split.addWidget(left_scroll)
-            research_split.addWidget(right_scroll)
+            # Add details panel (will be populated when clicking tree items)
+            details_widget = QWidget()
+            details_layout = QVBoxLayout(details_widget)
+            research_split.addWidget(details_widget, 1)  # Give details 1/3 of the space
             
             # Create container widget for split layout
             research_container = QWidget()
             research_container.setLayout(research_split)
+            
+            # Add to tab's layout
             self.research_layout.addWidget(research_container)
+            
+            # Store reference to details layout for later use
+            self.research_details_layout = details_layout
         
         self.tab_widget.setCurrentIndex(0)  # Show first tab
     
@@ -736,7 +643,7 @@ class EntityToolGUI(QMainWindow):
     
     def load_research_subject(self, subject_id: str):
         """Load a research subject file and display its details"""
-        if not self.current_folder:
+        if not self.current_folder or not hasattr(self, 'research_details_layout'):
             return
             
         # Look for the research subject file in the entities folder
@@ -808,13 +715,13 @@ class EntityToolGUI(QMainWindow):
             
             details_group.setLayout(details_form)
             
-            # Clear any existing details widget and add the new one
-            while self.research_layout.count() > 0:
-                item = self.research_layout.takeAt(0)
+            # Clear any existing details and add the new ones
+            while self.research_details_layout.count():
+                item = self.research_details_layout.takeAt(0)
                 if item.widget():
                     item.widget().deleteLater()
             
-            self.research_layout.addWidget(details_group)
+            self.research_details_layout.addWidget(details_group)
             
         except Exception as e:
             logging.error(f"Error loading research subject {subject_id}: {str(e)}")
@@ -973,6 +880,98 @@ class EntityToolGUI(QMainWindow):
             label.setStyleSheet("QLabel { color: #666666; font-style: italic; }")
         
         return label
+
+    def create_research_tree(self, research_data: dict) -> QTreeWidget:
+        """Create a tree view of research data organized by domain, field, and tier"""
+        tree = QTreeWidget()
+        tree.setHeaderLabels(["Name", "Research Time", "Cost"])
+        tree.setColumnWidth(0, 300)  # Give more space to name column
+        
+        # Create domain nodes
+        domain_nodes = {}
+        if "research_domains" in research_data:
+            for domain_name, domain_data in research_data["research_domains"].items():
+                domain_text, is_base_game = self.get_localized_text(domain_data.get("full_name", domain_name.title()))
+                domain_node = QTreeWidgetItem(tree, [domain_text])
+                if is_base_game:
+                    for i in range(tree.columnCount()):
+                        domain_node.setForeground(i, Qt.GlobalColor.gray)
+                        domain_node.setData(i, Qt.ItemDataRole.FontRole, {"italic": True})
+                domain_nodes[domain_name] = domain_node
+                
+                # Create field nodes under each domain
+                field_nodes = {}
+                if "research_fields" in domain_data:
+                    for field in domain_data["research_fields"]:
+                        field_text, is_base_game_field = self.get_localized_text(field.get("name", field["id"]))
+                        field_node = QTreeWidgetItem(domain_node, [field_text])
+                        if is_base_game_field:
+                            for i in range(tree.columnCount()):
+                                field_node.setForeground(i, Qt.GlobalColor.gray)
+                                field_node.setData(i, Qt.ItemDataRole.FontRole, {"italic": True})
+                        field_nodes[field["id"]] = field_node
+                        
+                        # Create tier nodes under each field
+                        for tier in range(1, 6):  # Assuming max 5 tiers
+                            tier_node = QTreeWidgetItem(field_node, [f"Tier {tier}"])
+                            field_nodes[f"{field['id']}_tier_{tier}"] = tier_node
+        
+        # Load and organize research subjects
+        if "research_subjects" in research_data:
+            for subject_id in research_data["research_subjects"]:
+                # Load the research subject file
+                subject_file = self.current_folder / "entities" / f"{subject_id}.research_subject"
+                subject_data, is_base_game = self.load_file(subject_file)
+                
+                if subject_data:
+                    # Get the appropriate nodes
+                    domain = subject_data.get("domain", "")
+                    field = subject_data.get("field", "")
+                    tier = subject_data.get("tier", 1)
+                    
+                    # Find the parent node
+                    parent_key = f"{field}_tier_{tier}"
+                    if parent_key in field_nodes:
+                        # Create the subject node
+                        name_text, is_base_game_name = self.get_localized_text(subject_data.get("name", subject_id))
+                        
+                        # Format the cost string
+                        cost_str = ""
+                        if "price" in subject_data:
+                            price = subject_data["price"]
+                            cost_str = f"Credits: {price.get('credits', 0)}, Metal: {price.get('metal', 0)}, Crystal: {price.get('crystal', 0)}"
+                        
+                        subject_node = QTreeWidgetItem(field_nodes[parent_key], [
+                            name_text,
+                            str(subject_data.get("research_time", "")),
+                            cost_str
+                        ])
+                        
+                        # Store the subject ID for later reference
+                        subject_node.setData(0, Qt.ItemDataRole.UserRole, subject_id)
+                        
+                        if is_base_game or is_base_game_name:
+                            for i in range(tree.columnCount()):
+                                subject_node.setForeground(i, Qt.GlobalColor.gray)
+                                subject_node.setData(i, Qt.ItemDataRole.FontRole, {"italic": True})
+                        
+                        # Add tooltip picture if available
+                        if "tooltip_picture" in subject_data:
+                            pixmap, is_base_game_texture = self.load_texture(subject_data["tooltip_picture"])
+                            if not pixmap.isNull():
+                                scaled_pixmap = pixmap.scaled(24, 24, Qt.AspectRatioMode.KeepAspectRatio)
+                                icon = QIcon(scaled_pixmap)
+                                subject_node.setIcon(0, icon)
+        
+        tree.itemClicked.connect(self.on_research_tree_item_clicked)
+        tree.expandAll()  # Expand all nodes by default
+        return tree
+
+    def on_research_tree_item_clicked(self, item: QTreeWidgetItem, column: int):
+        """Handle clicking on a research tree item"""
+        subject_id = item.data(0, Qt.ItemDataRole.UserRole)
+        if subject_id:
+            self.load_research_subject(subject_id)
 
 class GUILogHandler(logging.Handler):
     def __init__(self, log_widget):
