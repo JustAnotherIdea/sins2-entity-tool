@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
-                            QLineEdit, QListWidget, QComboBox, QTreeWidget, QTreeWidgetItem, QListWidgetItem)
+                            QLineEdit, QListWidget, QComboBox, QTreeWidget, QTreeWidgetItem,
+                            QTabWidget, QScrollArea, QGroupBox, QFormLayout)
 from PyQt6.QtCore import Qt, QMimeData
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent
 import json
@@ -15,15 +16,12 @@ class EntityToolGUI(QMainWindow):
         self.current_file = None
         self.current_data = None
         self.schema_dir = None
-        self.schemas = {}  # Cache for loaded schemas
-        self.files_by_type = {}  # Dictionary to store files by their type
-        self.schema_extensions = {}  # Maps schema names to file extensions
-        self.manifest_files = {}  # Dictionary to store manifest data
+        self.schemas = {}
+        self.files_by_type = {}
+        self.schema_extensions = {}
+        self.manifest_files = {}
         
-        # Initialize UI
         self.init_ui()
-        
-        # Open in full screen
         self.showMaximized()
     
     def init_ui(self):
@@ -48,11 +46,10 @@ class EntityToolGUI(QMainWindow):
         schema_layout.addWidget(schema_btn)
         left_layout.addLayout(schema_layout)
         
-        # Schema selector
-        self.schema_selector = QComboBox()
-        self.schema_selector.setEnabled(False)
-        self.schema_selector.currentTextChanged.connect(self.validate_current_file)
-        left_layout.addWidget(self.schema_selector)
+        # Player selector
+        self.player_selector = QComboBox()
+        self.player_selector.currentTextChanged.connect(self.on_player_selected)
+        left_layout.addWidget(self.player_selector)
         
         # Status/drop label
         self.status_label = QLabel('Drop mod folder here\nNo folder loaded')
@@ -78,32 +75,53 @@ class EntityToolGUI(QMainWindow):
         self.log_display.setMaximumHeight(100)
         left_layout.addWidget(self.log_display)
         
-        # Add log handler
-        self.log_handler = GUILogHandler(self.log_display)
-        self.log_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
-        logging.getLogger().addHandler(self.log_handler)
-        
         # Right side (entity viewer/editor)
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         
-        # Add manifest info section
-        self.manifest_label = QLabel('Related Files:')
-        self.manifest_label.setVisible(False)
-        right_layout.addWidget(self.manifest_label)
+        # Tab widget for different sections
+        self.tab_widget = QTabWidget()
         
-        self.manifest_list = QListWidget()
-        self.manifest_list.setObjectName("manifestList")
-        self.manifest_list.itemClicked.connect(self.on_manifest_item_clicked)
-        self.manifest_list.setVisible(False)
-        right_layout.addWidget(self.manifest_list)
+        # Basic Info Tab
+        basic_info_widget = QWidget()
+        basic_info_layout = QVBoxLayout(basic_info_widget)
+        self.basic_info_form = QFormLayout()
+        basic_info_layout.addLayout(self.basic_info_form)
+        self.tab_widget.addTab(basic_info_widget, "Basic Info")
         
-        # Add editor label with scrollable text
-        self.editor_label = QLabel('Entity Editor\n(No file loaded)')
-        self.editor_label.setObjectName("editorLabel")
-        self.editor_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-        self.editor_label.setWordWrap(True)
-        right_layout.addWidget(self.editor_label)
+        # Home Planet Tab
+        home_planet_widget = QScrollArea()
+        home_planet_widget.setWidgetResizable(True)
+        home_planet_content = QWidget()
+        self.home_planet_layout = QVBoxLayout(home_planet_content)
+        home_planet_widget.setWidget(home_planet_content)
+        self.tab_widget.addTab(home_planet_widget, "Home Planet")
+        
+        # Units Tab
+        units_widget = QScrollArea()
+        units_widget.setWidgetResizable(True)
+        units_content = QWidget()
+        self.units_layout = QVBoxLayout(units_content)
+        units_widget.setWidget(units_content)
+        self.tab_widget.addTab(units_widget, "Units")
+        
+        # Research Tab
+        research_widget = QScrollArea()
+        research_widget.setWidgetResizable(True)
+        research_content = QWidget()
+        self.research_layout = QVBoxLayout(research_content)
+        research_widget.setWidget(research_content)
+        self.tab_widget.addTab(research_widget, "Research")
+        
+        # Planet Types Tab
+        planet_types_widget = QScrollArea()
+        planet_types_widget.setWidgetResizable(True)
+        planet_types_content = QWidget()
+        self.planet_types_layout = QVBoxLayout(planet_types_content)
+        planet_types_widget.setWidget(planet_types_content)
+        self.tab_widget.addTab(planet_types_widget, "Planet Types")
+        
+        right_layout.addWidget(self.tab_widget)
         
         # Add both sides to main layout
         main_layout.addWidget(left_widget, 1)  # 30% width
@@ -111,6 +129,114 @@ class EntityToolGUI(QMainWindow):
         
         # Enable drag and drop
         self.setAcceptDrops(True)
+        
+        # Add log handler
+        self.log_handler = GUILogHandler(self.log_display)
+        self.log_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
+        logging.getLogger().addHandler(self.log_handler)
+    
+    def update_player_display(self):
+        """Update the display with player data"""
+        if not self.current_data:
+            return
+            
+        # Clear existing content
+        self.clear_all_layouts()
+        
+        # Basic Info Tab
+        self.basic_info_form.addRow("Version:", QLabel(str(self.current_data.get("version", ""))))
+        self.basic_info_form.addRow("Race:", QLabel(str(self.current_data.get("race", ""))))
+        self.basic_info_form.addRow("Fleet:", QLabel(str(self.current_data.get("fleet", ""))))
+        
+        if "default_starting_assets" in self.current_data:
+            assets_group = QGroupBox("Starting Assets")
+            assets_layout = QFormLayout()
+            assets = self.current_data["default_starting_assets"]
+            assets_layout.addRow("Credits:", QLabel(str(assets.get("credits", ""))))
+            assets_layout.addRow("Metal:", QLabel(str(assets.get("metal", ""))))
+            assets_layout.addRow("Crystal:", QLabel(str(assets.get("crystal", ""))))
+            assets_group.setLayout(assets_layout)
+            self.basic_info_form.addRow(assets_group)
+        
+        # Home Planet Tab
+        if "home_planet" in self.current_data:
+            home_planet = self.current_data["home_planet"]
+            
+            # Random Fixture
+            fixture_group = QGroupBox("Random Fixture")
+            fixture_layout = QFormLayout()
+            fixture_layout.addRow("Type:", QLabel(str(home_planet.get("random_fixture_filling", ""))))
+            fixture_group.setLayout(fixture_layout)
+            self.home_planet_layout.addWidget(fixture_group)
+            
+            # Levels
+            if "levels" in home_planet:
+                levels_group = QGroupBox("Levels")
+                levels_layout = QVBoxLayout()
+                for i, level in enumerate(home_planet["levels"]):
+                    level_widget = QGroupBox(f"Level {i+1}")
+                    level_form = QFormLayout()
+                    
+                    if "income_rates" in level:
+                        rates = level["income_rates"]
+                        level_form.addRow("Credits Rate:", QLabel(str(rates.get("credits", ""))))
+                        level_form.addRow("Metal Rate:", QLabel(str(rates.get("metal", ""))))
+                        level_form.addRow("Crystal Rate:", QLabel(str(rates.get("crystal", ""))))
+                    
+                    if "modifier_values" in level:
+                        mods = level["modifier_values"]
+                        for mod_name, mod_data in mods.items():
+                            level_form.addRow(f"{mod_name}:", QLabel(str(mod_data.get("additive", ""))))
+                    
+                    level_widget.setLayout(level_form)
+                    levels_layout.addWidget(level_widget)
+                levels_group.setLayout(levels_layout)
+                self.home_planet_layout.addWidget(levels_group)
+        
+        # Units Tab
+        units_group = QGroupBox("Buildable Units")
+        units_layout = QVBoxLayout()
+        
+        if "buildable_units" in self.current_data:
+            units_list = QListWidget()
+            units_list.addItems(self.current_data["buildable_units"])
+            units_layout.addWidget(units_list)
+        
+        units_group.setLayout(units_layout)
+        self.units_layout.addWidget(units_group)
+        
+        # Add more sections as needed...
+        
+        self.tab_widget.setCurrentIndex(0)  # Show first tab
+    
+    def clear_all_layouts(self):
+        """Clear all tab layouts"""
+        # Clear Basic Info
+        while self.basic_info_form.rowCount() > 0:
+            self.basic_info_form.removeRow(0)
+        
+        # Clear Home Planet
+        self.clear_layout(self.home_planet_layout)
+        
+        # Clear Units
+        self.clear_layout(self.units_layout)
+        
+        # Clear Research
+        self.clear_layout(self.research_layout)
+        
+        # Clear Planet Types
+        self.clear_layout(self.planet_types_layout)
+    
+    def clear_layout(self, layout):
+        """Clear a layout and all its widgets"""
+        if layout is not None:
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
+                else:
+                    self.clear_layout(item.layout())
     
     def select_schema_directory(self):
         """Open directory dialog to select schema directory"""
@@ -147,6 +273,7 @@ class EntityToolGUI(QMainWindow):
             self.files_by_type.clear()
             self.manifest_files.clear()  # Clear existing manifest data
             self.file_tree.clear()
+            self.player_selector.clear()  # Clear player selector
             
             # Create root item
             root_item = QTreeWidgetItem(self.file_tree, [self.current_folder.name])
@@ -155,6 +282,20 @@ class EntityToolGUI(QMainWindow):
             entities_folder = self.current_folder / "entities"
             if entities_folder.exists():
                 logging.info(f"Found entities folder: {entities_folder}")
+                
+                # Process player manifest first to populate player selector
+                player_manifest = entities_folder / "player.entity_manifest"
+                if player_manifest.exists():
+                    try:
+                        with open(player_manifest) as f:
+                            data = json.load(f)
+                            if 'ids' in data:
+                                self.player_selector.addItems(sorted(data['ids']))
+                                logging.info(f"Added {len(data['ids'])} players to selector")
+                    except Exception as e:
+                        logging.error(f"Error processing player manifest: {str(e)}")
+                
+                # Process other manifest files
                 for file_path in entities_folder.glob("*.entity_manifest"):
                     try:
                         with open(file_path) as f:
@@ -299,20 +440,8 @@ class EntityToolGUI(QMainWindow):
     
     def update_manifest_view(self, file_path: Path):
         """Update the manifest view with related files"""
-        related_files = self.find_related_files(file_path)
-        
-        if related_files:
-            self.manifest_list.clear()
-            for name, path in related_files:
-                item = QListWidgetItem(name)
-                item.setData(Qt.ItemDataRole.UserRole, str(path))
-                self.manifest_list.addItem(item)
-            
-            self.manifest_label.setVisible(True)
-            self.manifest_list.setVisible(True)
-        else:
-            self.manifest_label.setVisible(False)
-            self.manifest_list.setVisible(False)
+        # This functionality has been removed
+        pass
     
     def load_file(self, file_path: Path):
         try:
@@ -325,8 +454,9 @@ class EntityToolGUI(QMainWindow):
             if file_path.suffix == '.entity_manifest':
                 self.process_manifest_file(file_path, self.current_data)
             
-            # Update manifest view
-            self.update_manifest_view(file_path)
+            # If it's a player file, update the display
+            if file_path.suffix == '.player':
+                self.update_player_display()
             
             # Log data details
             logging.info(f"Successfully loaded: {file_path}")
@@ -337,29 +467,6 @@ class EntityToolGUI(QMainWindow):
                     logging.info(f"{key}: {type(value)}")
                     if isinstance(value, (list, dict)):
                         logging.info(f"{key} length: {len(value)}")
-            
-            # Update the editor label with basic info
-            info_text = [f"File: {file_path.name}", "Entity Data:"]
-            if isinstance(self.current_data, dict):
-                for key, value in self.current_data.items():
-                    if isinstance(value, (list, dict)):
-                        info_text.append(f"{key}: {type(value).__name__} ({len(value)} items)")
-                    else:
-                        info_text.append(f"{key}: {value}")
-            else:
-                info_text.append(str(self.current_data))
-            
-            self.editor_label.setText('\n'.join(info_text))
-            
-            # Select appropriate schema based on file extension
-            if file_path.suffix in self.schema_extensions:
-                schema_name = self.schema_extensions[file_path.suffix]
-                if schema_name in self.schemas:
-                    self.schema_selector.setCurrentText(schema_name)
-            
-            # Validate against current schema if one is selected
-            if self.schema_selector.currentText():
-                self.validate_current_file()
             
         except Exception as e:
             self.status_label.setText('Error loading file')
@@ -419,7 +526,6 @@ class EntityToolGUI(QMainWindow):
         try:
             # Clear existing schemas and extension mappings
             self.schemas.clear()
-            self.schema_selector.clear()
             self.schema_extensions.clear()
             
             # Load all schema files
@@ -444,19 +550,22 @@ class EntityToolGUI(QMainWindow):
                 except Exception as e:
                     logging.error(f"Error loading schema {schema_file.name}: {str(e)}")
             
-            # Update schema selector
-            self.schema_selector.addItems(sorted(self.schemas.keys()))
-            self.schema_selector.setEnabled(True)
-            
             logging.info(f"Successfully loaded {len(self.schemas)} schemas")
             logging.debug(f"File extensions mapped: {list(self.schema_extensions.keys())}")
-            
-            # Validate current file if one is loaded
-            if self.current_data:
-                self.validate_current_file()
                 
         except Exception as e:
             logging.error(f"Error loading schemas: {str(e)}")
+    
+    def on_player_selected(self, player_name: str):
+        """Handle player selection from dropdown"""
+        if not player_name or not self.current_folder:
+            return
+            
+        # Find and load the selected player file
+        player_file = self.current_folder / "entities" / f"{player_name}.player"
+        if player_file.exists():
+            self.load_file(player_file)
+            self.update_player_display()
 
 class GUILogHandler(logging.Handler):
     def __init__(self, log_widget):
