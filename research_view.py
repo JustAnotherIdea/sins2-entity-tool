@@ -109,13 +109,17 @@ class ResearchTreeView(QGraphicsView):
         
         # Node layout settings
         self.field_width = 400  # Width for field background/label area
-        self.horizontal_spacing = 300  # Increased spacing between tiers
-        self.vertical_spacing = 200    # Increased spacing between fields
+        self.horizontal_spacing = 300  # Spacing between tiers
+        self.vertical_spacing = 180  # Spacing between fields
+        self.node_vertical_spacing = 25  # Spacing between nodes in the same field
+        self.top_margin = 50  # Space from top of scene to first field
+        self.field_height = 120  # Height of each field area
         self.nodes = {}  # Store nodes by subject_id
         self.current_domain = None
         self.domains = set()  # Track available domains
         self.fields_by_domain = {}  # Track fields per domain {domain: {field: y_pos}}
         self.field_backgrounds = {}  # Store field background images {field: QPixmap}
+        self.nodes_by_field = {}  # Track nodes in each field {field: [nodes]}
         
         # Add tier headers
         self.add_tier_headers()
@@ -152,7 +156,7 @@ class ResearchTreeView(QGraphicsView):
             return
             
         # Add new backgrounds
-        for field, y_pos in self.fields_by_domain[self.current_domain].items():
+        for field, field_center in self.fields_by_domain[self.current_domain].items():
             if field in self.field_backgrounds:
                 background = self.field_backgrounds[field]
                 if background and not background.isNull():
@@ -167,8 +171,8 @@ class ResearchTreeView(QGraphicsView):
                     scale = min(self.field_width / target_width, 1.0)  # Don't scale up, only down if needed
                     scaled_height = target_height * scale
                     
-                    # Position background on the left side, centered on field's y position
-                    item.setPos(0, y_pos - scaled_height/2)
+                    # Position background on the left side, centered on field's center position
+                    item.setPos(0, field_center - scaled_height/2)
                     item.setScale(scale)
                     
                     self.scene.addItem(item)
@@ -231,6 +235,11 @@ class ResearchTreeView(QGraphicsView):
         self.domains.add(domain)
         if domain not in self.fields_by_domain:
             self.fields_by_domain[domain] = {}
+            self.nodes_by_field[domain] = {}
+        
+        # Initialize nodes list for this field if not exists
+        if field not in self.nodes_by_field[domain]:
+            self.nodes_by_field[domain][field] = []
         
         # Adjust tier (tier 0 in file = tier 1 in display)
         display_tier = tier + 1
@@ -242,15 +251,27 @@ class ResearchTreeView(QGraphicsView):
         if field not in self.fields_by_domain[domain]:
             # Calculate new field position based on number of existing fields
             field_index = len(self.fields_by_domain[domain])
-            self.fields_by_domain[domain][field] = field_index * self.vertical_spacing
+            field_center = self.top_margin + field_index * self.vertical_spacing + self.field_height/2
+            self.fields_by_domain[domain][field] = field_center
         
-        y = self.fields_by_domain[domain][field]
-        if field_coord:
-            # Fine-tune y position within field using field_coord
-            y += field_coord[1] * 40  # Smaller spacing for items within same field
+        # Get field center position
+        field_center = self.fields_by_domain[domain][field]
+        
+        # Calculate y position using field_coord
+        if field_coord and len(field_coord) >= 2:
+            # Scale the field_coord[1] to be between -1 and 1
+            relative_pos = field_coord[1]  # Assuming field_coord[1] is already in the right range
+            # Calculate y position relative to field center
+            y = field_center + relative_pos * (self.field_height/2 - node.height/2)
+        else:
+            # If no field_coord, center the node in its field
+            y = field_center
         
         node.setPos(x, y)
         self.scene.addItem(node)
+        
+        # Add node to field's node list
+        self.nodes_by_field[domain][field].append(node)
         
         # Set initial domain if not set
         if self.current_domain is None:
@@ -266,8 +287,8 @@ class ResearchTreeView(QGraphicsView):
                     if prereq_id in self.nodes:
                         self.add_connection(self.nodes[prereq_id], node)
         
-        # Update scene rect to include field area
-        self.scene.setSceneRect(self.scene.itemsBoundingRect().adjusted(-20, -200, 150, 100))
+        # Update scene rect to include field area and ensure enough space at top
+        self.scene.setSceneRect(self.scene.itemsBoundingRect().adjusted(-20, -150, 150, 100))
         
         # Update field backgrounds
         self.update_field_backgrounds()
