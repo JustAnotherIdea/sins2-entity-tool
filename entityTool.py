@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                             QLineEdit, QListWidget, QComboBox, QTreeWidget, QTreeWidgetItem,
                             QTabWidget, QScrollArea, QGroupBox, QFormLayout)
 from PyQt6.QtCore import Qt, QMimeData
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap
 import json
 import logging
 from pathlib import Path
@@ -24,6 +24,7 @@ class EntityToolGUI(QMainWindow):
         self.localized_text = {}  # Store localized text data
         self.base_game_localized_text = {}  # Store base game localized text
         self.current_language = "en"  # Default language
+        self.texture_cache = {}  # Cache for loaded textures
         
         self.init_ui()
         self.showMaximized()
@@ -294,7 +295,7 @@ class EntityToolGUI(QMainWindow):
                             field_form = QFormLayout()
                             field_form.addRow("ID:", QLabel(field["id"]))
                             if "picture" in field:
-                                field_form.addRow("Picture:", QLabel(field["picture"]))
+                                field_form.addRow("Picture:", self.create_texture_label(field["picture"]))
                             field_widget.setLayout(field_form)
                             fields_layout.addWidget(field_widget)
                         
@@ -762,6 +763,10 @@ class EntityToolGUI(QMainWindow):
             details_form.addRow("Field:", QLabel(subject_data.get("field", "")))
             details_form.addRow("Research Time:", QLabel(str(subject_data.get("research_time", ""))))
             
+            # Add tooltip picture if available
+            if "tooltip_picture" in subject_data:
+                details_form.addRow("Picture:", self.create_texture_label(subject_data["tooltip_picture"]))
+            
             # Add localized name and description
             name_text, is_base_game_name = self.get_localized_text(subject_data.get("name", ""))
             desc_text, is_base_game_desc = self.get_localized_text(subject_data.get("description", ""))
@@ -913,6 +918,61 @@ class EntityToolGUI(QMainWindow):
                 logging.info(f"{key}: {type(value)}")
                 if isinstance(value, (list, dict)):
                     logging.info(f"{key} length: {len(value)}")
+
+    def load_texture(self, texture_name: str) -> tuple[QPixmap, bool]:
+        """Load a texture from mod or base game folder.
+        Returns tuple of (pixmap, is_from_base_game)"""
+        if not texture_name:
+            return QPixmap(), False
+            
+        # Check cache first
+        cache_key = f"{self.current_folder}:{texture_name}"
+        if cache_key in self.texture_cache:
+            return self.texture_cache[cache_key]
+            
+        # Try mod folder first
+        if self.current_folder:
+            texture_path = self.current_folder / "textures" / f"{texture_name}.png"
+            if texture_path.exists():
+                pixmap = QPixmap(str(texture_path))
+                if not pixmap.isNull():
+                    self.texture_cache[cache_key] = (pixmap, False)
+                    return pixmap, False
+        
+        # Try base game folder
+        if self.base_game_folder:
+            texture_path = self.base_game_folder / "textures" / f"{texture_name}.png"
+            if texture_path.exists():
+                pixmap = QPixmap(str(texture_path))
+                if not pixmap.isNull():
+                    self.texture_cache[cache_key] = (pixmap, True)
+                    return pixmap, True
+        
+        # Return empty pixmap if texture not found
+        logging.warning(f"Texture not found: {texture_name}")
+        return QPixmap(), False
+    
+    def create_texture_label(self, texture_name: str, max_size: int = 128) -> QLabel:
+        """Create a QLabel with a texture, scaled to max_size"""
+        pixmap, is_base_game = self.load_texture(texture_name)
+        
+        label = QLabel()
+        if not pixmap.isNull():
+            # Scale pixmap while maintaining aspect ratio
+            scaled_pixmap = pixmap.scaled(max_size, max_size, 
+                                        Qt.AspectRatioMode.KeepAspectRatio, 
+                                        Qt.TransformationMode.SmoothTransformation)
+            label.setPixmap(scaled_pixmap)
+            if is_base_game:
+                label.setStyleSheet("QLabel { background-color: #f0f0f0; padding: 4px; font-style: italic; }")
+                label.setToolTip(f"Base game texture: {texture_name}")
+            else:
+                label.setToolTip(f"Mod texture: {texture_name}")
+        else:
+            label.setText(f"[Texture not found: {texture_name}]")
+            label.setStyleSheet("QLabel { color: #666666; font-style: italic; }")
+        
+        return label
 
 class GUILogHandler(logging.Handler):
     def __init__(self, log_widget):
