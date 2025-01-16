@@ -20,6 +20,8 @@ class EntityToolGUI(QMainWindow):
         self.files_by_type = {}
         self.schema_extensions = {}
         self.manifest_files = {}
+        self.localized_text = {}  # Store localized text data
+        self.current_language = "en"  # Default language
         
         self.init_ui()
         self.showMaximized()
@@ -145,8 +147,8 @@ class EntityToolGUI(QMainWindow):
         
         # Basic Info Tab
         self.basic_info_form.addRow("Version:", QLabel(str(self.current_data.get("version", ""))))
-        self.basic_info_form.addRow("Race:", QLabel(str(self.current_data.get("race", ""))))
-        self.basic_info_form.addRow("Fleet:", QLabel(str(self.current_data.get("fleet", ""))))
+        self.basic_info_form.addRow("Race:", self.create_localized_label(str(self.current_data.get("race", ""))))
+        self.basic_info_form.addRow("Fleet:", self.create_localized_label(str(self.current_data.get("fleet", ""))))
         
         if "default_starting_assets" in self.current_data:
             assets_group = QGroupBox("Starting Assets")
@@ -217,7 +219,7 @@ class EntityToolGUI(QMainWindow):
             # Create a group for each research domain
             if "research_domains" in research_data:
                 for domain_name, domain_data in research_data["research_domains"].items():
-                    domain_group = QGroupBox(domain_data.get("full_name", domain_name.title()))
+                    domain_group = QGroupBox(self.get_localized_text(domain_data.get("full_name", domain_name.title())))
                     domain_layout = QVBoxLayout()
                     
                     # Add tiers information
@@ -260,7 +262,7 @@ class EntityToolGUI(QMainWindow):
                         fields_layout = QVBoxLayout()
                         
                         for field in domain_data["research_fields"]:
-                            field_widget = QGroupBox(field.get("name", field["id"]))
+                            field_widget = QGroupBox(self.get_localized_text(field.get("name", field["id"])))
                             field_form = QFormLayout()
                             field_form.addRow("ID:", QLabel(field["id"]))
                             if "picture" in field:
@@ -386,6 +388,9 @@ class EntityToolGUI(QMainWindow):
             self.manifest_files.clear()  # Clear existing manifest data
             self.file_tree.clear()
             self.player_selector.clear()  # Clear player selector
+            
+            # Load localized text first
+            self.load_localized_text()
             
             # Create root item
             root_item = QTreeWidgetItem(self.file_tree, [self.current_folder.name])
@@ -704,8 +709,8 @@ class EntityToolGUI(QMainWindow):
             details_form.addRow("Tier:", QLabel(str(subject_data.get("tier", ""))))
             details_form.addRow("Field:", QLabel(subject_data.get("field", "")))
             details_form.addRow("Research Time:", QLabel(str(subject_data.get("research_time", ""))))
-            details_form.addRow("Name:", QLabel(subject_data.get("name", "")))
-            details_form.addRow("Description:", QLabel(subject_data.get("description", "")))
+            details_form.addRow("Name:", self.create_localized_label(subject_data.get("name", "")))
+            details_form.addRow("Description:", self.create_localized_label(subject_data.get("description", "")))
             
             # Add price information if available
             if "price" in subject_data:
@@ -746,6 +751,53 @@ class EntityToolGUI(QMainWindow):
         """Handle clicking on a research subject in the list"""
         subject_id = item.text()
         self.load_research_subject(subject_id)
+    
+    def load_localized_text(self):
+        """Load localized text files from the localized_text folder"""
+        if not self.current_folder:
+            return
+            
+        localized_text_dir = self.current_folder / "localized_text"
+        if not localized_text_dir.exists():
+            logging.warning("No localized_text directory found")
+            return
+            
+        # Clear existing localized text
+        self.localized_text.clear()
+        
+        # Load all localized text files
+        for text_file in localized_text_dir.glob("*.localized_text"):
+            try:
+                language_code = text_file.stem  # Get language code from filename
+                with open(text_file) as f:
+                    text_data = json.load(f)
+                self.localized_text[language_code] = text_data
+                logging.info(f"Loaded localized text for {language_code}")
+            except Exception as e:
+                logging.error(f"Error loading localized text file {text_file}: {str(e)}")
+    
+    def get_localized_text(self, text_key: str) -> str:
+        """Get localized text for a key. If not found, return the key itself."""
+        if text_key.startswith(":"):  # Raw string
+            return text_key[1:]
+            
+        # Try current language first
+        if self.current_language in self.localized_text:
+            if text_key in self.localized_text[self.current_language]:
+                return self.localized_text[self.current_language][text_key]
+        
+        # Try English as fallback
+        if "en" in self.localized_text:
+            if text_key in self.localized_text["en"]:
+                return self.localized_text["en"][text_key]
+        
+        return text_key  # Return key if no translation found
+    
+    def create_localized_label(self, text_key: str) -> QLabel:
+        """Create a QLabel with localized text"""
+        label = QLabel(self.get_localized_text(text_key))
+        label.setWordWrap(True)
+        return label
 
 class GUILogHandler(logging.Handler):
     def __init__(self, log_widget):
