@@ -1067,10 +1067,12 @@ class EntityToolGUI(QMainWindow):
                                     content_layout.addWidget(btn)
                         
                         content.setVisible(False)  # Initially collapsed
+                        
+                        def update_arrow_state(checked, btn=toggle_btn):
+                            btn.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
+                        
                         toggle_btn.toggled.connect(content.setVisible)
-                        toggle_btn.toggled.connect(lambda checked: toggle_btn.setArrowType(
-                            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
-                        ))
+                        toggle_btn.toggled.connect(update_arrow_state)
                         
                         group_layout.addWidget(toggle_btn)
                         group_layout.addWidget(content)
@@ -1105,10 +1107,12 @@ class EntityToolGUI(QMainWindow):
                                     content_layout.addWidget(btn)
                         
                         content.setVisible(False)  # Initially collapsed
+                        
+                        def update_arrow_state(checked, btn=toggle_btn):
+                            btn.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
+                        
                         toggle_btn.toggled.connect(content.setVisible)
-                        toggle_btn.toggled.connect(lambda checked: toggle_btn.setArrowType(
-                            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
-                        ))
+                        toggle_btn.toggled.connect(update_arrow_state)
                         
                         group_layout.addWidget(toggle_btn)
                         group_layout.addWidget(content)
@@ -1139,10 +1143,12 @@ class EntityToolGUI(QMainWindow):
                         content_layout.addWidget(widget)
                         
                         content.setVisible(False)  # Initially collapsed
+                        
+                        def update_arrow_state(checked, btn=toggle_btn):
+                            btn.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
+                        
                         toggle_btn.toggled.connect(content.setVisible)
-                        toggle_btn.toggled.connect(lambda checked: toggle_btn.setArrowType(
-                            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
-                        ))
+                        toggle_btn.toggled.connect(update_arrow_state)
                         
                         group_layout.addWidget(toggle_btn)
                         group_layout.addWidget(content)
