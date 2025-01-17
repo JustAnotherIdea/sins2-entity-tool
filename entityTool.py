@@ -696,6 +696,7 @@ class EntityToolGUI(QMainWindow):
                     
                     # Add file extension if specified in schema
                     if 'fileExtension' in schema:
+                        print(f"Adding schema extension: {schema['fileExtension']}")
                         ext = schema['fileExtension']
                         if not ext.startswith('.'):
                             ext = '.' + ext
@@ -742,9 +743,15 @@ class EntityToolGUI(QMainWindow):
     def get_localized_text(self, text_key: str) -> tuple[str, bool]:
         """Get localized text for a key and whether it's from base game.
         Returns tuple of (text, is_from_base_game)"""
+
+        print(f"Getting localized text for {text_key}")
         if not text_key:
             return "", False
-            
+
+        # Check if text_key is a dictionary and extract the 'group' if it is
+        if isinstance(text_key, dict) and 'group' in text_key:
+            text_key = text_key['group']
+
         if text_key.startswith(":"):  # Raw string
             return text_key[1:], False
         
@@ -1244,7 +1251,9 @@ class EntityToolGUI(QMainWindow):
         
         try:
             # Try mod folder first
+            print(f"Checking if {entity_file} exists.")
             if entity_file.exists():
+                print(f"Loading {entity_file} from mod folder")
                 with open(entity_file, encoding='utf-8') as f:
                     entity_data = json.load(f)
                     is_base_game = False
@@ -1252,7 +1261,9 @@ class EntityToolGUI(QMainWindow):
             # Try base game folder if not found in mod folder
             elif self.config.get("base_game_folder"):
                 base_game_file = Path(self.config["base_game_folder"]) / "entities" / f"{entity_id}.{entity_type}"
+                print(f"Checking if {base_game_file} exists.")
                 if base_game_file.exists():
+                    print(f"Loading {base_game_file} from base game folder.")
                     with open(base_game_file, encoding='utf-8') as f:
                         entity_data = json.load(f)
                         is_base_game = True
@@ -1268,7 +1279,9 @@ class EntityToolGUI(QMainWindow):
                 self.weapon_details_layout.addWidget(schema_view)
             elif entity_type == "unit_skin":
                 self.clear_layout(self.skin_details_layout)
+                print(f"Creating schema view for unit skin {entity_id}")
                 schema_view = self.create_schema_view("unit-skin", entity_data, is_base_game)
+                print(f"Schema view created for unit skin {entity_id}")
                 self.skin_details_layout.addWidget(schema_view)
             elif entity_type == "ability":
                 self.clear_layout(self.ability_details_layout)
@@ -1382,6 +1395,9 @@ class EntityToolGUI(QMainWindow):
         Returns:
             A QWidget containing the schema view
         """
+        logging.debug(f"Creating schema view for {file_type}")
+        logging.debug(f"Is base game: {is_base_game}")
+        
         # Get the schema name
         schema_name = f"{file_type}-schema"
         if schema_name not in self.schemas:
@@ -1391,6 +1407,7 @@ class EntityToolGUI(QMainWindow):
             error_layout.addWidget(QLabel(f"Schema not found: {schema_name}"))
             return error_widget
         
+        logging.debug(f"Found schema: {schema_name}")
         self.current_schema = self.schemas[schema_name]
         
         # Create scrollable area for the content
@@ -1404,6 +1421,7 @@ class EntityToolGUI(QMainWindow):
         
         # Add name if available
         if "name" in file_data:
+            logging.debug("Adding name field")
             name_text, is_base_game_name = self.get_localized_text(file_data["name"])
             name_label = QLabel(name_text)
             name_label.setStyleSheet("font-size: 16px; font-weight: bold;")
@@ -1413,6 +1431,7 @@ class EntityToolGUI(QMainWindow):
         
         # Add description if available
         if "description" in file_data:
+            logging.debug("Adding description field")
             desc_text, is_base_game_desc = self.get_localized_text(file_data["description"])
             desc_label = QLabel(desc_text)
             desc_label.setWordWrap(True)
@@ -1422,16 +1441,19 @@ class EntityToolGUI(QMainWindow):
         
         # Add picture if available
         if "tooltip_picture" in file_data:
+            logging.debug("Adding tooltip picture")
             picture_label = self.create_texture_label(file_data["tooltip_picture"], max_size=256)
             content_layout.addWidget(picture_label)
         
         # Create the main details widget using the schema
         title = f"{file_type.replace('-', ' ').title()} Details (Base Game)" if is_base_game else f"{file_type.replace('-', ' ').title()} Details"
+        logging.debug(f"Creating details group with title: {title}")
         details_group = QGroupBox(title)
         if is_base_game:
             details_group.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
         
         # Create the content widget using the schema
+        logging.debug("Creating schema content widget")
         details_widget = self.create_widget_for_schema(file_data, self.current_schema, is_base_game)
         details_layout = QVBoxLayout()
         details_layout.addWidget(details_widget)
@@ -1439,4 +1461,5 @@ class EntityToolGUI(QMainWindow):
         content_layout.addWidget(details_group)
         
         scroll.setWidget(content)
+        logging.debug("Finished creating schema view")
         return scroll 
