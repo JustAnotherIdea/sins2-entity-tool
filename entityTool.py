@@ -1318,6 +1318,7 @@ class EntityToolGUI(QMainWindow):
             edit = QLineEdit(text)
             if is_base or is_base_game:
                 edit.setStyleSheet("color: #666666; font-style: italic;")
+                edit.setReadOnly(True)
             return edit
             
         elif schema.get("format") == "texture":
@@ -1337,12 +1338,14 @@ class EntityToolGUI(QMainWindow):
                     combo.setCurrentIndex(current_index)
                 if is_base_game:
                     combo.setStyleSheet("color: #666666; font-style: italic;")
+                    combo.setEnabled(False)  # Disable combo box for base game content
                 return combo
             else:
                 # Regular string input
                 edit = QLineEdit(value_str)
                 if is_base_game:
                     edit.setStyleSheet("color: #666666; font-style: italic;")
+                    edit.setReadOnly(True)
                 return edit
                 
         elif schema_type == "integer":
@@ -1362,6 +1365,8 @@ class EntityToolGUI(QMainWindow):
                 
             if is_base_game:
                 spin.setStyleSheet("color: #666666; font-style: italic;")
+                spin.setReadOnly(True)  # Make spinbox read-only for base game content
+                spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)  # Hide up/down buttons
             return spin
             
         elif schema_type == "number":
@@ -1382,6 +1387,8 @@ class EntityToolGUI(QMainWindow):
                 
             if is_base_game:
                 spin.setStyleSheet("color: #666666; font-style: italic;")
+                spin.setReadOnly(True)  # Make spinbox read-only for base game content
+                spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)  # Hide up/down buttons
             return spin
             
         elif schema_type == "boolean":
@@ -1389,6 +1396,7 @@ class EntityToolGUI(QMainWindow):
             checkbox.setChecked(bool(value))
             if is_base_game:
                 checkbox.setStyleSheet("color: #666666; font-style: italic;")
+                checkbox.setEnabled(False)  # Disable checkbox for base game content
             return checkbox
             
         elif schema_type == "object":
@@ -1417,6 +1425,7 @@ class EntityToolGUI(QMainWindow):
             edit = QLineEdit(str(value))
             if is_base_game:
                 edit.setStyleSheet("color: #666666; font-style: italic;")
+                edit.setReadOnly(True)
             return edit
     
     def load_referenced_entity(self, entity_id: str, entity_type: str):
