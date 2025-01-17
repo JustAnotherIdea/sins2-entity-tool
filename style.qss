@@ -12,7 +12,7 @@ QPushButton {
     background-color: #3b3b3b;
     border: 1px solid #555555;
     color: #ffffff;
-    padding: 5px;
+    padding: 0;
     border-radius: 3px;
 }
 
@@ -29,7 +29,7 @@ QComboBox {
     border: 1px solid #555555;
     border-radius: 3px;
     color: #ffffff;
-    padding: 5px;
+    padding: 0px;
 }
 
 QComboBox:drop-down {
@@ -79,15 +79,15 @@ QLabel {
 QGroupBox {
     border: 1px solid #555555;
     border-radius: 3px;
-    margin-top: 0.5em;
-    padding-top: 0.5em;
+    margin: 0;
+    padding-top: 0.4em;
     color: #ffffff;
 }
 
 QGroupBox::title {
     subcontrol-origin: margin;
     left: 10px;
-    padding: 0 3px 0 3px;
+    color: #969696;
 }
 
 QTabWidget::pane {
