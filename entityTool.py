@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
                             QLineEdit, QListWidget, QComboBox, QTreeWidget, QTreeWidgetItem,
-                            QTabWidget, QScrollArea, QGroupBox, QFormLayout, QDialog)
+                            QTabWidget, QScrollArea, QGroupBox, QFormLayout, QDialog, QSplitter)
 from PyQt6.QtCore import Qt, QMimeData
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QIcon
 import json
@@ -75,7 +75,7 @@ class EntityToolGUI(QMainWindow):
         
         # Folder button with icon
         folder_btn = QPushButton()
-        folder_btn.setIcon(QIcon(str(Path(__file__).parent / "icons" / "folder.png")))  # Use custom icon
+        folder_btn.setIcon(QIcon(str(Path(__file__).parent / "icons" / "folder.png")))
         folder_btn.setToolTip('Open Mod Folder')
         folder_btn.setFixedSize(32, 32)
         folder_btn.clicked.connect(self.open_folder_dialog)
@@ -83,15 +83,13 @@ class EntityToolGUI(QMainWindow):
         
         # Settings button with icon
         settings_btn = QPushButton()
-        settings_btn.setIcon(QIcon(str(Path(__file__).parent / "icons" / "settings.png")))  # Use custom icon
+        settings_btn.setIcon(QIcon(str(Path(__file__).parent / "icons" / "settings.png")))
         settings_btn.setToolTip('Settings')
         settings_btn.setFixedSize(32, 32)
         settings_btn.clicked.connect(self.show_settings_dialog)
         left_toolbar_layout.addWidget(settings_btn)
         
         toolbar_layout.addWidget(left_toolbar)
-        
-        # Add spacer to push player selector to the right
         toolbar_layout.addStretch()
         
         # Status label in the middle
@@ -107,14 +105,17 @@ class EntityToolGUI(QMainWindow):
         
         main_layout.addWidget(toolbar)
         
-        # Tab widget for different sections (now takes full width)
+        # Tab widget for different sections
         self.tab_widget = QTabWidget()
         
-        # Add tabs
-        basic_info_widget = QWidget()
-        basic_info_layout = QVBoxLayout(basic_info_widget)
+        # Basic Info Tab
+        basic_info_widget = QScrollArea()
+        basic_info_widget.setWidgetResizable(True)
+        basic_info_content = QWidget()
+        basic_info_layout = QVBoxLayout(basic_info_content)
         self.basic_info_form = QFormLayout()
         basic_info_layout.addLayout(self.basic_info_form)
+        basic_info_widget.setWidget(basic_info_content)
         self.tab_widget.addTab(basic_info_widget, "Basic Info")
         
         # Home Planet Tab
@@ -125,11 +126,73 @@ class EntityToolGUI(QMainWindow):
         home_planet_widget.setWidget(home_planet_content)
         self.tab_widget.addTab(home_planet_widget, "Home Planet")
         
-        # Units Tab
+        # Units Tab with split panels
         units_widget = QScrollArea()
         units_widget.setWidgetResizable(True)
         units_content = QWidget()
-        self.units_layout = QVBoxLayout(units_content)
+        self.units_layout = QVBoxLayout(units_content)  # Store reference to units layout
+
+        # Create split layout for units tab
+        units_split = QSplitter(Qt.Orientation.Horizontal)
+        
+        # Left side - Unit list
+        units_list_group = QGroupBox("Buildable Units")
+        units_list_layout = QVBoxLayout()
+        self.units_list = QListWidget()
+        self.units_list.itemClicked.connect(self.on_unit_selected)
+        units_list_layout.addWidget(self.units_list)
+        units_list_group.setLayout(units_list_layout)
+        units_split.addWidget(units_list_group)
+        
+        # Right side - Details panels
+        details_widget = QWidget()
+        details_layout = QVBoxLayout(details_widget)
+        details_layout.setSpacing(10)  # Add spacing between rows
+        
+        # Top row of details (Unit Details and Unit Skin)
+        top_row = QSplitter(Qt.Orientation.Horizontal)
+        
+        # Unit Details panel
+        unit_details_group = QGroupBox("Unit Details")
+        self.unit_details_layout = QVBoxLayout(unit_details_group)
+        top_row.addWidget(unit_details_group)
+        
+        # Unit Skin panel
+        skin_details_group = QGroupBox("Unit Skin")
+        self.skin_details_layout = QVBoxLayout(skin_details_group)
+        top_row.addWidget(skin_details_group)
+        
+        # Set sizes for top row (2:1 ratio)
+        top_row.setSizes([200, 100])
+        
+        # Bottom row of details (Weapon and Ability)
+        bottom_row = QSplitter(Qt.Orientation.Horizontal)
+        
+        # Weapon panel
+        weapon_details_group = QGroupBox("Weapon")
+        self.weapon_details_layout = QVBoxLayout(weapon_details_group)
+        bottom_row.addWidget(weapon_details_group)
+        
+        # Ability panel
+        ability_details_group = QGroupBox("Ability")
+        self.ability_details_layout = QVBoxLayout(ability_details_group)
+        bottom_row.addWidget(ability_details_group)
+        
+        # Set sizes for bottom row (1:1 ratio)
+        bottom_row.setSizes([150, 150])
+        
+        # Add rows to details layout with stretch factors
+        details_layout.addWidget(top_row, stretch=2)  # Top row gets more space
+        details_layout.addWidget(bottom_row, stretch=1)  # Bottom row gets less space
+        
+        # Add details widget to splitter
+        units_split.addWidget(details_widget)
+        
+        # Set initial sizes for the main splitter (1:3 ratio)
+        units_split.setSizes([100, 300])
+        
+        # Add the split layout to the units tab
+        self.units_layout.addWidget(units_split)
         units_widget.setWidget(units_content)
         self.tab_widget.addTab(units_widget, "Units")
         
@@ -244,69 +307,20 @@ class EntityToolGUI(QMainWindow):
             assets_group.setLayout(assets_layout)
             self.basic_info_form.addRow(assets_group)
         
-        # Home Planet Tab
-        if "home_planet" in self.current_data:
-            home_planet = self.current_data["home_planet"]
-            
-            # Random Fixture
-            fixture_group = QGroupBox("Random Fixture")
-            fixture_layout = QFormLayout()
-            fixture_layout.addRow("Type:", QLabel(str(home_planet.get("random_fixture_filling", ""))))
-            fixture_group.setLayout(fixture_layout)
-            self.home_planet_layout.addWidget(fixture_group)
-            
-            # Levels
-            if "levels" in home_planet:
-                levels_group = QGroupBox("Levels")
-                levels_layout = QVBoxLayout()
-                for i, level in enumerate(home_planet["levels"]):
-                    level_widget = QGroupBox(f"Level {i+1}")
-                    level_form = QFormLayout()
-                    
-                    if "income_rates" in level:
-                        rates = level["income_rates"]
-                        level_form.addRow("Credits Rate:", QLabel(str(rates.get("credits", ""))))
-                        level_form.addRow("Metal Rate:", QLabel(str(rates.get("metal", ""))))
-                        level_form.addRow("Crystal Rate:", QLabel(str(rates.get("crystal", ""))))
-                    
-                    if "modifier_values" in level:
-                        mods = level["modifier_values"]
-                        for mod_name, mod_data in mods.items():
-                            level_form.addRow(f"{mod_name}:", QLabel(str(mod_data.get("additive", ""))))
-                    
-                    level_widget.setLayout(level_form)
-                    levels_layout.addWidget(level_widget)
-                levels_group.setLayout(levels_layout)
-                self.home_planet_layout.addWidget(levels_group)
-        
         # Units Tab
         if "buildable_units" in self.current_data:
-            # Create split layout for units tab
-            units_split = QWidget()
-            units_split_layout = QHBoxLayout(units_split)
-            
-            # Left side - Unit list
-            units_list_group = QGroupBox("Buildable Units")
-            units_list_layout = QVBoxLayout()
-            self.units_list = QListWidget()
-            self.units_list.itemClicked.connect(self.on_unit_selected)
+            # Clear the units list
+            self.units_list.clear()
             
             # Add units to list
             for unit_id in sorted(self.current_data["buildable_units"]):
                 self.units_list.addItem(unit_id)
             
-            units_list_layout.addWidget(self.units_list)
-            units_list_group.setLayout(units_list_layout)
-            units_split_layout.addWidget(units_list_group)
-            
-            # Right side - Unit details
-            unit_details_group = QGroupBox("Unit Details")
-            self.unit_details_layout = QVBoxLayout()
-            unit_details_group.setLayout(self.unit_details_layout)
-            units_split_layout.addWidget(unit_details_group, stretch=2)  # Give details more space
-            
-            # Add the split layout to the units tab
-            self.units_layout.addWidget(units_split)
+            # Clear all detail panels
+            self.clear_layout(self.unit_details_layout)
+            self.clear_layout(self.weapon_details_layout)
+            self.clear_layout(self.skin_details_layout)
+            self.clear_layout(self.ability_details_layout)
         
         # Research Tab
         if "research" in self.current_data:
@@ -330,10 +344,13 @@ class EntityToolGUI(QMainWindow):
                 logging.error(f"Unit file not found: {unit_file}")
                 return
                 
-            # Clear existing details
+            # Clear existing details in all panels
             self.clear_layout(self.unit_details_layout)
+            self.clear_layout(self.weapon_details_layout)
+            self.clear_layout(self.skin_details_layout)
+            self.clear_layout(self.ability_details_layout)
             
-            # Create and add the schema view
+            # Create and add the schema view for unit details
             schema_view = self.create_schema_view("unit", unit_data, is_base_game)
             self.unit_details_layout.addWidget(schema_view)
             
@@ -353,7 +370,11 @@ class EntityToolGUI(QMainWindow):
         self.clear_layout(self.home_planet_layout)
         
         # Clear Units
-        self.clear_layout(self.units_layout)
+        self.units_list.clear()
+        self.clear_layout(self.unit_details_layout)
+        self.clear_layout(self.weapon_details_layout)
+        self.clear_layout(self.skin_details_layout)
+        self.clear_layout(self.ability_details_layout)
         
         # Clear Research
         self.clear_layout(self.research_layout)
@@ -1102,8 +1123,31 @@ class EntityToolGUI(QMainWindow):
     def create_widget_for_value(self, value: any, schema: dict, is_base_game: bool) -> QWidget:
         """Create a widget for a simple value based on its schema type"""
         if isinstance(value, str) and schema.get("type") == "string":
+            # Handle references to other entity types
+            property_name = schema.get("property_name", "").lower()
+            
+            # Check if this is a reference to another entity type
+            is_weapon = property_name in ["weapon", "weapons"] or value.endswith("_weapon")
+            is_skin = property_name in ["skin", "skins"] or value.endswith("_skin")
+            is_ability = property_name in ["ability", "abilities"] or value.endswith("_ability")
+            
+            if is_weapon or is_skin or is_ability:
+                btn = QPushButton(value)
+                btn.setStyleSheet("text-align: left; padding: 2px;")
+                
+                if is_weapon:
+                    btn.clicked.connect(lambda: self.load_referenced_entity(value, "weapon"))
+                elif is_skin:
+                    btn.clicked.connect(lambda: self.load_referenced_entity(value, "unit_skin"))
+                elif is_ability:
+                    btn.clicked.connect(lambda: self.load_referenced_entity(value, "ability"))
+                
+                if is_base_game:
+                    btn.setStyleSheet(btn.styleSheet() + "; color: #666666; font-style: italic;")
+                return btn
+                
             # Special handling for name and description fields - treat them as localized text
-            if schema.get("property_name", "").lower() in ["name", "name_uppercase", "description"]:
+            elif property_name in ["name", "name_uppercase", "description"]:
                 text, is_base = self.get_localized_text(value)
                 label = QLabel(text)
                 label.setWordWrap(True)
@@ -1131,6 +1175,36 @@ class EntityToolGUI(QMainWindow):
             label = QLabel(str(value))
             label.setWordWrap(True)
             return label
+    
+    def load_referenced_entity(self, entity_id: str, entity_type: str):
+        """Load a referenced entity file and display it in the appropriate panel"""
+        if not self.current_folder:
+            return
+            
+        entity_file = self.current_folder / "entities" / f"{entity_id}.{entity_type}"
+        entity_data, is_base_game = self.load_file(entity_file)
+        
+        if not entity_data:
+            logging.error(f"{entity_type} file not found: {entity_file}")
+            return
+            
+        try:
+            # Clear the appropriate panel and display the new data
+            if entity_type == "weapon":
+                self.clear_layout(self.weapon_details_layout)
+                schema_view = self.create_schema_view("weapon", entity_data, is_base_game)
+                self.weapon_details_layout.addWidget(schema_view)
+            elif entity_type == "unit_skin":
+                self.clear_layout(self.skin_details_layout)
+                schema_view = self.create_schema_view("unit-skin", entity_data, is_base_game)
+                self.skin_details_layout.addWidget(schema_view)
+            elif entity_type == "ability":
+                self.clear_layout(self.ability_details_layout)
+                schema_view = self.create_schema_view("ability", entity_data, is_base_game)
+                self.ability_details_layout.addWidget(schema_view)
+                
+        except Exception as e:
+            logging.error(f"Error loading {entity_type} {entity_id}: {str(e)}")
     
     def load_research_subject(self, subject_id: str):
         """Load a research subject file and display its details using the schema"""
