@@ -1,7 +1,8 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
                             QLineEdit, QListWidget, QComboBox, QTreeWidget, QTreeWidgetItem,
-                            QTabWidget, QScrollArea, QGroupBox, QFormLayout, QDialog, QSplitter, QToolButton)
+                            QTabWidget, QScrollArea, QGroupBox, QFormLayout, QDialog, QSplitter, QToolButton,
+                            QSpinBox, QDoubleSpinBox, QCheckBox)
 from PyQt6.QtCore import Qt, QMimeData
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QIcon
 import json
@@ -1282,59 +1283,115 @@ class EntityToolGUI(QMainWindow):
         return self.create_widget_for_value(value, schema, is_base_game)
     
     def create_widget_for_value(self, value: any, schema: dict, is_base_game: bool) -> QWidget:
-        """Create a widget for a simple value based on its schema type"""
-        if schema.get("type") == "string":
-            # Handle references to other entity types
-            property_name = schema.get("property_name", "").lower()
+        """Create an editable widget for a value based on its schema type"""
+        from PyQt6.QtWidgets import QSpinBox, QDoubleSpinBox, QComboBox, QLineEdit, QCheckBox
+        
+        # Handle references to other entity types first
+        property_name = schema.get("property_name", "").lower()
+        
+        # Convert value to string if it's not already
+        value_str = str(value) if value is not None else ""
+        
+        # Check if this is a reference to another entity type
+        is_weapon = isinstance(value, str) and property_name in ["weapon"]
+        is_skin = isinstance(value, str) and property_name in ["skins"]
+        is_ability = isinstance(value, str) and property_name in ["abilities"]
+        
+        if is_weapon or is_skin or is_ability:
+            btn = QPushButton(value_str)
+            btn.setStyleSheet("text-align: left; padding: 2px;")
             
-            # Convert value to string if it's not already
-            value_str = str(value) if value is not None else ""
+            if is_weapon:
+                btn.clicked.connect(lambda: self.load_referenced_entity(value_str, "weapon"))
+            elif is_skin:
+                btn.clicked.connect(lambda: self.load_referenced_entity(value_str, "unit_skin"))
+            elif is_ability:
+                btn.clicked.connect(lambda: self.load_referenced_entity(value_str, "ability"))
             
-            # Check if this is a reference to another entity type
-            is_weapon = isinstance(value, str) and property_name in ["weapon"]
-            is_skin = isinstance(value, str) and property_name in ["skins"]
-            is_ability = isinstance(value, str) and property_name in ["abilities"]
+            if is_base_game:
+                btn.setStyleSheet(btn.styleSheet() + "; color: #666666; font-style: italic;")
+            return btn
             
-            if is_weapon or is_skin or is_ability:
-                btn = QPushButton(value_str)
-                btn.setStyleSheet("text-align: left; padding: 2px;")
-                
-                if is_weapon:
-                    btn.clicked.connect(lambda: self.load_referenced_entity(value_str, "weapon"))
-                elif is_skin:
-                    btn.clicked.connect(lambda: self.load_referenced_entity(value_str, "unit_skin"))
-                elif is_ability:
-                    btn.clicked.connect(lambda: self.load_referenced_entity(value_str, "ability"))
-                
+        # Special handling for name and description fields - treat them as localized text
+        elif property_name in ["name", "name_uppercase", "description"] or schema.get("format") == "localized_text":
+            text, is_base = self.get_localized_text(value_str)
+            edit = QLineEdit(text)
+            if is_base or is_base_game:
+                edit.setStyleSheet("color: #666666; font-style: italic;")
+            return edit
+            
+        elif schema.get("format") == "texture":
+            # Handle texture references - keep as non-editable for now
+            return self.create_texture_label(value_str)
+            
+        # Handle different schema types
+        schema_type = schema.get("type")
+        
+        if schema_type == "string":
+            if "enum" in schema:
+                # Create dropdown for enum values
+                combo = QComboBox()
+                combo.addItems(schema["enum"])
+                current_index = combo.findText(value_str)
+                if current_index >= 0:
+                    combo.setCurrentIndex(current_index)
                 if is_base_game:
-                    btn.setStyleSheet(btn.styleSheet() + "; color: #666666; font-style: italic;")
-                return btn
-                
-            # Special handling for name and description fields - treat them as localized text
-            elif property_name in ["name", "name_uppercase", "description"]:
-                text, is_base = self.get_localized_text(value_str)
-                label = QLabel(text)
-                label.setWordWrap(True)
-                if is_base or is_base_game:
-                    label.setStyleSheet("color: #666666; font-style: italic;")
-                return label
-            elif schema.get("format") == "localized_text":
-                # Handle localized text
-                text, is_base = self.get_localized_text(value_str)
-                label = QLabel(text)
-                label.setWordWrap(True)
-                if is_base or is_base_game:
-                    label.setStyleSheet("color: #666666; font-style: italic;")
-                return label
-            elif schema.get("format") == "texture":
-                # Handle texture references
-                return self.create_texture_label(value_str)
+                    combo.setStyleSheet("color: #666666; font-style: italic;")
+                return combo
             else:
-                # Regular string
-                label = QLabel(value_str)
-                label.setWordWrap(True)
-                return label
-        elif schema.get("type") == "object":
+                # Regular string input
+                edit = QLineEdit(value_str)
+                if is_base_game:
+                    edit.setStyleSheet("color: #666666; font-style: italic;")
+                return edit
+                
+        elif schema_type == "integer":
+            spin = QSpinBox()
+            spin.setValue(int(value) if value is not None else 0)
+            
+            # Set minimum and maximum if specified
+            if "minimum" in schema:
+                spin.setMinimum(schema["minimum"])
+            else:
+                spin.setMinimum(-1000000)  # Reasonable default minimum
+                
+            if "maximum" in schema:
+                spin.setMaximum(schema["maximum"])
+            else:
+                spin.setMaximum(1000000)  # Reasonable default maximum
+                
+            if is_base_game:
+                spin.setStyleSheet("color: #666666; font-style: italic;")
+            return spin
+            
+        elif schema_type == "number":
+            spin = QDoubleSpinBox()
+            spin.setValue(float(value) if value is not None else 0.0)
+            spin.setDecimals(4)  # Allow 4 decimal places
+            
+            # Set minimum and maximum if specified
+            if "minimum" in schema:
+                spin.setMinimum(schema["minimum"])
+            else:
+                spin.setMinimum(-1000000.0)  # Reasonable default minimum
+                
+            if "maximum" in schema:
+                spin.setMaximum(schema["maximum"])
+            else:
+                spin.setMaximum(1000000.0)  # Reasonable default maximum
+                
+            if is_base_game:
+                spin.setStyleSheet("color: #666666; font-style: italic;")
+            return spin
+            
+        elif schema_type == "boolean":
+            checkbox = QCheckBox()
+            checkbox.setChecked(bool(value))
+            if is_base_game:
+                checkbox.setStyleSheet("color: #666666; font-style: italic;")
+            return checkbox
+            
+        elif schema_type == "object":
             # For objects, create a widget that shows the object's structure
             group = QGroupBox()
             layout = QVBoxLayout()
@@ -1346,14 +1403,21 @@ class EntityToolGUI(QMainWindow):
                     layout.addWidget(nested_widget)
                 else:
                     # Handle simple values
-                    layout.addWidget(QLabel(f"{key}: {str(val)}"))
+                    row_widget = QWidget()
+                    row_layout = QHBoxLayout(row_widget)
+                    row_layout.addWidget(QLabel(f"{key}:"))
+                    value_widget = self.create_widget_for_value(val, {"type": type(val).__name__}, is_base_game)
+                    row_layout.addWidget(value_widget)
+                    layout.addWidget(row_widget)
             group.setLayout(layout)
             return group
+            
         else:
-            # Handle numbers, booleans, etc.
-            label = QLabel(str(value))
-            label.setWordWrap(True)
-            return label
+            # Fallback for unknown types
+            edit = QLineEdit(str(value))
+            if is_base_game:
+                edit.setStyleSheet("color: #666666; font-style: italic;")
+            return edit
     
     def load_referenced_entity(self, entity_id: str, entity_type: str):
         """Load a referenced entity file and display it in the appropriate panel"""
