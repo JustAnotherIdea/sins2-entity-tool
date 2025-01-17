@@ -1035,12 +1035,13 @@ class EntityToolGUI(QMainWindow):
                         abilities_group = QGroupBox("Abilities")
                         abilities_layout = QVBoxLayout()
                         for ability_group in data[prop_name]:
-                            if "abilities" in ability_group:
+                            if isinstance(ability_group, dict) and "abilities" in ability_group:
                                 for ability_id in ability_group["abilities"]:
-                                    btn = QPushButton(ability_id)
-                                    btn.setStyleSheet("text-align: left; padding: 2px;")
-                                    btn.clicked.connect(lambda checked, a=ability_id: self.load_referenced_entity(a, "ability"))
-                                    abilities_layout.addWidget(btn)
+                                    if isinstance(ability_id, str):  # Only create buttons for string IDs
+                                        btn = QPushButton(ability_id)
+                                        btn.setStyleSheet("text-align: left; padding: 2px;")
+                                        btn.clicked.connect(lambda checked, a=ability_id: self.load_referenced_entity(a, "ability"))
+                                        abilities_layout.addWidget(btn)
                         abilities_group.setLayout(abilities_layout)
                         if isinstance(layout, QFormLayout):
                             layout.addRow(abilities_group)
@@ -1052,12 +1053,13 @@ class EntityToolGUI(QMainWindow):
                         skins_group = QGroupBox("Skins")
                         skins_layout = QVBoxLayout()
                         for skin_group in data[prop_name]:
-                            if "skins" in skin_group:
+                            if isinstance(skin_group, dict) and "skins" in skin_group:
                                 for skin_id in skin_group["skins"]:
-                                    btn = QPushButton(skin_id)
-                                    btn.setStyleSheet("text-align: left; padding: 2px;")
-                                    btn.clicked.connect(lambda checked, s=skin_id: self.load_referenced_entity(s, "unit_skin"))
-                                    skins_layout.addWidget(btn)
+                                    if isinstance(skin_id, str):  # Only create buttons for string IDs
+                                        btn = QPushButton(skin_id)
+                                        btn.setStyleSheet("text-align: left; padding: 2px;")
+                                        btn.clicked.connect(lambda checked, s=skin_id: self.load_referenced_entity(s, "unit_skin"))
+                                        skins_layout.addWidget(btn)
                         skins_group.setLayout(skins_layout)
                         if isinstance(layout, QFormLayout):
                             layout.addRow(skins_group)
@@ -1158,25 +1160,28 @@ class EntityToolGUI(QMainWindow):
     
     def create_widget_for_value(self, value: any, schema: dict, is_base_game: bool) -> QWidget:
         """Create a widget for a simple value based on its schema type"""
-        if isinstance(value, str) and schema.get("type") == "string":
+        if schema.get("type") == "string":
             # Handle references to other entity types
             property_name = schema.get("property_name", "").lower()
             
+            # Convert value to string if it's not already
+            value_str = str(value) if value is not None else ""
+            
             # Check if this is a reference to another entity type
-            is_weapon = property_name in ["weapon", "weapons"] or value.endswith("_weapon")
-            is_skin = property_name in ["skin", "skins"] or value.endswith("_skin")
-            is_ability = property_name in ["ability", "abilities"] or value.endswith("_ability")
+            is_weapon = isinstance(value, str) and (property_name in ["weapon", "weapons"] or (value_str.endswith("_weapon") if value_str else False))
+            is_skin = isinstance(value, str) and (property_name in ["skin", "skins"] or (value_str.endswith("_skin") if value_str else False))
+            is_ability = isinstance(value, str) and (property_name in ["ability", "abilities"] or (value_str.endswith("_ability") if value_str else False))
             
             if is_weapon or is_skin or is_ability:
-                btn = QPushButton(value)
+                btn = QPushButton(value_str)
                 btn.setStyleSheet("text-align: left; padding: 2px;")
                 
                 if is_weapon:
-                    btn.clicked.connect(lambda: self.load_referenced_entity(value, "weapon"))
+                    btn.clicked.connect(lambda: self.load_referenced_entity(value_str, "weapon"))
                 elif is_skin:
-                    btn.clicked.connect(lambda: self.load_referenced_entity(value, "unit_skin"))
+                    btn.clicked.connect(lambda: self.load_referenced_entity(value_str, "unit_skin"))
                 elif is_ability:
-                    btn.clicked.connect(lambda: self.load_referenced_entity(value, "ability"))
+                    btn.clicked.connect(lambda: self.load_referenced_entity(value_str, "ability"))
                 
                 if is_base_game:
                     btn.setStyleSheet(btn.styleSheet() + "; color: #666666; font-style: italic;")
@@ -1184,7 +1189,7 @@ class EntityToolGUI(QMainWindow):
                 
             # Special handling for name and description fields - treat them as localized text
             elif property_name in ["name", "name_uppercase", "description"]:
-                text, is_base = self.get_localized_text(value)
+                text, is_base = self.get_localized_text(value_str)
                 label = QLabel(text)
                 label.setWordWrap(True)
                 if is_base or is_base_game:
@@ -1192,7 +1197,7 @@ class EntityToolGUI(QMainWindow):
                 return label
             elif schema.get("format") == "localized_text":
                 # Handle localized text
-                text, is_base = self.get_localized_text(value)
+                text, is_base = self.get_localized_text(value_str)
                 label = QLabel(text)
                 label.setWordWrap(True)
                 if is_base or is_base_game:
@@ -1200,12 +1205,27 @@ class EntityToolGUI(QMainWindow):
                 return label
             elif schema.get("format") == "texture":
                 # Handle texture references
-                return self.create_texture_label(value)
+                return self.create_texture_label(value_str)
             else:
                 # Regular string
-                label = QLabel(value)
+                label = QLabel(value_str)
                 label.setWordWrap(True)
                 return label
+        elif schema.get("type") == "object":
+            # For objects, create a widget that shows the object's structure
+            group = QGroupBox()
+            layout = QVBoxLayout()
+            for key, val in value.items():
+                if isinstance(val, dict):
+                    # Recursively handle nested objects
+                    nested_widget = self.create_widget_for_value(val, {"type": "object"}, is_base_game)
+                    layout.addWidget(QLabel(key))
+                    layout.addWidget(nested_widget)
+                else:
+                    # Handle simple values
+                    layout.addWidget(QLabel(f"{key}: {str(val)}"))
+            group.setLayout(layout)
+            return group
         else:
             # Handle numbers, booleans, etc.
             label = QLabel(str(value))
@@ -1217,14 +1237,30 @@ class EntityToolGUI(QMainWindow):
         if not self.current_folder:
             return
             
+        # Try mod folder first
         entity_file = self.current_folder / "entities" / f"{entity_id}.{entity_type}"
-        entity_data, is_base_game = self.load_file(entity_file)
+        entity_data = None
+        is_base_game = False
         
-        if not entity_data:
-            logging.error(f"{entity_type} file not found: {entity_file}")
-            return
-            
         try:
+            # Try mod folder first
+            if entity_file.exists():
+                with open(entity_file, encoding='utf-8') as f:
+                    entity_data = json.load(f)
+                    is_base_game = False
+            
+            # Try base game folder if not found in mod folder
+            elif self.config.get("base_game_folder"):
+                base_game_file = Path(self.config["base_game_folder"]) / "entities" / f"{entity_id}.{entity_type}"
+                if base_game_file.exists():
+                    with open(base_game_file, encoding='utf-8') as f:
+                        entity_data = json.load(f)
+                        is_base_game = True
+            
+            if not entity_data:
+                logging.error(f"{entity_type} file not found: {entity_id}")
+                return
+                
             # Clear the appropriate panel and display the new data
             if entity_type == "weapon":
                 self.clear_layout(self.weapon_details_layout)
@@ -1241,6 +1277,15 @@ class EntityToolGUI(QMainWindow):
                 
         except Exception as e:
             logging.error(f"Error loading {entity_type} {entity_id}: {str(e)}")
+            # Add error message to appropriate panel
+            error_label = QLabel(f"Error loading {entity_type}: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            if entity_type == "weapon":
+                self.weapon_details_layout.addWidget(error_label)
+            elif entity_type == "unit_skin":
+                self.skin_details_layout.addWidget(error_label)
+            elif entity_type == "ability":
+                self.ability_details_layout.addWidget(error_label)
     
     def load_research_subject(self, subject_id: str):
         """Load a research subject file and display its details using the schema"""
