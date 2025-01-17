@@ -979,10 +979,25 @@ class EntityToolGUI(QMainWindow):
 
     def create_widget_for_schema(self, data: dict, schema: dict, is_base_game: bool = False) -> QWidget:
         """Create a widget to display data according to a JSON schema"""
-        if not schema or "type" not in schema:
+        if not schema:
             return QLabel("Invalid schema")
             
-        if schema["type"] == "object":
+        # Handle schema references
+        if "$ref" in schema:
+            ref_path = schema["$ref"].split("/")[1:]  # Skip the '#'
+            current = self.current_schema
+            for part in ref_path:
+                if part in current:
+                    current = current[part]
+                else:
+                    return QLabel(f"Invalid reference: {schema['$ref']}")
+            return self.create_widget_for_schema(data, current, is_base_game)
+            
+        schema_type = schema.get("type")
+        if not schema_type:
+            return QLabel("Schema missing type")
+            
+        if schema_type == "object":
             group = QGroupBox()
             layout = QFormLayout() if len(schema.get("properties", {})) < 5 else QVBoxLayout()
             
@@ -1010,19 +1025,35 @@ class EntityToolGUI(QMainWindow):
             group.setLayout(layout)
             return group
             
-        elif schema["type"] == "array":
+        elif schema_type == "array":
             group = QGroupBox()
             layout = QVBoxLayout()
             
-            for i, item in enumerate(data):
-                widget = self.create_widget_for_schema(
-                    item, schema.get("items", {}), is_base_game
-                )
-                if widget:
-                    if isinstance(item, dict) and "modifier_type" in item:
-                        # Special handling for modifier arrays
-                        layout.addWidget(widget)
-                    else:
+            # Get the schema for array items
+            items_schema = schema.get("items", {})
+            if isinstance(items_schema, dict):
+                # Single schema for all items
+                for i, item in enumerate(data):
+                    widget = self.create_widget_for_schema(
+                        item, items_schema, is_base_game
+                    )
+                    if widget:
+                        if isinstance(item, dict) and "modifier_type" in item:
+                            # Special handling for modifier arrays
+                            layout.addWidget(widget)
+                        else:
+                            item_group = QGroupBox(f"Item {i+1}")
+                            item_layout = QVBoxLayout()
+                            item_layout.addWidget(widget)
+                            item_group.setLayout(item_layout)
+                            layout.addWidget(item_group)
+            elif isinstance(items_schema, list):
+                # Tuple validation (different schema for each index)
+                for i, (item, item_schema) in enumerate(zip(data, items_schema)):
+                    widget = self.create_widget_for_schema(
+                        item, item_schema, is_base_game
+                    )
+                    if widget:
                         item_group = QGroupBox(f"Item {i+1}")
                         item_layout = QVBoxLayout()
                         item_layout.addWidget(widget)
@@ -1042,8 +1073,8 @@ class EntityToolGUI(QMainWindow):
             schema = schema.copy()  # Create a copy to avoid modifying the original
             schema["property_name"] = prop_name
             
+        # Handle references to other schema definitions
         if "$ref" in schema:
-            # Handle references to other schema definitions
             ref_path = schema["$ref"].split("/")[1:]  # Skip the '#'
             current = self.current_schema
             for part in ref_path:
@@ -1057,12 +1088,15 @@ class EntityToolGUI(QMainWindow):
                 current["property_name"] = prop_name
             return self.create_widget_for_schema(value, current, is_base_game)
             
+        # Handle arrays
         if schema.get("type") == "array":
             return self.create_widget_for_schema(value, schema, is_base_game)
             
+        # Handle objects
         if schema.get("type") == "object":
             return self.create_widget_for_schema(value, schema, is_base_game)
             
+        # Handle simple values
         return self.create_widget_for_value(value, schema, is_base_game)
     
     def create_widget_for_value(self, value: any, schema: dict, is_base_game: bool) -> QWidget:
