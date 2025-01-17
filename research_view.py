@@ -264,6 +264,24 @@ class ResearchTreeView(QGraphicsView):
         if field_coord and len(field_coord) >= 2:
             current_max = self.field_max_rows[domain][field]
             self.field_max_rows[domain][field] = max(current_max, field_coord[1])
+            
+            # Recalculate field height immediately after updating max rows
+            field_height = max(self.base_field_height, (self.field_max_rows[domain][field] + 1) * self.row_height)
+            
+            # Update field center if field already exists
+            if field in self.fields_by_domain[domain]:
+                # Recalculate total height of previous fields
+                total_previous_height = 0
+                for prev_field in list(self.fields_by_domain[domain].keys()):
+                    if prev_field == field:
+                        break
+                    max_row = self.field_max_rows[domain][prev_field]
+                    prev_field_height = max(self.base_field_height, (max_row + 1) * self.row_height)
+                    total_previous_height += prev_field_height + self.vertical_spacing
+                
+                # Update field center
+                field_center = self.top_margin + total_previous_height + field_height/2
+                self.fields_by_domain[domain][field] = field_center
         
         # Adjust tier (tier 0 in file = tier 1 in display)
         display_tier = tier + 1
