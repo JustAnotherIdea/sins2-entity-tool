@@ -24,6 +24,23 @@ QPushButton:pressed {
     background-color: #505050;
 }
 
+QToolButton {
+    background-color: #2b2b2b;
+    color: #ffffff;
+    text-align: left;
+    padding: 4px;
+    border: none;
+    border-radius: 0;
+}
+
+QToolButton:hover {
+    background-color: #353535;
+}
+
+QToolButton:checked {
+    background-color: #3b3b3b;
+}
+
 QComboBox {
     background-color: #3b3b3b;
     border: 1px solid #555555;

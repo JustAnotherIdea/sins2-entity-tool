@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
                             QLineEdit, QListWidget, QComboBox, QTreeWidget, QTreeWidgetItem,
-                            QTabWidget, QScrollArea, QGroupBox, QFormLayout, QDialog, QSplitter)
+                            QTabWidget, QScrollArea, QGroupBox, QFormLayout, QDialog, QSplitter, QToolButton)
 from PyQt6.QtCore import Qt, QMimeData
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QIcon
 import json
@@ -1026,8 +1026,10 @@ class EntityToolGUI(QMainWindow):
             return QLabel("Schema missing type")
             
         if schema_type == "object":
-            group = QGroupBox()
-            layout = QFormLayout() if len(schema.get("properties", {})) < 5 else QVBoxLayout()
+            container = QWidget()
+            container_layout = QVBoxLayout(container)
+            container_layout.setContentsMargins(0, 0, 0, 0)
+            container_layout.setSpacing(0)
             
             # Sort properties alphabetically but prioritize common fields
             priority_fields = ["name", "description", "id", "type", "version"]
@@ -1037,41 +1039,80 @@ class EntityToolGUI(QMainWindow):
             
             for prop_name, prop_schema in sorted_properties:
                 if prop_name in data:
-                    # Special handling for abilities and skin_groups arrays
+                    # Special handling for abilities array
                     if prop_name == "abilities" and isinstance(data[prop_name], list):
-                        abilities_group = QGroupBox("Abilities")
-                        abilities_layout = QVBoxLayout()
+                        group_widget = QWidget()
+                        group_layout = QVBoxLayout(group_widget)
+                        group_layout.setContentsMargins(0, 0, 0, 0)
+                        
+                        # Create collapsible button
+                        toggle_btn = QToolButton()
+                        toggle_btn.setStyleSheet("QToolButton { border: none; }")
+                        toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+                        toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
+                        toggle_btn.setText("Abilities")
+                        toggle_btn.setCheckable(True)
+                        
+                        # Create content widget
+                        content = QWidget()
+                        content_layout = QVBoxLayout(content)
+                        content_layout.setContentsMargins(20, 0, 0, 0)  # Add left margin for indentation
+                        
                         for ability_group in data[prop_name]:
                             if isinstance(ability_group, dict) and "abilities" in ability_group:
                                 for ability_id in ability_group["abilities"]:
-                                    if isinstance(ability_id, str):  # Only create buttons for string IDs
-                                        btn = QPushButton(ability_id)
-                                        btn.setStyleSheet("text-align: left; padding: 2px;")
-                                        btn.clicked.connect(lambda checked, a=ability_id: self.load_referenced_entity(a, "ability"))
-                                        abilities_layout.addWidget(btn)
-                        abilities_group.setLayout(abilities_layout)
-                        if isinstance(layout, QFormLayout):
-                            layout.addRow(abilities_group)
-                        else:
-                            layout.addWidget(abilities_group)
+                                    btn = QPushButton(ability_id)
+                                    btn.setStyleSheet("text-align: left; padding: 2px;")
+                                    btn.clicked.connect(lambda checked, a=ability_id: self.load_referenced_entity(a, "ability"))
+                                    content_layout.addWidget(btn)
+                        
+                        content.setVisible(False)  # Initially collapsed
+                        toggle_btn.toggled.connect(content.setVisible)
+                        toggle_btn.toggled.connect(lambda checked: toggle_btn.setArrowType(
+                            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
+                        ))
+                        
+                        group_layout.addWidget(toggle_btn)
+                        group_layout.addWidget(content)
+                        container_layout.addWidget(group_widget)
                         continue
                         
+                    # Special handling for skin_groups array
                     elif prop_name == "skin_groups" and isinstance(data[prop_name], list):
-                        skins_group = QGroupBox("Skins")
-                        skins_layout = QVBoxLayout()
+                        group_widget = QWidget()
+                        group_layout = QVBoxLayout(group_widget)
+                        group_layout.setContentsMargins(0, 0, 0, 0)
+                        
+                        # Create collapsible button
+                        toggle_btn = QToolButton()
+                        toggle_btn.setStyleSheet("QToolButton { border: none; }")
+                        toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+                        toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
+                        toggle_btn.setText("Skins")
+                        toggle_btn.setCheckable(True)
+                        
+                        # Create content widget
+                        content = QWidget()
+                        content_layout = QVBoxLayout(content)
+                        content_layout.setContentsMargins(20, 0, 0, 0)  # Add left margin for indentation
+                        
                         for skin_group in data[prop_name]:
                             if isinstance(skin_group, dict) and "skins" in skin_group:
                                 for skin_id in skin_group["skins"]:
-                                    if isinstance(skin_id, str):  # Only create buttons for string IDs
-                                        btn = QPushButton(skin_id)
-                                        btn.setStyleSheet("text-align: left; padding: 2px;")
-                                        btn.clicked.connect(lambda checked, s=skin_id: self.load_referenced_entity(s, "unit_skin"))
-                                        skins_layout.addWidget(btn)
-                        skins_group.setLayout(skins_layout)
-                        if isinstance(layout, QFormLayout):
-                            layout.addRow(skins_group)
-                        else:
-                            layout.addWidget(skins_group)
+                                    btn = QPushButton(skin_id)
+                                    btn.setStyleSheet("text-align: left; padding: 2px;")
+                                    btn.clicked.connect(lambda checked, s=skin_id: self.load_referenced_entity(s, "unit_skin"))
+                                    content_layout.addWidget(btn)
+                        
+                        content.setVisible(False)  # Initially collapsed
+                        toggle_btn.toggled.connect(content.setVisible)
+                        toggle_btn.toggled.connect(lambda checked: toggle_btn.setArrowType(
+                            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
+                        ))
+                        
+                        group_layout.addWidget(toggle_btn)
+                        group_layout.addWidget(content)
+                        container_layout.addWidget(group_widget)
                         continue
                     
                     # Regular property handling
@@ -1079,21 +1120,41 @@ class EntityToolGUI(QMainWindow):
                         prop_name, data[prop_name], prop_schema, is_base_game
                     )
                     if widget:
-                        if isinstance(layout, QFormLayout):
-                            layout.addRow(prop_name.replace("_", " ").title() + ":", widget)
-                        else:
-                            prop_group = QGroupBox(prop_name.replace("_", " ").title())
-                            prop_layout = QVBoxLayout()
-                            prop_layout.addWidget(widget)
-                            prop_group.setLayout(prop_layout)
-                            layout.addWidget(prop_group)
+                        group_widget = QWidget()
+                        group_layout = QVBoxLayout(group_widget)
+                        group_layout.setContentsMargins(0, 0, 0, 0)
+                        
+                        # Create collapsible button
+                        toggle_btn = QToolButton()
+                        toggle_btn.setStyleSheet("QToolButton { border: none; }")
+                        toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+                        toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
+                        toggle_btn.setText(prop_name.replace("_", " ").title())
+                        toggle_btn.setCheckable(True)
+                        
+                        # Create content widget
+                        content = QWidget()
+                        content_layout = QVBoxLayout(content)
+                        content_layout.setContentsMargins(20, 0, 0, 0)  # Add left margin for indentation
+                        content_layout.addWidget(widget)
+                        
+                        content.setVisible(False)  # Initially collapsed
+                        toggle_btn.toggled.connect(content.setVisible)
+                        toggle_btn.toggled.connect(lambda checked: toggle_btn.setArrowType(
+                            Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
+                        ))
+                        
+                        group_layout.addWidget(toggle_btn)
+                        group_layout.addWidget(content)
+                        container_layout.addWidget(group_widget)
             
-            group.setLayout(layout)
-            return group
+            return container
             
         elif schema_type == "array":
-            group = QGroupBox()
-            layout = QVBoxLayout()
+            container = QWidget()
+            container_layout = QVBoxLayout(container)
+            container_layout.setContentsMargins(0, 0, 0, 0)
+            container_layout.setSpacing(0)
             
             # Get the schema for array items
             items_schema = schema.get("items", {})
@@ -1106,30 +1167,40 @@ class EntityToolGUI(QMainWindow):
                     if widget:
                         if isinstance(item, dict) and "modifier_type" in item:
                             # Special handling for modifier arrays
-                            layout.addWidget(widget)
+                            container_layout.addWidget(widget)
                         else:
-                            item_group = QGroupBox(f"Item {i+1}")
-                            item_layout = QVBoxLayout()
-                            item_layout.addWidget(widget)
-                            item_group.setLayout(item_layout)
-                            layout.addWidget(item_group)
-            elif isinstance(items_schema, list):
-                # Tuple validation (different schema for each index)
-                for i, (item, item_schema) in enumerate(zip(data, items_schema)):
-                    widget = self.create_widget_for_schema(
-                        item, item_schema, is_base_game
-                    )
-                    if widget:
-                        item_group = QGroupBox(f"Item {i+1}")
-                        item_layout = QVBoxLayout()
-                        item_layout.addWidget(widget)
-                        item_group.setLayout(item_layout)
-                        layout.addWidget(item_group)
+                            group_widget = QWidget()
+                            group_layout = QVBoxLayout(group_widget)
+                            group_layout.setContentsMargins(0, 0, 0, 0)
+                            
+                            # Create collapsible button
+                            toggle_btn = QToolButton()
+                            toggle_btn.setStyleSheet("QToolButton { border: none; }")
+                            toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+                            toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
+                            toggle_btn.setText(f"Item {i+1}")
+                            toggle_btn.setCheckable(True)
+                            
+                            # Create content widget
+                            content = QWidget()
+                            content_layout = QVBoxLayout(content)
+                            content_layout.setContentsMargins(20, 0, 0, 0)  # Add left margin for indentation
+                            content_layout.addWidget(widget)
+                            
+                            content.setVisible(False)  # Initially collapsed
+                            toggle_btn.toggled.connect(content.setVisible)
+                            toggle_btn.toggled.connect(lambda checked: toggle_btn.setArrowType(
+                                Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
+                            ))
+                            
+                            group_layout.addWidget(toggle_btn)
+                            group_layout.addWidget(content)
+                            container_layout.addWidget(group_widget)
             
-            group.setLayout(layout)
-            return group
+            return container
             
         else:
+            # For simple values, use create_widget_for_value
             return self.create_widget_for_value(data, schema, is_base_game)
     
     def create_widget_for_property(self, prop_name: str, value: any, schema: dict, is_base_game: bool) -> QWidget:
