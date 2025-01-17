@@ -26,21 +26,33 @@ class GUILogHandler(logging.Handler):
 class EntityToolGUI(QMainWindow):
     def __init__(self):
         super().__init__()
+        
+        # Initialize data structures
         self.current_folder = None
-        self.base_game_folder = None
+        self.files_by_type = {}
+        self.manifest_files = {}
+        self.schema_extensions = set()
+        self.localized_text = {}
+        self.config = self.load_config()
+        
+        # Load schemas
+        self.load_schemas()
+        
+        # Initialize UI
+        self.init_ui()
+        
+        # Apply stylesheet
+        self.load_stylesheet()
+        
+        self.current_game_folder = None
         self.current_file = None
         self.current_data = None
         self.schema_dir = None
         self.schemas = {}
-        self.files_by_type = {}
-        self.schema_extensions = {}
-        self.manifest_files = {}
-        self.localized_text = {}  # Store localized text data
         self.base_game_localized_text = {}  # Store base game localized text
         self.current_language = "en"  # Default language
         self.texture_cache = {}  # Cache for loaded textures
         
-        self.init_ui()
         self.showMaximized()
     
     def init_ui(self):
@@ -81,6 +93,11 @@ class EntityToolGUI(QMainWindow):
         
         # Add spacer to push player selector to the right
         toolbar_layout.addStretch()
+        
+        # Status label in the middle
+        self.status_label = QLabel()
+        self.status_label.setStyleSheet("padding: 5px;")
+        toolbar_layout.addWidget(self.status_label)
         
         # Player selector on the right
         self.player_selector = QComboBox()
@@ -138,36 +155,54 @@ class EntityToolGUI(QMainWindow):
         self.setAcceptDrops(True)
     
     def show_settings_dialog(self):
-        """Show settings dialog for schema and base game directory"""
+        """Show settings dialog"""
         dialog = QDialog(self)
         dialog.setWindowTitle("Settings")
-        dialog.setModal(True)
-        
         layout = QVBoxLayout(dialog)
         
-        # Schema directory
-        schema_group = QGroupBox("Schema Directory")
+        # Schema folder selection
         schema_layout = QHBoxLayout()
-        self.schema_path_label = QLabel('No schema directory selected')
-        self.schema_path_label.setWordWrap(True)
-        schema_btn = QPushButton('Select Directory')
-        schema_btn.clicked.connect(self.select_schema_directory)
-        schema_layout.addWidget(self.schema_path_label)
-        schema_layout.addWidget(schema_btn)
-        schema_group.setLayout(schema_layout)
-        layout.addWidget(schema_group)
+        schema_label = QLabel("Schema Folder:")
+        schema_path = QLineEdit(self.config.get("schema_folder", ""))
+        schema_path.setReadOnly(True)
+        schema_btn = QPushButton("Browse...")
         
-        # Base game directory
-        base_game_group = QGroupBox("Base Game Directory")
+        def select_schema_folder():
+            folder = QFileDialog.getExistingDirectory(self, "Select Schema Folder")
+            if folder:
+                schema_path.setText(folder)
+                self.config["schema_folder"] = folder
+                self.save_config()
+                self.load_schemas()  # Reload schemas with new path
+        
+        schema_btn.clicked.connect(select_schema_folder)
+        schema_layout.addWidget(schema_label)
+        schema_layout.addWidget(schema_path)
+        schema_layout.addWidget(schema_btn)
+        
+        # Base game folder selection
         base_game_layout = QHBoxLayout()
-        self.base_game_path_label = QLabel('No base game directory selected')
-        self.base_game_path_label.setWordWrap(True)
-        base_game_btn = QPushButton('Select Directory')
-        base_game_btn.clicked.connect(self.select_base_game_directory)
-        base_game_layout.addWidget(self.base_game_path_label)
+        base_game_label = QLabel("Base Game Folder:")
+        base_game_path = QLineEdit(self.config.get("base_game_folder", ""))
+        base_game_path.setReadOnly(True)
+        base_game_btn = QPushButton("Browse...")
+        
+        def select_base_game_folder():
+            folder = QFileDialog.getExistingDirectory(self, "Select Base Game Folder")
+            if folder:
+                base_game_path.setText(folder)
+                self.config["base_game_folder"] = folder
+                self.save_config()
+                self.load_localized_text()  # Reload localized text with new path
+        
+        base_game_btn.clicked.connect(select_base_game_folder)
+        base_game_layout.addWidget(base_game_label)
+        base_game_layout.addWidget(base_game_path)
         base_game_layout.addWidget(base_game_btn)
-        base_game_group.setLayout(base_game_layout)
-        layout.addWidget(base_game_group)
+        
+        # Add layouts to dialog
+        layout.addLayout(schema_layout)
+        layout.addLayout(base_game_layout)
         
         # Close button
         close_btn = QPushButton("Close")
@@ -507,8 +542,8 @@ class EntityToolGUI(QMainWindow):
                     return json.load(f), False
             
             # Try base game folder if enabled
-            if try_base_game and self.base_game_folder:
-                base_game_path = self.base_game_folder / file_path.relative_to(self.current_folder)
+            if try_base_game and self.config.get("base_game_folder"):
+                base_game_path = Path(self.config["base_game_folder"]) / file_path.relative_to(self.current_folder)
                 if base_game_path.exists():
                     with open(base_game_path, encoding='utf-8') as f:
                         return json.load(f), True
@@ -564,133 +599,67 @@ class EntityToolGUI(QMainWindow):
             break  # Only load the first item
     
     def load_schemas(self):
-        """Load all JSON schemas from the selected directory"""
-        if not self.schema_dir or not self.schema_dir.exists():
+        """Load schema files from the schema folder"""
+        schema_folder = self.config.get("schema_folder")
+        if not schema_folder:
+            logging.warning("No schema folder configured")
             return
-        
-        try:
-            # Clear existing schemas and extension mappings
-            self.schemas.clear()
-            self.schema_extensions.clear()
             
-            # Load all schema files
-            schema_files = list(self.schema_dir.glob("*.json"))
+        schema_path = Path(schema_folder)
+        if not schema_path.exists():
+            logging.error(f"Schema folder does not exist: {schema_path}")
+            return
+            
+        try:
+            schema_files = list(schema_path.rglob("*.schema.json"))
             logging.info(f"Found {len(schema_files)} schema files")
             
-            for schema_file in schema_files:
-                try:
-                    with open(schema_file) as f:
-                        schema = json.load(f)
-                    
-                    # Store schema
-                    schema_name = schema_file.stem
-                    self.schemas[schema_name] = schema
-                    
-                    # Create extension mapping (e.g., "action-data-source-schema" -> ".action_data_source")
-                    if schema_name.endswith('-schema'):
-                        ext = schema_name[:-7].replace('-', '_')
-                        self.schema_extensions[f".{ext}"] = schema_name
-                    
-                    logging.debug(f"Loaded schema: {schema_file.name}")
-                except Exception as e:
-                    logging.error(f"Error loading schema {schema_file.name}: {str(e)}")
+            # Clear existing extensions
+            self.schema_extensions.clear()
             
-            logging.info(f"Successfully loaded {len(self.schemas)} schemas")
-            logging.debug(f"File extensions mapped: {list(self.schema_extensions.keys())}")
-                
+            # Process each schema file
+            for file_path in schema_files:
+                try:
+                    with open(file_path) as f:
+                        schema = json.load(f)
+                    if 'fileExtension' in schema:
+                        self.schema_extensions.add(schema['fileExtension'])
+                except Exception as e:
+                    logging.error(f"Error loading schema {file_path}: {str(e)}")
+            
+            logging.info(f"Successfully loaded {len(self.schema_extensions)} schemas")
+            
         except Exception as e:
             logging.error(f"Error loading schemas: {str(e)}")
     
-    def on_player_selected(self, player_name: str):
-        """Handle player selection from dropdown"""
-        if not player_name or not self.current_folder:
+    def load_localized_text(self):
+        """Load localized text from the base game folder"""
+        base_game_folder = self.config.get("base_game_folder")
+        if not base_game_folder:
+            logging.warning("No base game folder configured")
             return
             
-        # Find and load the selected player file
-        player_file = self.current_folder / "entities" / f"{player_name}.player"
-        self.load_main_file(player_file)
-    
-    def load_research_subject(self, subject_id: str):
-        """Load a research subject file and display its details using the schema"""
-        if not self.current_folder or not hasattr(self, 'research_details_layout'):
-            return
-            
-        # Look for the research subject file in the entities folder
-        subject_file = self.current_folder / "entities" / f"{subject_id}.research_subject"
-        subject_data, is_base_game = self.load_file(subject_file)
-        
-        if not subject_data:
-            logging.error(f"Research subject file not found: {subject_file}")
+        localization_path = Path(base_game_folder) / "localization"
+        if not localization_path.exists():
+            logging.error(f"Localization folder does not exist: {localization_path}")
             return
             
         try:
-            # Get the research subject schema
-            schema_name = "research-subject-schema"
-            if schema_name not in self.schemas:
-                logging.error(f"Schema not found: {schema_name}")
-                return
-                
-            self.current_schema = self.schemas[schema_name]
+            # Clear existing localized text
+            self.localized_text.clear()
             
-            # Create the details widget using the schema
-            title = "Research Subject Details (Base Game)" if is_base_game else "Research Subject Details"
-            details_group = QGroupBox(title)
-            if is_base_game:
-                details_group.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
-            
-            # Create scrollable area for the content
-            scroll = QScrollArea()
-            scroll.setWidgetResizable(True)
-            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            
-            # Create the content widget using the schema
-            content_widget = self.create_widget_for_schema(subject_data, self.current_schema, is_base_game)
-            scroll.setWidget(content_widget)
-            
-            # Add the scroll area to the details group
-            details_layout = QVBoxLayout()
-            details_layout.addWidget(scroll)
-            details_group.setLayout(details_layout)
-            
-            # Clear any existing details and add the new ones
-            while self.research_details_layout.count():
-                item = self.research_details_layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-            
-            self.research_details_layout.addWidget(details_group)
-            
+            # Load each language file
+            for lang_file in localization_path.glob("*.json"):
+                try:
+                    lang_code = lang_file.stem
+                    with open(lang_file, encoding='utf-8') as f:
+                        self.localized_text[lang_code] = json.load(f)
+                    logging.info(f"Loaded base game localized text for {lang_code}")
+                except Exception as e:
+                    logging.error(f"Error loading language file {lang_file}: {str(e)}")
+                    
         except Exception as e:
-            logging.error(f"Error loading research subject {subject_id}: {str(e)}")
-    
-    def on_research_subject_clicked(self, item):
-        """Handle clicking on a research subject in the list"""
-        subject_id = item.text()
-        self.load_research_subject(subject_id)
-    
-    def load_localized_text(self):
-        """Load localized text files from the localized_text folder"""
-        if not self.current_folder:
-            return
-            
-        localized_text_dir = self.current_folder / "localized_text"
-        if not localized_text_dir.exists():
-            logging.warning("No localized_text directory found")
-            return
-            
-        # Clear existing localized text
-        self.localized_text.clear()
-        
-        # Load all localized text files
-        for text_file in localized_text_dir.glob("*.localized_text"):
-            try:
-                language_code = text_file.stem  # Get language code from filename
-                with open(text_file, encoding='utf-8') as f:
-                    text_data = json.load(f)
-                self.localized_text[language_code] = text_data
-                logging.info(f"Loaded localized text for {language_code}")
-            except Exception as e:
-                logging.error(f"Error loading localized text file {text_file}: {str(e)}")
+            logging.error(f"Error loading localized text: {str(e)}")
     
     def get_localized_text(self, text_key: str) -> tuple[str, bool]:
         """Get localized text for a key and whether it's from base game.
@@ -734,35 +703,32 @@ class EntityToolGUI(QMainWindow):
     
     def load_main_file(self, file_path: Path):
         """Load a file as the main displayed file"""
-        data, is_base_game = self.load_file(file_path)
-        if data is None:
-            self.status_label.setText('Error loading file')
+        try:
+            with open(file_path, encoding='utf-8') as f:
+                data = json.load(f)
+                
+            self.current_file = file_path
+            self.current_data = data
+            
+            # Process manifest if applicable
+            if file_path.suffix == '.entity_manifest':
+                self.process_manifest_file(file_path, self.current_data)
+            
+            # If it's a player file, update the display
+            if file_path.suffix == '.player':
+                self.update_player_display()
+            
+            # Log data details
+            logging.info(f"Successfully loaded: {file_path}")
+            logging.info(f"Data type: {type(self.current_data)}")
+            if isinstance(self.current_data, dict):
+                logging.info(f"Top-level keys: {list(self.current_data.keys())}")
+                
+        except Exception as e:
+            logging.error(f"Error loading file {file_path}: {str(e)}")
             self.current_file = None
             self.current_data = None
-            return
-            
-        self.current_file = file_path
-        self.current_data = data
-        
-        # Process manifest if applicable
-        if file_path.suffix == '.entity_manifest':
-            self.process_manifest_file(file_path, self.current_data)
-        
-        # If it's a player file, update the display
-        if file_path.suffix == '.player':
-            self.update_player_display()
-        
-        # Log data details
-        source = "base game" if is_base_game else "mod"
-        logging.info(f"Successfully loaded from {source}: {file_path}")
-        logging.info(f"Data type: {type(self.current_data)}")
-        if isinstance(self.current_data, dict):
-            logging.info(f"Top-level keys: {list(self.current_data.keys())}")
-            for key, value in self.current_data.items():
-                logging.info(f"{key}: {type(value)}")
-                if isinstance(value, (list, dict)):
-                    logging.info(f"{key} length: {len(value)}")
-
+    
     def load_texture(self, texture_name: str) -> tuple[QPixmap, bool]:
         """Load a texture from mod or base game folder.
         Returns tuple of (pixmap, is_from_base_game)"""
@@ -784,8 +750,9 @@ class EntityToolGUI(QMainWindow):
                     return pixmap, False
         
         # Try base game folder
-        if self.base_game_folder:
-            texture_path = self.base_game_folder / "textures" / f"{texture_name}.png"
+        base_game_folder = self.config.get("base_game_folder")
+        if base_game_folder:
+            texture_path = Path(base_game_folder) / "textures" / f"{texture_name}.png"
             if texture_path.exists():
                 pixmap = QPixmap(str(texture_path))
                 if not pixmap.isNull():
@@ -1125,4 +1092,49 @@ class EntityToolGUI(QMainWindow):
             self.research_details_layout.addWidget(details_group)
             
         except Exception as e:
-            logging.error(f"Error loading research subject {subject_id}: {str(e)}") 
+            logging.error(f"Error loading research subject {subject_id}: {str(e)}")
+    
+    def on_research_subject_clicked(self, item):
+        """Handle clicking on a research subject in the list"""
+        subject_id = item.text()
+        self.load_research_subject(subject_id)
+    
+    def load_config(self) -> dict:
+        """Load configuration from file"""
+        config_path = Path(__file__).parent / "config.json"
+        default_config = {
+            "schema_folder": "",
+            "base_game_folder": ""
+        }
+        
+        try:
+            if config_path.exists():
+                with open(config_path) as f:
+                    return json.load(f)
+            return default_config
+        except Exception as e:
+            logging.error(f"Error loading config: {str(e)}")
+            return default_config
+    
+    def save_config(self):
+        """Save configuration to file"""
+        config_path = Path(__file__).parent / "config.json"
+        try:
+            with open(config_path, 'w') as f:
+                json.dump(self.config, f, indent=4)
+            logging.info("Configuration saved successfully")
+        except Exception as e:
+            logging.error(f"Error saving config: {str(e)}")
+
+    def load_stylesheet(self):
+        # Implementation of load_stylesheet method
+        pass 
+
+    def on_player_selected(self, player_name: str):
+        """Handle player selection from dropdown"""
+        if not player_name or not self.current_folder:
+            return
+            
+        # Find and load the selected player file
+        player_file = self.current_folder / "entities" / f"{player_name}.player"
+        self.load_main_file(player_file) 
