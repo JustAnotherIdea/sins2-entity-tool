@@ -1186,43 +1186,57 @@ class EntityToolGUI(QMainWindow):
             # Get the schema for array items
             items_schema = schema.get("items", {})
             if isinstance(items_schema, dict):
-                # Single schema for all items
-                for i, item in enumerate(data):
-                    widget = self.create_widget_for_schema(
-                        item, items_schema, is_base_game
-                    )
-                    if widget:
-                        if isinstance(item, dict) and "modifier_type" in item:
-                            # Special handling for modifier arrays
-                            container_layout.addWidget(widget)
-                        else:
-                            group_widget = QWidget()
-                            group_layout = QVBoxLayout(group_widget)
-                            group_layout.setContentsMargins(0, 0, 0, 0)
-                            
-                            # Create collapsible button
-                            toggle_btn = QToolButton()
-                            toggle_btn.setStyleSheet("QToolButton { border: none; }")
-                            toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-                            toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
-                            toggle_btn.setText(f"Item {i+1}")
-                            toggle_btn.setCheckable(True)
-                            
-                            # Create content widget
-                            content = QWidget()
-                            content_layout = QVBoxLayout(content)
-                            content_layout.setContentsMargins(20, 0, 0, 0)  # Add left margin for indentation
-                            content_layout.addWidget(widget)
-                            
-                            content.setVisible(False)  # Initially collapsed
-                            toggle_btn.toggled.connect(content.setVisible)
-                            toggle_btn.toggled.connect(lambda checked: toggle_btn.setArrowType(
-                                Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow
-                            ))
-                            
-                            group_layout.addWidget(toggle_btn)
-                            group_layout.addWidget(content)
-                            container_layout.addWidget(group_widget)
+                # Check if array contains simple values
+                is_simple_array = (
+                    items_schema.get("type") in ["string", "number", "boolean", "integer"] and
+                    not any(key in items_schema for key in ["$ref", "format", "properties"])
+                )
+                
+                if is_simple_array:
+                    # For simple arrays, show values directly in a vertical layout
+                    for item in data:
+                        widget = self.create_widget_for_value(item, items_schema, is_base_game)
+                        container_layout.addWidget(widget)
+                else:
+                    # For complex arrays, use collapsible sections
+                    for i, item in enumerate(data):
+                        widget = self.create_widget_for_schema(
+                            item, items_schema, is_base_game
+                        )
+                        if widget:
+                            if isinstance(item, dict) and "modifier_type" in item:
+                                # Special handling for modifier arrays
+                                container_layout.addWidget(widget)
+                            else:
+                                group_widget = QWidget()
+                                group_layout = QVBoxLayout(group_widget)
+                                group_layout.setContentsMargins(0, 0, 0, 0)
+                                
+                                # Create collapsible button
+                                toggle_btn = QToolButton()
+                                toggle_btn.setStyleSheet("QToolButton { border: none; }")
+                                toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+                                toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
+                                toggle_btn.setText(f"Item {i+1}")
+                                toggle_btn.setCheckable(True)
+                                
+                                # Create content widget
+                                content = QWidget()
+                                content_layout = QVBoxLayout(content)
+                                content_layout.setContentsMargins(20, 0, 0, 0)  # Add left margin for indentation
+                                content_layout.addWidget(widget)
+                                
+                                content.setVisible(False)  # Initially collapsed
+                                
+                                def update_arrow_state(checked, btn=toggle_btn):
+                                    btn.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
+                                
+                                toggle_btn.toggled.connect(content.setVisible)
+                                toggle_btn.toggled.connect(update_arrow_state)
+                                
+                                group_layout.addWidget(toggle_btn)
+                                group_layout.addWidget(content)
+                                container_layout.addWidget(group_widget)
             
             return container
             
