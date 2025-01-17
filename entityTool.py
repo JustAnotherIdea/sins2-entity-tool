@@ -1030,6 +1030,42 @@ class EntityToolGUI(QMainWindow):
             
             for prop_name, prop_schema in sorted_properties:
                 if prop_name in data:
+                    # Special handling for abilities and skin_groups arrays
+                    if prop_name == "abilities" and isinstance(data[prop_name], list):
+                        abilities_group = QGroupBox("Abilities")
+                        abilities_layout = QVBoxLayout()
+                        for ability_group in data[prop_name]:
+                            if "abilities" in ability_group:
+                                for ability_id in ability_group["abilities"]:
+                                    btn = QPushButton(ability_id)
+                                    btn.setStyleSheet("text-align: left; padding: 2px;")
+                                    btn.clicked.connect(lambda checked, a=ability_id: self.load_referenced_entity(a, "ability"))
+                                    abilities_layout.addWidget(btn)
+                        abilities_group.setLayout(abilities_layout)
+                        if isinstance(layout, QFormLayout):
+                            layout.addRow(abilities_group)
+                        else:
+                            layout.addWidget(abilities_group)
+                        continue
+                        
+                    elif prop_name == "skin_groups" and isinstance(data[prop_name], list):
+                        skins_group = QGroupBox("Skins")
+                        skins_layout = QVBoxLayout()
+                        for skin_group in data[prop_name]:
+                            if "skins" in skin_group:
+                                for skin_id in skin_group["skins"]:
+                                    btn = QPushButton(skin_id)
+                                    btn.setStyleSheet("text-align: left; padding: 2px;")
+                                    btn.clicked.connect(lambda checked, s=skin_id: self.load_referenced_entity(s, "unit_skin"))
+                                    skins_layout.addWidget(btn)
+                        skins_group.setLayout(skins_layout)
+                        if isinstance(layout, QFormLayout):
+                            layout.addRow(skins_group)
+                        else:
+                            layout.addWidget(skins_group)
+                        continue
+                    
+                    # Regular property handling
                     widget = self.create_widget_for_property(
                         prop_name, data[prop_name], prop_schema, is_base_game
                     )
