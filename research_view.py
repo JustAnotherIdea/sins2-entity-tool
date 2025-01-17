@@ -271,9 +271,9 @@ class ResearchTreeView(QGraphicsView):
         # Calculate position based on tier and field_coord
         tier_x = self.field_width + display_tier * self.horizontal_spacing
         
-        # Each tier has two columns. field_coord[0] determines which column (0,1,2 = left, 3,4,5 = right)
+        # Each tier has two columns. field_coord[0] determines which column
         if field_coord and len(field_coord) >= 2:
-            is_right_column = field_coord[0] >= 3
+            is_right_column = field_coord[0] % 2 == 1
             x = tier_x + (self.horizontal_spacing/2 if is_right_column else 0)
         else:
             # Default to left column if no field_coord
@@ -300,11 +300,12 @@ class ResearchTreeView(QGraphicsView):
         
         # Calculate y position using field_coord
         if field_coord and len(field_coord) >= 2:
-            # Calculate position based on row number
-            row_spacing = field_height / (self.field_max_rows[domain][field] + 1)
-            y = field_center - field_height/2 + (field_coord[1] + 0.5) * row_spacing
+            # Use fixed row height for consistent spacing
+            y = field_center - (field_height/2) + (field_coord[1] * self.row_height)
+            print(f"Node {subject_id} at ({x}, {y}) FEILD CENTER {field_center} - (FIELD HEIGHT {field_height}/2) + (FIELD ROW {field_coord[1]} * ROW HEIGHT {self.row_height}) = {y}")
         else:
             # If no field_coord, center the node in its field
+            print(f"Node {subject_id} at CENTER")
             y = field_center
         
         node.setPos(x, y)
