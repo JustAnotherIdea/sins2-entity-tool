@@ -1127,8 +1127,20 @@ class EntityToolGUI(QMainWindow):
             logging.error(f"Error saving config: {str(e)}")
 
     def load_stylesheet(self):
-        # Implementation of load_stylesheet method
-        pass 
+        """Load and apply the dark theme stylesheet from QSS file"""
+        try:
+            style_path = Path(__file__).parent / "style.qss"
+            if not style_path.exists():
+                logging.error("Style file not found")
+                return
+                
+            with open(style_path, 'r') as f:
+                style = f.read()
+                
+            self.setStyleSheet(style)
+            logging.info("Loaded stylesheet")
+        except Exception as e:
+            logging.error(f"Error loading stylesheet: {str(e)}")
 
     def on_player_selected(self, player_name: str):
         """Handle player selection from dropdown"""
