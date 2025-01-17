@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
                             QLineEdit, QListWidget, QComboBox, QTreeWidget, QTreeWidgetItem,
-                            QTabWidget, QScrollArea, QGroupBox, QFormLayout)
+                            QTabWidget, QScrollArea, QGroupBox, QFormLayout, QDialog)
 from PyQt6.QtCore import Qt, QMimeData
 from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QIcon
 import json
@@ -49,69 +49,51 @@ class EntityToolGUI(QMainWindow):
         # Create central widget and layout
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QHBoxLayout(central_widget)
+        main_layout = QVBoxLayout(central_widget)
         
-        # Left side (file operations)
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
+        # Top toolbar
+        toolbar = QWidget()
+        toolbar_layout = QHBoxLayout(toolbar)
+        toolbar_layout.setContentsMargins(10, 5, 10, 5)
         
-        # Schema directory selection
-        schema_layout = QHBoxLayout()
-        self.schema_path_label = QLabel('No schema directory selected')
-        self.schema_path_label.setWordWrap(True)
-        schema_btn = QPushButton('Select Schema Directory')
-        schema_btn.clicked.connect(self.select_schema_directory)
-        schema_layout.addWidget(self.schema_path_label)
-        schema_layout.addWidget(schema_btn)
-        left_layout.addLayout(schema_layout)
+        # Left side of toolbar (folder and settings)
+        left_toolbar = QWidget()
+        left_toolbar_layout = QHBoxLayout(left_toolbar)
+        left_toolbar_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Base game directory selection
-        base_game_layout = QHBoxLayout()
-        self.base_game_path_label = QLabel('No base game directory selected')
-        self.base_game_path_label.setWordWrap(True)
-        base_game_btn = QPushButton('Select Base Game Directory')
-        base_game_btn.clicked.connect(self.select_base_game_directory)
-        base_game_layout.addWidget(self.base_game_path_label)
-        base_game_layout.addWidget(base_game_btn)
-        left_layout.addLayout(base_game_layout)
+        # Folder button with icon
+        folder_btn = QPushButton()
+        folder_btn.setIcon(QIcon(str(Path(__file__).parent / "icons" / "folder.png")))  # Use custom icon
+        folder_btn.setToolTip('Open Mod Folder')
+        folder_btn.setFixedSize(32, 32)
+        folder_btn.clicked.connect(self.open_folder_dialog)
+        left_toolbar_layout.addWidget(folder_btn)
         
-        # Player selector
+        # Settings button with icon
+        settings_btn = QPushButton()
+        settings_btn.setIcon(QIcon(str(Path(__file__).parent / "icons" / "settings.png")))  # Use custom icon
+        settings_btn.setToolTip('Settings')
+        settings_btn.setFixedSize(32, 32)
+        settings_btn.clicked.connect(self.show_settings_dialog)
+        left_toolbar_layout.addWidget(settings_btn)
+        
+        toolbar_layout.addWidget(left_toolbar)
+        
+        # Add spacer to push player selector to the right
+        toolbar_layout.addStretch()
+        
+        # Player selector on the right
         self.player_selector = QComboBox()
+        self.player_selector.setFixedWidth(200)
         self.player_selector.currentTextChanged.connect(self.on_player_selected)
-        left_layout.addWidget(self.player_selector)
+        toolbar_layout.addWidget(self.player_selector)
         
-        # Status/drop label
-        self.status_label = QLabel('Drop mod folder here\nNo folder loaded')
-        self.status_label.setObjectName("dropLabel")
-        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.status_label.setMinimumHeight(100)
-        left_layout.addWidget(self.status_label)
+        main_layout.addWidget(toolbar)
         
-        # Open folder button
-        open_btn = QPushButton('Open Mod Folder')
-        open_btn.clicked.connect(self.open_folder_dialog)
-        left_layout.addWidget(open_btn)
-        
-        # File tree
-        self.file_tree = QTreeWidget()
-        self.file_tree.setHeaderLabel("Files")
-        self.file_tree.itemClicked.connect(self.on_file_selected)
-        left_layout.addWidget(self.file_tree)
-        
-        # Log display
-        self.log_display = QListWidget()
-        self.log_display.setObjectName("logDisplay")
-        self.log_display.setMaximumHeight(100)
-        left_layout.addWidget(self.log_display)
-        
-        # Right side (entity viewer/editor)
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
-        
-        # Tab widget for different sections
+        # Tab widget for different sections (now takes full width)
         self.tab_widget = QTabWidget()
         
-        # Basic Info Tab
+        # Add tabs
         basic_info_widget = QWidget()
         basic_info_layout = QVBoxLayout(basic_info_widget)
         self.basic_info_form = QFormLayout()
@@ -150,19 +132,49 @@ class EntityToolGUI(QMainWindow):
         planet_types_widget.setWidget(planet_types_content)
         self.tab_widget.addTab(planet_types_widget, "Planet Types")
         
-        right_layout.addWidget(self.tab_widget)
-        
-        # Add both sides to main layout
-        main_layout.addWidget(left_widget, 1)  # 30% width
-        main_layout.addWidget(right_widget, 2)  # 70% width
+        main_layout.addWidget(self.tab_widget)
         
         # Enable drag and drop
         self.setAcceptDrops(True)
+    
+    def show_settings_dialog(self):
+        """Show settings dialog for schema and base game directory"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Settings")
+        dialog.setModal(True)
         
-        # Add log handler
-        self.log_handler = GUILogHandler(self.log_display)
-        self.log_handler.setFormatter(logging.Formatter('%(levelname)s: %(message)s'))
-        logging.getLogger().addHandler(self.log_handler)
+        layout = QVBoxLayout(dialog)
+        
+        # Schema directory
+        schema_group = QGroupBox("Schema Directory")
+        schema_layout = QHBoxLayout()
+        self.schema_path_label = QLabel('No schema directory selected')
+        self.schema_path_label.setWordWrap(True)
+        schema_btn = QPushButton('Select Directory')
+        schema_btn.clicked.connect(self.select_schema_directory)
+        schema_layout.addWidget(self.schema_path_label)
+        schema_layout.addWidget(schema_btn)
+        schema_group.setLayout(schema_layout)
+        layout.addWidget(schema_group)
+        
+        # Base game directory
+        base_game_group = QGroupBox("Base Game Directory")
+        base_game_layout = QHBoxLayout()
+        self.base_game_path_label = QLabel('No base game directory selected')
+        self.base_game_path_label.setWordWrap(True)
+        base_game_btn = QPushButton('Select Directory')
+        base_game_btn.clicked.connect(self.select_base_game_directory)
+        base_game_layout.addWidget(self.base_game_path_label)
+        base_game_layout.addWidget(base_game_btn)
+        base_game_group.setLayout(base_game_layout)
+        layout.addWidget(base_game_group)
+        
+        # Close button
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(close_btn)
+        
+        dialog.exec()
     
     def update_player_display(self):
         """Update the display with player data"""
@@ -350,14 +362,10 @@ class EntityToolGUI(QMainWindow):
             self.current_folder = folder_path.resolve()  # Get absolute path
             self.files_by_type.clear()
             self.manifest_files.clear()  # Clear existing manifest data
-            self.file_tree.clear()
             self.player_selector.clear()  # Clear player selector
             
             # Load localized text first
             self.load_localized_text()
-            
-            # Create root item
-            root_item = QTreeWidgetItem(self.file_tree, [self.current_folder.name])
             
             # First, look for and process manifest files in the entities folder
             entities_folder = self.current_folder / "entities"
@@ -389,26 +397,6 @@ class EntityToolGUI(QMainWindow):
             # Process all files recursively
             for file_path in self.current_folder.rglob("*"):
                 if file_path.is_file():
-                    # Get relative path for display
-                    rel_path = file_path.relative_to(self.current_folder)
-                    
-                    # Create tree structure
-                    current_item = root_item
-                    for part in rel_path.parent.parts:
-                        # Find or create folder item
-                        folder_item = None
-                        for i in range(current_item.childCount()):
-                            if current_item.child(i).text(0) == part:
-                                folder_item = current_item.child(i)
-                                break
-                        if not folder_item:
-                            folder_item = QTreeWidgetItem(current_item, [part])
-                        current_item = folder_item
-                    
-                    # Add file item with absolute path
-                    file_item = QTreeWidgetItem(current_item, [file_path.name])
-                    file_item.setData(0, Qt.ItemDataRole.UserRole, str(file_path.resolve()))
-                    
                     # Check if this file extension has a corresponding schema
                     if file_path.suffix in self.schema_extensions:
                         try:
@@ -422,22 +410,11 @@ class EntityToolGUI(QMainWindow):
                         except Exception as e:
                             logging.error(f"Error loading file {file_path}: {str(e)}")
             
-            # Expand root item and entities folder
-            root_item.setExpanded(True)
-            for i in range(root_item.childCount()):
-                if root_item.child(i).text(0) == "entities":
-                    root_item.child(i).setExpanded(True)
-                    break
-            
-            self.status_label.setText(f'Loaded folder: {self.current_folder.name}\n'
-                                    f'{len(self.files_by_type)} file types found\n'
-                                    f'{len(self.manifest_files)} manifest files found')
             logging.info(f"Successfully loaded folder: {self.current_folder}")
             logging.info(f"Found files of types: {list(self.files_by_type.keys())}")
             logging.info(f"Found manifest files: {list(self.manifest_files.keys())}")
             
         except Exception as e:
-            self.status_label.setText('Error loading folder')
             logging.error(f"Error loading folder: {str(e)}")
             self.current_folder = None
     
