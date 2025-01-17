@@ -1291,9 +1291,9 @@ class EntityToolGUI(QMainWindow):
             value_str = str(value) if value is not None else ""
             
             # Check if this is a reference to another entity type
-            is_weapon = isinstance(value, str) and (property_name in ["weapon", "weapons"] or (value_str.endswith("_weapon") if value_str else False))
-            is_skin = isinstance(value, str) and (property_name in ["skin", "skins"] or (value_str.endswith("_skin") if value_str else False))
-            is_ability = isinstance(value, str) and (property_name in ["ability", "abilities"] or (value_str.endswith("_ability") if value_str else False))
+            is_weapon = isinstance(value, str) and property_name in ["weapon"]
+            is_skin = isinstance(value, str) and property_name in ["skins"]
+            is_ability = isinstance(value, str) and property_name in ["abilities"]
             
             if is_weapon or is_skin or is_ability:
                 btn = QPushButton(value_str)
