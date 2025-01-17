@@ -162,8 +162,8 @@ class EntityToolGUI(QMainWindow):
         self.skin_details_layout = QVBoxLayout(skin_details_group)
         top_row.addWidget(skin_details_group)
         
-        # Set sizes for top row (2:1 ratio)
-        top_row.setSizes([200, 100])
+        # Set sizes for top row (1:1 ratio)
+        top_row.setSizes([100, 100])
         
         # Bottom row of details (Weapon and Ability)
         bottom_row = QSplitter(Qt.Orientation.Horizontal)
@@ -179,17 +179,17 @@ class EntityToolGUI(QMainWindow):
         bottom_row.addWidget(ability_details_group)
         
         # Set sizes for bottom row (1:1 ratio)
-        bottom_row.setSizes([150, 150])
+        bottom_row.setSizes([100, 100])
         
-        # Add rows to details layout with stretch factors
-        details_layout.addWidget(top_row, stretch=2)  # Top row gets more space
-        details_layout.addWidget(bottom_row, stretch=1)  # Bottom row gets less space
+        # Add rows to details layout with equal stretch factors
+        details_layout.addWidget(top_row, stretch=1)
+        details_layout.addWidget(bottom_row, stretch=1)
         
         # Add details widget to splitter
         units_split.addWidget(details_widget)
         
-        # Set initial sizes for the main splitter (1:3 ratio)
-        units_split.setSizes([100, 300])
+        # Set initial sizes for the main splitter (1:4 ratio)
+        units_split.setSizes([100, 400])
         
         # Add the split layout to the units tab
         self.units_layout.addWidget(units_split)
