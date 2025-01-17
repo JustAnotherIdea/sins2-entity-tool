@@ -1039,8 +1039,18 @@ class EntityToolGUI(QMainWindow):
             
             for prop_name, prop_schema in sorted_properties:
                 if prop_name in data:
+                    value = data[prop_name]
+                    
+                    # Check if this is a simple value or array of simple values
+                    is_simple_value = isinstance(value, (str, int, float, bool))
+                    is_simple_array = (
+                        isinstance(value, list) and
+                        value and  # Check if array is not empty
+                        all(isinstance(x, (str, int, float, bool)) for x in value)
+                    )
+                    
                     # Special handling for abilities array
-                    if prop_name == "abilities" and isinstance(data[prop_name], list):
+                    if prop_name == "abilities" and isinstance(value, list):
                         group_widget = QWidget()
                         group_layout = QVBoxLayout(group_widget)
                         group_layout.setContentsMargins(0, 0, 0, 0)
@@ -1058,7 +1068,7 @@ class EntityToolGUI(QMainWindow):
                         content_layout = QVBoxLayout(content)
                         content_layout.setContentsMargins(20, 0, 0, 0)  # Add left margin for indentation
                         
-                        for ability_group in data[prop_name]:
+                        for ability_group in value:
                             if isinstance(ability_group, dict) and "abilities" in ability_group:
                                 for ability_id in ability_group["abilities"]:
                                     btn = QPushButton(ability_id)
@@ -1080,7 +1090,7 @@ class EntityToolGUI(QMainWindow):
                         continue
                         
                     # Special handling for skin_groups array
-                    elif prop_name == "skin_groups" and isinstance(data[prop_name], list):
+                    elif prop_name == "skin_groups" and isinstance(value, list):
                         group_widget = QWidget()
                         group_layout = QVBoxLayout(group_widget)
                         group_layout.setContentsMargins(0, 0, 0, 0)
@@ -1098,7 +1108,7 @@ class EntityToolGUI(QMainWindow):
                         content_layout = QVBoxLayout(content)
                         content_layout.setContentsMargins(20, 0, 0, 0)  # Add left margin for indentation
                         
-                        for skin_group in data[prop_name]:
+                        for skin_group in value:
                             if isinstance(skin_group, dict) and "skins" in skin_group:
                                 for skin_id in skin_group["skins"]:
                                     btn = QPushButton(skin_id)
@@ -1119,19 +1129,24 @@ class EntityToolGUI(QMainWindow):
                         container_layout.addWidget(group_widget)
                         continue
                     
-                    # Regular property handling
+                    # Create widget for the property
                     widget = self.create_widget_for_property(
-                        prop_name, data[prop_name], prop_schema, is_base_game
+                        prop_name, value, prop_schema, is_base_game
                     )
                     if widget:
-                        # Check if the property is a complex type (object or array)
-                        is_complex = (
-                            isinstance(data[prop_name], (dict, list)) or
-                            prop_schema.get("type") in ["object", "array"] or
-                            "$ref" in prop_schema
-                        )
-                        
-                        if is_complex:
+                        if is_simple_value or is_simple_array:
+                            # Create simple label and value layout for primitive types and simple arrays
+                            row_widget = QWidget()
+                            row_layout = QHBoxLayout(row_widget)
+                            row_layout.setContentsMargins(0, 2, 0, 2)  # Add small vertical spacing
+                            
+                            label = QLabel(prop_name.replace("_", " ").title() + ":")
+                            row_layout.addWidget(label)
+                            row_layout.addWidget(widget)
+                            row_layout.addStretch()
+                            
+                            container_layout.addWidget(row_widget)
+                        else:
                             # Create collapsible section for complex types
                             group_widget = QWidget()
                             group_layout = QVBoxLayout(group_widget)
@@ -1162,18 +1177,6 @@ class EntityToolGUI(QMainWindow):
                             group_layout.addWidget(toggle_btn)
                             group_layout.addWidget(content)
                             container_layout.addWidget(group_widget)
-                        else:
-                            # Create simple label and value layout for primitive types
-                            row_widget = QWidget()
-                            row_layout = QHBoxLayout(row_widget)
-                            row_layout.setContentsMargins(0, 2, 0, 2)  # Add small vertical spacing
-                            
-                            label = QLabel(prop_name.replace("_", " ").title() + ":")
-                            row_layout.addWidget(label)
-                            row_layout.addWidget(widget)
-                            row_layout.addStretch()
-                            
-                            container_layout.addWidget(row_widget)
             
             return container
             
@@ -1189,7 +1192,8 @@ class EntityToolGUI(QMainWindow):
                 # Check if array contains simple values
                 is_simple_array = (
                     items_schema.get("type") in ["string", "number", "boolean", "integer"] and
-                    not any(key in items_schema for key in ["$ref", "format", "properties"])
+                    not any(key in items_schema for key in ["$ref", "format", "properties"]) and
+                    all(isinstance(x, (str, int, float, bool)) for x in data)
                 )
                 
                 if is_simple_array:
