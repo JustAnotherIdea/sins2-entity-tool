@@ -1124,35 +1124,56 @@ class EntityToolGUI(QMainWindow):
                         prop_name, data[prop_name], prop_schema, is_base_game
                     )
                     if widget:
-                        group_widget = QWidget()
-                        group_layout = QVBoxLayout(group_widget)
-                        group_layout.setContentsMargins(0, 0, 0, 0)
+                        # Check if the property is a complex type (object or array)
+                        is_complex = (
+                            isinstance(data[prop_name], (dict, list)) or
+                            prop_schema.get("type") in ["object", "array"] or
+                            "$ref" in prop_schema
+                        )
                         
-                        # Create collapsible button
-                        toggle_btn = QToolButton()
-                        toggle_btn.setStyleSheet("QToolButton { border: none; }")
-                        toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-                        toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
-                        toggle_btn.setText(prop_name.replace("_", " ").title())
-                        toggle_btn.setCheckable(True)
-                        
-                        # Create content widget
-                        content = QWidget()
-                        content_layout = QVBoxLayout(content)
-                        content_layout.setContentsMargins(20, 0, 0, 0)  # Add left margin for indentation
-                        content_layout.addWidget(widget)
-                        
-                        content.setVisible(False)  # Initially collapsed
-                        
-                        def update_arrow_state(checked, btn=toggle_btn):
-                            btn.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
-                        
-                        toggle_btn.toggled.connect(content.setVisible)
-                        toggle_btn.toggled.connect(update_arrow_state)
-                        
-                        group_layout.addWidget(toggle_btn)
-                        group_layout.addWidget(content)
-                        container_layout.addWidget(group_widget)
+                        if is_complex:
+                            # Create collapsible section for complex types
+                            group_widget = QWidget()
+                            group_layout = QVBoxLayout(group_widget)
+                            group_layout.setContentsMargins(0, 0, 0, 0)
+                            
+                            # Create collapsible button
+                            toggle_btn = QToolButton()
+                            toggle_btn.setStyleSheet("QToolButton { border: none; }")
+                            toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+                            toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
+                            toggle_btn.setText(prop_name.replace("_", " ").title())
+                            toggle_btn.setCheckable(True)
+                            
+                            # Create content widget
+                            content = QWidget()
+                            content_layout = QVBoxLayout(content)
+                            content_layout.setContentsMargins(20, 0, 0, 0)  # Add left margin for indentation
+                            content_layout.addWidget(widget)
+                            
+                            content.setVisible(False)  # Initially collapsed
+                            
+                            def update_arrow_state(checked, btn=toggle_btn):
+                                btn.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
+                            
+                            toggle_btn.toggled.connect(content.setVisible)
+                            toggle_btn.toggled.connect(update_arrow_state)
+                            
+                            group_layout.addWidget(toggle_btn)
+                            group_layout.addWidget(content)
+                            container_layout.addWidget(group_widget)
+                        else:
+                            # Create simple label and value layout for primitive types
+                            row_widget = QWidget()
+                            row_layout = QHBoxLayout(row_widget)
+                            row_layout.setContentsMargins(0, 2, 0, 2)  # Add small vertical spacing
+                            
+                            label = QLabel(prop_name.replace("_", " ").title() + ":")
+                            row_layout.addWidget(label)
+                            row_layout.addWidget(widget)
+                            row_layout.addStretch()
+                            
+                            container_layout.addWidget(row_widget)
             
             return container
             
