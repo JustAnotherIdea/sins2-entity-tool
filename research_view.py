@@ -320,10 +320,8 @@ class ResearchTreeView(QGraphicsView):
         if field_coord and len(field_coord) >= 2:
             # Use fixed row height for consistent spacing
             y = field_center - (field_height/2) + (field_coord[1] * self.row_height)
-            print(f"Node {subject_id} at ({x}, {y}) FEILD CENTER {field_center} - (FIELD HEIGHT {field_height}/2) + (FIELD ROW {field_coord[1]} * ROW HEIGHT {self.row_height}) = {y}")
         else:
             # If no field_coord, center the node in its field
-            print(f"Node {subject_id} at CENTER")
             y = field_center
         
         node.setPos(x, y)

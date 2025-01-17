@@ -33,25 +33,25 @@ class EntityToolGUI(QMainWindow):
         self.manifest_files = {}
         self.schema_extensions = set()
         self.localized_text = {}
-        self.config = self.load_config()
+        self.schemas = {}  # Initialize schemas dict first
+        self.current_schema = None
+        self.current_game_folder = None
+        self.current_file = None
+        self.current_data = None
+        self.schema_dir = None
+        self.base_game_localized_text = {}  # Store base game localized text
+        self.current_language = "en"  # Default language
+        self.texture_cache = {}  # Cache for loaded textures
         
-        # Load schemas
-        self.load_schemas()
+        # Load configuration and schemas
+        self.config = self.load_config()
+        self.load_schemas()  # Load schemas after config is loaded
         
         # Initialize UI
         self.init_ui()
         
         # Apply stylesheet
         self.load_stylesheet()
-        
-        self.current_game_folder = None
-        self.current_file = None
-        self.current_data = None
-        self.schema_dir = None
-        self.schemas = {}
-        self.base_game_localized_text = {}  # Store base game localized text
-        self.current_language = "en"  # Default language
-        self.texture_cache = {}  # Cache for loaded textures
         
         self.showMaximized()
     
@@ -280,16 +280,33 @@ class EntityToolGUI(QMainWindow):
                 self.home_planet_layout.addWidget(levels_group)
         
         # Units Tab
-        units_group = QGroupBox("Buildable Units")
-        units_layout = QVBoxLayout()
-        
         if "buildable_units" in self.current_data:
-            units_list = QListWidget()
-            units_list.addItems(self.current_data["buildable_units"])
-            units_layout.addWidget(units_list)
-        
-        units_group.setLayout(units_layout)
-        self.units_layout.addWidget(units_group)
+            # Create split layout for units tab
+            units_split = QWidget()
+            units_split_layout = QHBoxLayout(units_split)
+            
+            # Left side - Unit list
+            units_list_group = QGroupBox("Buildable Units")
+            units_list_layout = QVBoxLayout()
+            self.units_list = QListWidget()
+            self.units_list.itemClicked.connect(self.on_unit_selected)
+            
+            # Add units to list
+            for unit_id in sorted(self.current_data["buildable_units"]):
+                self.units_list.addItem(unit_id)
+            
+            units_list_layout.addWidget(self.units_list)
+            units_list_group.setLayout(units_list_layout)
+            units_split_layout.addWidget(units_list_group)
+            
+            # Right side - Unit details
+            unit_details_group = QGroupBox("Unit Details")
+            self.unit_details_layout = QVBoxLayout()
+            unit_details_group.setLayout(self.unit_details_layout)
+            units_split_layout.addWidget(unit_details_group, stretch=2)  # Give details more space
+            
+            # Add the split layout to the units tab
+            self.units_layout.addWidget(units_split)
         
         # Research Tab
         if "research" in self.current_data:
@@ -297,6 +314,34 @@ class EntityToolGUI(QMainWindow):
             self.research_layout.addWidget(research_view)
         
         self.tab_widget.setCurrentIndex(0)  # Show first tab
+    
+    def on_unit_selected(self, item):
+        """Handle unit selection from the list"""
+        if not self.current_folder:
+            return
+            
+        unit_id = item.text()
+        unit_file = self.current_folder / "entities" / f"{unit_id}.unit"
+        
+        try:
+            # Load unit data
+            unit_data, is_base_game = self.load_file(unit_file)
+            if not unit_data:
+                logging.error(f"Unit file not found: {unit_file}")
+                return
+                
+            # Clear existing details
+            self.clear_layout(self.unit_details_layout)
+            
+            # Create and add the schema view
+            schema_view = self.create_schema_view("unit", unit_data, is_base_game)
+            self.unit_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            logging.error(f"Error loading unit {unit_id}: {str(e)}")
+            error_label = QLabel(f"Error loading unit: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.unit_details_layout.addWidget(error_label)
     
     def clear_all_layouts(self):
         """Clear all tab layouts"""
@@ -611,23 +656,35 @@ class EntityToolGUI(QMainWindow):
             return
             
         try:
-            schema_files = list(schema_path.rglob("*.schema.json"))
-            logging.info(f"Found {len(schema_files)} schema files")
-            
-            # Clear existing extensions
-            self.schema_extensions.clear()
+            # Clear existing extensions and schemas
+            self.schema_extensions = set()
+            self.schemas = {}
             
             # Process each schema file
+            schema_files = list(schema_path.glob("*-schema.json"))  # Changed pattern to match actual filenames
+            logging.info(f"Found {len(schema_files)} schema files")
+            
             for file_path in schema_files:
                 try:
-                    with open(file_path) as f:
+                    with open(file_path, encoding='utf-8') as f:
                         schema = json.load(f)
+                        
+                    # Get schema name from filename (e.g. "unit-schema.json" -> "unit-schema")
+                    schema_name = file_path.stem  # This will be e.g. "unit-schema"
+                    self.schemas[schema_name] = schema
+                    
+                    # Add file extension if specified in schema
                     if 'fileExtension' in schema:
-                        self.schema_extensions.add(schema['fileExtension'])
+                        ext = schema['fileExtension']
+                        if not ext.startswith('.'):
+                            ext = '.' + ext
+                        self.schema_extensions.add(ext)
+                        
+                    logging.info(f"Loaded schema: {schema_name}")
                 except Exception as e:
                     logging.error(f"Error loading schema {file_path}: {str(e)}")
             
-            logging.info(f"Successfully loaded {len(self.schema_extensions)} schemas")
+            logging.info(f"Successfully loaded {len(self.schemas)} schemas")
             
         except Exception as e:
             logging.error(f"Error loading schemas: {str(e)}")
@@ -1055,41 +1112,15 @@ class EntityToolGUI(QMainWindow):
             return
             
         try:
-            # Get the research subject schema
-            schema_name = "research-subject-schema"
-            if schema_name not in self.schemas:
-                logging.error(f"Schema not found: {schema_name}")
-                return
-                
-            self.current_schema = self.schemas[schema_name]
-            
-            # Create the details widget using the schema
-            title = "Research Subject Details (Base Game)" if is_base_game else "Research Subject Details"
-            details_group = QGroupBox(title)
-            if is_base_game:
-                details_group.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
-            
-            # Create scrollable area for the content
-            scroll = QScrollArea()
-            scroll.setWidgetResizable(True)
-            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            
-            # Create the content widget using the schema
-            content_widget = self.create_widget_for_schema(subject_data, self.current_schema, is_base_game)
-            scroll.setWidget(content_widget)
-            
-            # Add the scroll area to the details group
-            details_layout = QVBoxLayout()
-            details_layout.addWidget(scroll)
-            details_group.setLayout(details_layout)
-            
-            # Clear any existing details and add the new ones
+            # Clear any existing details
             while self.research_details_layout.count():
                 item = self.research_details_layout.takeAt(0)
                 if item.widget():
                     item.widget().deleteLater()
             
-            self.research_details_layout.addWidget(details_group)
+            # Create and add the schema view
+            schema_view = self.create_schema_view("research-subject", subject_data, is_base_game)
+            self.research_details_layout.addWidget(schema_view)
             
         except Exception as e:
             logging.error(f"Error loading research subject {subject_id}: {str(e)}")
@@ -1150,3 +1181,73 @@ class EntityToolGUI(QMainWindow):
         # Find and load the selected player file
         player_file = self.current_folder / "entities" / f"{player_name}.player"
         self.load_main_file(player_file) 
+
+    def create_schema_view(self, file_type: str, file_data: dict, is_base_game: bool = False) -> QWidget:
+        """Create a reusable schema view for any file type.
+        
+        Args:
+            file_type: The type of file (e.g. 'unit', 'research-subject')
+            file_data: The data to display
+            is_base_game: Whether the data is from the base game
+            
+        Returns:
+            A QWidget containing the schema view
+        """
+        # Get the schema name
+        schema_name = f"{file_type}-schema"
+        if schema_name not in self.schemas:
+            logging.error(f"Schema not found: {schema_name}")
+            error_widget = QWidget()
+            error_layout = QVBoxLayout(error_widget)
+            error_layout.addWidget(QLabel(f"Schema not found: {schema_name}"))
+            return error_widget
+        
+        self.current_schema = self.schemas[schema_name]
+        
+        # Create scrollable area for the content
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        
+        # Create content widget
+        content = QWidget()
+        content_layout = QVBoxLayout(content)
+        
+        # Add name if available
+        if "name" in file_data:
+            name_text, is_base_game_name = self.get_localized_text(file_data["name"])
+            name_label = QLabel(name_text)
+            name_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+            if is_base_game or is_base_game_name:
+                name_label.setStyleSheet(name_label.styleSheet() + "; color: #666666; font-style: italic;")
+            content_layout.addWidget(name_label)
+        
+        # Add description if available
+        if "description" in file_data:
+            desc_text, is_base_game_desc = self.get_localized_text(file_data["description"])
+            desc_label = QLabel(desc_text)
+            desc_label.setWordWrap(True)
+            if is_base_game or is_base_game_desc:
+                desc_label.setStyleSheet("color: #666666; font-style: italic;")
+            content_layout.addWidget(desc_label)
+        
+        # Add picture if available
+        if "tooltip_picture" in file_data:
+            picture_label = self.create_texture_label(file_data["tooltip_picture"], max_size=256)
+            content_layout.addWidget(picture_label)
+        
+        # Create the main details widget using the schema
+        title = f"{file_type.replace('-', ' ').title()} Details (Base Game)" if is_base_game else f"{file_type.replace('-', ' ').title()} Details"
+        details_group = QGroupBox(title)
+        if is_base_game:
+            details_group.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
+        
+        # Create the content widget using the schema
+        details_widget = self.create_widget_for_schema(file_data, self.current_schema, is_base_game)
+        details_layout = QVBoxLayout()
+        details_layout.addWidget(details_widget)
+        details_group.setLayout(details_layout)
+        content_layout.addWidget(details_group)
+        
+        scroll.setWidget(content)
+        return scroll 
