@@ -74,12 +74,12 @@ class EntityToolGUI(QMainWindow):
     def undo(self):
         """Undo the last command"""
         self.command_stack.undo()
-        self.update_save_button()  # Update save button state
+        self.update_save_button()  # Update button states
     
     def redo(self):
         """Redo the last undone command"""
         self.command_stack.redo()
-        self.update_save_button()  # Update save button state
+        self.update_save_button()  # Update button states
     
     def update_data_value(self, data_path: list, new_value: any):
         """Update a value in the data structure using its path"""
@@ -156,6 +156,26 @@ class EntityToolGUI(QMainWindow):
         save_btn.setEnabled(False)  # Initially disabled
         self.save_btn = save_btn  # Store reference
         left_toolbar_layout.addWidget(save_btn)
+        
+        # Undo button with icon
+        undo_btn = QPushButton()
+        undo_btn.setIcon(QIcon(str(Path(__file__).parent / "icons" / "undo.png")))
+        undo_btn.setToolTip('Undo (Ctrl+Z)')
+        undo_btn.setFixedSize(32, 32)
+        undo_btn.clicked.connect(self.undo)
+        undo_btn.setEnabled(False)  # Initially disabled
+        self.undo_btn = undo_btn  # Store reference
+        left_toolbar_layout.addWidget(undo_btn)
+        
+        # Redo button with icon
+        redo_btn = QPushButton()
+        redo_btn.setIcon(QIcon(str(Path(__file__).parent / "icons" / "redo.png")))
+        redo_btn.setToolTip('Redo (Ctrl+Y)')
+        redo_btn.setFixedSize(32, 32)
+        redo_btn.clicked.connect(self.redo)
+        redo_btn.setEnabled(False)  # Initially disabled
+        self.redo_btn = redo_btn  # Store reference
+        left_toolbar_layout.addWidget(redo_btn)
         
         toolbar_layout.addWidget(left_toolbar)
         toolbar_layout.addStretch()
@@ -1972,4 +1992,21 @@ class EntityToolGUI(QMainWindow):
     def update_save_button(self):
         """Update save button enabled state"""
         if hasattr(self, 'save_btn'):
-            self.save_btn.setEnabled(self.command_stack.has_unsaved_changes())
+            has_changes = self.command_stack.has_unsaved_changes()
+            self.save_btn.setEnabled(has_changes)
+            
+        # Also update undo/redo buttons
+        if hasattr(self, 'undo_btn'):
+            self.undo_btn.setEnabled(self.command_stack.can_undo())
+        if hasattr(self, 'redo_btn'):
+            self.redo_btn.setEnabled(self.command_stack.can_redo())
+            
+    def undo(self):
+        """Undo the last command"""
+        self.command_stack.undo()
+        self.update_save_button()  # Update button states
+    
+    def redo(self):
+        """Redo the last undone command"""
+        self.command_stack.redo()
+        self.update_save_button()  # Update button states
