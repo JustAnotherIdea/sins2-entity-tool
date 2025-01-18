@@ -4,7 +4,8 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                             QTabWidget, QScrollArea, QGroupBox, QFormLayout, QDialog, QSplitter, QToolButton,
                             QSpinBox, QDoubleSpinBox, QCheckBox)
 from PyQt6.QtCore import Qt, QMimeData
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QIcon, QKeySequence, QShortcut
+from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QPixmap, QIcon, QKeySequence,
+                        QShortcut)
 import json
 import logging
 from pathlib import Path
@@ -71,10 +72,12 @@ class EntityToolGUI(QMainWindow):
     def undo(self):
         """Undo the last command"""
         self.command_stack.undo()
+        self.update_save_button()  # Update save button state
     
     def redo(self):
         """Redo the last undone command"""
         self.command_stack.redo()
+        self.update_save_button()  # Update save button state
     
     def update_data_value(self, data_path: list, new_value: any):
         """Update a value in the data structure using its path"""
@@ -1269,8 +1272,10 @@ class EntityToolGUI(QMainWindow):
                 
                 if is_simple_array:
                     # For simple arrays, show values directly in a vertical layout
-                    for item in data:
-                        widget = self.create_widget_for_value(item, items_schema, is_base_game)
+                    for i, item in enumerate(data):
+                        # Update path for this array item
+                        item_path = path + [i]
+                        widget = self.create_widget_for_value(item, items_schema, is_base_game, item_path)
                         container_layout.addWidget(widget)
                 else:
                     # For complex arrays, use collapsible sections
@@ -1796,13 +1801,16 @@ class EntityToolGUI(QMainWindow):
         data_path = widget.property("data_path")
         old_value = widget.property("original_value")
         
-        if data_path is not None and old_value != new_text:
+        # Convert None to empty string for comparison
+        old_value_str = str(old_value) if old_value is not None else ""
+        
+        if data_path is not None and old_value_str != new_text:
             command = EditValueCommand(
                 self.current_file,
                 data_path,
                 old_value,
                 new_text,
-                lambda value: widget.setText(value),
+                lambda value: widget.setText(str(value) if value is not None else ""),
                 self.update_data_value
             )
             self.command_stack.push(command)
