@@ -79,10 +79,9 @@ class CommandStack:
         command.undo()
         self.redo_stack.append(command)
         
-        # Update modified files tracking
-        if not any(cmd.file_path == command.file_path for cmd in self.undo_stack):
-            logging.info(f"Removing {command.file_path} from modified files - no more changes")
-            self.modified_files.discard(command.file_path)
+        # Update modified files tracking - mark file as modified since we changed its data
+        self.modified_files.add(command.file_path)
+        logging.info(f"Marked {command.file_path} as modified after undo")
             
         self.is_executing = False
         logging.debug(f"Modified files after undo: {self.modified_files}")
