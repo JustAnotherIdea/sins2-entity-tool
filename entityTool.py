@@ -594,26 +594,6 @@ class EntityToolGUI(QMainWindow):
             logging.error(f"Error loading folder: {str(e)}")
             self.current_folder = None
     
-    def on_file_selected(self, item: QTreeWidgetItem, column: int):
-        """Handle file selection in the tree"""
-        file_path_str = item.data(0, Qt.ItemDataRole.UserRole)
-        if not file_path_str:  # If no file path stored (might be a directory)
-            return
-        
-        try:
-            file_path = Path(file_path_str)
-            if file_path.is_file() and (file_path.suffix in self.schema_extensions or 
-                                      file_path.suffix == '.entity_manifest'):
-                logging.info(f"Selected file: {file_path}")
-                self.load_main_file(file_path)
-            
-        except Exception as e:
-            logging.error(f"Error handling file selection: {str(e)}")
-            self.status_label.setText('Error selecting file')
-            self.status_label.setProperty("status", "error")
-            self.status_label.style().unpolish(self.status_label)
-            self.status_label.style().polish(self.status_label)
-    
     def process_manifest_file(self, file_path: Path, data: dict):
         """Process an entity manifest file and store its data"""
         try:
