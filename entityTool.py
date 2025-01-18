@@ -800,7 +800,6 @@ class EntityToolGUI(QMainWindow):
         """Get localized text for a key and whether it's from base game.
         Returns tuple of (text, is_from_base_game)"""
 
-        print(f"Getting localized text for {text_key}")
         if not text_key:
             return "", False
 
