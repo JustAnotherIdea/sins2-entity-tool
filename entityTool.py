@@ -4,13 +4,14 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                             QTabWidget, QScrollArea, QGroupBox, QFormLayout, QDialog, QSplitter, QToolButton,
                             QSpinBox, QDoubleSpinBox, QCheckBox)
 from PyQt6.QtCore import Qt, QMimeData
-from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QIcon
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QIcon, QKeySequence, QShortcut
 import json
 import logging
 from pathlib import Path
 import jsonschema
 from research_view import ResearchTreeView
 import os
+from command_stack import CommandStack, EditValueCommand
 
 class GUILogHandler(logging.Handler):
     def __init__(self, log_widget):
@@ -27,6 +28,7 @@ class GUILogHandler(logging.Handler):
 class EntityToolGUI(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.command_stack = CommandStack()
         
         # Initialize data structures
         self.current_folder = None
@@ -55,6 +57,45 @@ class EntityToolGUI(QMainWindow):
         self.load_stylesheet()
         
         self.showMaximized()
+        
+        self.setup_shortcuts()
+    
+    def setup_shortcuts(self):
+        """Set up keyboard shortcuts for undo/redo"""
+        undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
+        undo_shortcut.activated.connect(self.undo)
+        
+        redo_shortcut = QShortcut(QKeySequence.StandardKey.Redo, self)
+        redo_shortcut.activated.connect(self.redo)
+    
+    def undo(self):
+        """Undo the last command"""
+        self.command_stack.undo()
+    
+    def redo(self):
+        """Redo the last undone command"""
+        self.command_stack.redo()
+    
+    def update_data_value(self, data_path: list, new_value: any):
+        """Update a value in the data structure using its path"""
+        current = self.current_data
+        for i, key in enumerate(data_path[:-1]):
+            if isinstance(current, dict):
+                if key not in current:
+                    current[key] = {} if isinstance(data_path[i + 1], str) else []
+                current = current[key]
+            elif isinstance(current, list):
+                while len(current) <= key:
+                    current.append({} if isinstance(data_path[i + 1], str) else [])
+                current = current[key]
+        
+        if data_path:
+            if isinstance(current, dict):
+                current[data_path[-1]] = new_value
+            elif isinstance(current, list):
+                while len(current) <= data_path[-1]:
+                    current.append(None)
+                current[data_path[-1]] = new_value
     
     def init_ui(self):
         self.setWindowTitle('Sins 2 Entity Tool')
@@ -1336,6 +1377,9 @@ class EntityToolGUI(QMainWindow):
             if is_base or is_base_game:
                 edit.setStyleSheet("color: #666666; font-style: italic;")
                 edit.setReadOnly(True)
+            else:
+                # Connect text changed signal to command creation
+                edit.textChanged.connect(lambda text: self.on_text_changed(edit, text))
             
             # Store path and original value
             edit.setProperty("data_path", path)
@@ -1363,17 +1407,22 @@ class EntityToolGUI(QMainWindow):
                 if is_base_game:
                     combo.setStyleSheet("color: #666666; font-style: italic;")
                     combo.setEnabled(False)  # Disable combo box for base game content
+                else:
+                    # Connect currentTextChanged signal to command creation
+                    combo.currentTextChanged.connect(lambda text: self.on_combo_changed(combo, text))
                 
                 # Store path and original value
                 combo.setProperty("data_path", path)
                 combo.setProperty("original_value", value)
                 return combo
             else:
-                # Regular string input
                 edit = QLineEdit(value_str)
                 if is_base_game:
                     edit.setStyleSheet("color: #666666; font-style: italic;")
                     edit.setReadOnly(True)
+                else:
+                    # Connect text changed signal to command creation
+                    edit.textChanged.connect(lambda text: self.on_text_changed(edit, text))
                 
                 # Store path and original value
                 edit.setProperty("data_path", path)
@@ -1399,6 +1448,9 @@ class EntityToolGUI(QMainWindow):
                 spin.setStyleSheet("color: #666666; font-style: italic;")
                 spin.setReadOnly(True)  # Make spinbox read-only for base game content
                 spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)  # Hide up/down buttons
+            else:
+                # Connect valueChanged signal to command creation
+                spin.valueChanged.connect(lambda value: self.on_spin_changed(spin, value))
             
             # Store path and original value
             spin.setProperty("data_path", path)
@@ -1425,6 +1477,9 @@ class EntityToolGUI(QMainWindow):
                 spin.setStyleSheet("color: #666666; font-style: italic;")
                 spin.setReadOnly(True)  # Make spinbox read-only for base game content
                 spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)  # Hide up/down buttons
+            else:
+                # Connect valueChanged signal to command creation
+                spin.valueChanged.connect(lambda value: self.on_spin_changed(spin, value))
             
             # Store path and original value
             spin.setProperty("data_path", path)
@@ -1437,6 +1492,9 @@ class EntityToolGUI(QMainWindow):
             if is_base_game:
                 checkbox.setStyleSheet("color: #666666; font-style: italic;")
                 checkbox.setEnabled(False)  # Disable checkbox for base game content
+            else:
+                # Connect stateChanged signal to command creation
+                checkbox.stateChanged.connect(lambda state: self.on_checkbox_changed(checkbox, state))
             
             # Store path and original value
             checkbox.setProperty("data_path", path)
@@ -1705,3 +1763,84 @@ class EntityToolGUI(QMainWindow):
         scroll.setWidget(content)
         logging.debug("Finished creating schema view")
         return scroll 
+
+    def on_text_changed(self, widget: QLineEdit, new_text: str):
+        """Handle text changes in QLineEdit widgets"""
+        if not hasattr(self, 'current_file'):
+            return
+            
+        data_path = widget.property("data_path")
+        old_value = widget.property("original_value")
+        
+        if data_path is not None and old_value != new_text:
+            command = EditValueCommand(
+                self.current_file,
+                data_path,
+                old_value,
+                new_text,
+                lambda value: widget.setText(value),
+                self.update_data_value
+            )
+            self.command_stack.push(command)
+            widget.setProperty("original_value", new_text)
+            
+    def on_combo_changed(self, widget: QComboBox, new_text: str):
+        """Handle selection changes in QComboBox widgets"""
+        if not hasattr(self, 'current_file'):
+            return
+            
+        data_path = widget.property("data_path")
+        old_value = widget.property("original_value")
+        
+        if data_path is not None and old_value != new_text:
+            command = EditValueCommand(
+                self.current_file,
+                data_path,
+                old_value,
+                new_text,
+                lambda value: widget.setCurrentText(value),
+                self.update_data_value
+            )
+            self.command_stack.push(command)
+            widget.setProperty("original_value", new_text)
+            
+    def on_spin_changed(self, widget: QSpinBox | QDoubleSpinBox, new_value: int | float):
+        """Handle value changes in QSpinBox and QDoubleSpinBox widgets"""
+        if not hasattr(self, 'current_file'):
+            return
+            
+        data_path = widget.property("data_path")
+        old_value = widget.property("original_value")
+        
+        if data_path is not None and old_value != new_value:
+            command = EditValueCommand(
+                self.current_file,
+                data_path,
+                old_value,
+                new_value,
+                lambda value: widget.setValue(value),
+                self.update_data_value
+            )
+            self.command_stack.push(command)
+            widget.setProperty("original_value", new_value)
+            
+    def on_checkbox_changed(self, widget: QCheckBox, new_state: int):
+        """Handle state changes in QCheckBox widgets"""
+        if not hasattr(self, 'current_file'):
+            return
+            
+        data_path = widget.property("data_path")
+        old_value = widget.property("original_value")
+        new_value = bool(new_state == Qt.CheckState.Checked.value)
+        
+        if data_path is not None and old_value != new_value:
+            command = EditValueCommand(
+                self.current_file,
+                data_path,
+                old_value,
+                new_value,
+                lambda value: widget.setChecked(value),
+                self.update_data_value
+            )
+            self.command_stack.push(command)
+            widget.setProperty("original_value", new_value)
