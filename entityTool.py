@@ -1006,8 +1006,11 @@ class EntityToolGUI(QMainWindow):
         
         # Rest of existing code... 
 
-    def create_widget_for_schema(self, data: dict, schema: dict, is_base_game: bool = False) -> QWidget:
+    def create_widget_for_schema(self, data: dict, schema: dict, is_base_game: bool = False, path: list = None) -> QWidget:
         """Create a widget to display data according to a JSON schema"""
+        if path is None:
+            path = []
+            
         if not schema:
             return QLabel("Invalid schema")
             
@@ -1020,7 +1023,7 @@ class EntityToolGUI(QMainWindow):
                     current = current[part]
                 else:
                     return QLabel(f"Invalid reference: {schema['$ref']}")
-            return self.create_widget_for_schema(data, current, is_base_game)
+            return self.create_widget_for_schema(data, current, is_base_game, path)
             
         schema_type = schema.get("type")
         if not schema_type:
@@ -1049,6 +1052,8 @@ class EntityToolGUI(QMainWindow):
                         value and  # Check if array is not empty
                         all(isinstance(x, (str, int, float, bool)) for x in value)
                     )
+                    # Update path for this property
+                    prop_path = path + [prop_name]
                     
                     # Special handling for abilities array
                     if prop_name == "abilities" and isinstance(value, list):
@@ -1130,9 +1135,9 @@ class EntityToolGUI(QMainWindow):
                         container_layout.addWidget(group_widget)
                         continue
                     
-                    # Create widget for the property
+                    # Create widget for the property with updated path
                     widget = self.create_widget_for_property(
-                        prop_name, value, prop_schema, is_base_game
+                        prop_name, value, prop_schema, is_base_game, prop_path
                     )
                     if widget:
                         if is_simple_value or is_simple_array:
@@ -1205,8 +1210,10 @@ class EntityToolGUI(QMainWindow):
                 else:
                     # For complex arrays, use collapsible sections
                     for i, item in enumerate(data):
+                        # Update path for this array item
+                        item_path = path + [i]
                         widget = self.create_widget_for_schema(
-                            item, items_schema, is_base_game
+                            item, items_schema, is_base_game, item_path
                         )
                         if widget:
                             if isinstance(item, dict) and "modifier_type" in item:
@@ -1246,11 +1253,14 @@ class EntityToolGUI(QMainWindow):
             return container
             
         else:
-            # For simple values, use create_widget_for_value
-            return self.create_widget_for_value(data, schema, is_base_game)
+            # For simple values, use create_widget_for_value with path
+            return self.create_widget_for_value(data, schema, is_base_game, path)
     
-    def create_widget_for_property(self, prop_name: str, value: any, schema: dict, is_base_game: bool) -> QWidget:
+    def create_widget_for_property(self, prop_name: str, value: any, schema: dict, is_base_game: bool, path: list = None) -> QWidget:
         """Create a widget for a specific property based on its schema"""
+        if path is None:
+            path = []
+            
         # Add property name to schema for special handling
         if isinstance(schema, dict):
             schema = schema.copy()  # Create a copy to avoid modifying the original
@@ -1269,21 +1279,24 @@ class EntityToolGUI(QMainWindow):
             if isinstance(current, dict):
                 current = current.copy()
                 current["property_name"] = prop_name
-            return self.create_widget_for_schema(value, current, is_base_game)
+            return self.create_widget_for_schema(value, current, is_base_game, path)
             
         # Handle arrays
         if schema.get("type") == "array":
-            return self.create_widget_for_schema(value, schema, is_base_game)
+            return self.create_widget_for_schema(value, schema, is_base_game, path)
             
         # Handle objects
         if schema.get("type") == "object":
-            return self.create_widget_for_schema(value, schema, is_base_game)
+            return self.create_widget_for_schema(value, schema, is_base_game, path)
             
         # Handle simple values
-        return self.create_widget_for_value(value, schema, is_base_game)
+        return self.create_widget_for_value(value, schema, is_base_game, path)
     
-    def create_widget_for_value(self, value: any, schema: dict, is_base_game: bool) -> QWidget:
+    def create_widget_for_value(self, value: any, schema: dict, is_base_game: bool, path: list = None) -> QWidget:
         """Create an editable widget for a value based on its schema type"""
+        if path is None:
+            path = []
+            
         from PyQt6.QtWidgets import QSpinBox, QDoubleSpinBox, QComboBox, QLineEdit, QCheckBox
         
         # Handle references to other entity types first
@@ -1310,6 +1323,10 @@ class EntityToolGUI(QMainWindow):
             
             if is_base_game:
                 btn.setStyleSheet(btn.styleSheet() + "; color: #666666; font-style: italic;")
+            
+            # Store path and original value
+            btn.setProperty("data_path", path)
+            btn.setProperty("original_value", value)
             return btn
             
         # Special handling for name and description fields - treat them as localized text
@@ -1319,11 +1336,18 @@ class EntityToolGUI(QMainWindow):
             if is_base or is_base_game:
                 edit.setStyleSheet("color: #666666; font-style: italic;")
                 edit.setReadOnly(True)
+            
+            # Store path and original value
+            edit.setProperty("data_path", path)
+            edit.setProperty("original_value", value)
             return edit
             
         elif schema.get("format") == "texture":
             # Handle texture references - keep as non-editable for now
-            return self.create_texture_label(value_str)
+            label = self.create_texture_label(value_str)
+            label.setProperty("data_path", path)
+            label.setProperty("original_value", value)
+            return label
             
         # Handle different schema types
         schema_type = schema.get("type")
@@ -1339,6 +1363,10 @@ class EntityToolGUI(QMainWindow):
                 if is_base_game:
                     combo.setStyleSheet("color: #666666; font-style: italic;")
                     combo.setEnabled(False)  # Disable combo box for base game content
+                
+                # Store path and original value
+                combo.setProperty("data_path", path)
+                combo.setProperty("original_value", value)
                 return combo
             else:
                 # Regular string input
@@ -1346,6 +1374,10 @@ class EntityToolGUI(QMainWindow):
                 if is_base_game:
                     edit.setStyleSheet("color: #666666; font-style: italic;")
                     edit.setReadOnly(True)
+                
+                # Store path and original value
+                edit.setProperty("data_path", path)
+                edit.setProperty("original_value", value)
                 return edit
                 
         elif schema_type == "integer":
@@ -1367,6 +1399,10 @@ class EntityToolGUI(QMainWindow):
                 spin.setStyleSheet("color: #666666; font-style: italic;")
                 spin.setReadOnly(True)  # Make spinbox read-only for base game content
                 spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)  # Hide up/down buttons
+            
+            # Store path and original value
+            spin.setProperty("data_path", path)
+            spin.setProperty("original_value", value)
             return spin
             
         elif schema_type == "number":
@@ -1389,6 +1425,10 @@ class EntityToolGUI(QMainWindow):
                 spin.setStyleSheet("color: #666666; font-style: italic;")
                 spin.setReadOnly(True)  # Make spinbox read-only for base game content
                 spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)  # Hide up/down buttons
+            
+            # Store path and original value
+            spin.setProperty("data_path", path)
+            spin.setProperty("original_value", value)
             return spin
             
         elif schema_type == "boolean":
@@ -1397,6 +1437,10 @@ class EntityToolGUI(QMainWindow):
             if is_base_game:
                 checkbox.setStyleSheet("color: #666666; font-style: italic;")
                 checkbox.setEnabled(False)  # Disable checkbox for base game content
+            
+            # Store path and original value
+            checkbox.setProperty("data_path", path)
+            checkbox.setProperty("original_value", value)
             return checkbox
             
         elif schema_type == "object":
@@ -1406,7 +1450,7 @@ class EntityToolGUI(QMainWindow):
             for key, val in value.items():
                 if isinstance(val, dict):
                     # Recursively handle nested objects
-                    nested_widget = self.create_widget_for_value(val, {"type": "object"}, is_base_game)
+                    nested_widget = self.create_widget_for_value(val, {"type": "object"}, is_base_game, path + [key])
                     layout.addWidget(QLabel(key))
                     layout.addWidget(nested_widget)
                 else:
@@ -1414,10 +1458,14 @@ class EntityToolGUI(QMainWindow):
                     row_widget = QWidget()
                     row_layout = QHBoxLayout(row_widget)
                     row_layout.addWidget(QLabel(f"{key}:"))
-                    value_widget = self.create_widget_for_value(val, {"type": type(val).__name__}, is_base_game)
+                    value_widget = self.create_widget_for_value(val, {"type": type(val).__name__}, is_base_game, path + [key])
                     row_layout.addWidget(value_widget)
                     layout.addWidget(row_widget)
             group.setLayout(layout)
+            
+            # Store path and original value
+            group.setProperty("data_path", path)
+            group.setProperty("original_value", value)
             return group
             
         else:
@@ -1426,6 +1474,10 @@ class EntityToolGUI(QMainWindow):
             if is_base_game:
                 edit.setStyleSheet("color: #666666; font-style: italic;")
                 edit.setReadOnly(True)
+            
+            # Store path and original value
+            edit.setProperty("data_path", path)
+            edit.setProperty("original_value", value)
             return edit
     
     def load_referenced_entity(self, entity_id: str, entity_type: str):
@@ -1440,9 +1492,7 @@ class EntityToolGUI(QMainWindow):
         
         try:
             # Try mod folder first
-            print(f"Checking if {entity_file} exists.")
             if entity_file.exists():
-                print(f"Loading {entity_file} from mod folder")
                 with open(entity_file, encoding='utf-8') as f:
                     entity_data = json.load(f)
                     is_base_game = False
@@ -1450,12 +1500,11 @@ class EntityToolGUI(QMainWindow):
             # Try base game folder if not found in mod folder
             elif self.config.get("base_game_folder"):
                 base_game_file = Path(self.config["base_game_folder"]) / "entities" / f"{entity_id}.{entity_type}"
-                print(f"Checking if {base_game_file} exists.")
                 if base_game_file.exists():
-                    print(f"Loading {base_game_file} from base game folder.")
                     with open(base_game_file, encoding='utf-8') as f:
                         entity_data = json.load(f)
                         is_base_game = True
+                    entity_file = base_game_file
             
             if not entity_data:
                 logging.error(f"{entity_type} file not found: {entity_id}")
@@ -1464,17 +1513,15 @@ class EntityToolGUI(QMainWindow):
             # Clear the appropriate panel and display the new data
             if entity_type == "weapon":
                 self.clear_layout(self.weapon_details_layout)
-                schema_view = self.create_schema_view("weapon", entity_data, is_base_game)
+                schema_view = self.create_schema_view("weapon", entity_data, is_base_game, entity_file)
                 self.weapon_details_layout.addWidget(schema_view)
             elif entity_type == "unit_skin":
                 self.clear_layout(self.skin_details_layout)
-                print(f"Creating schema view for unit skin {entity_id}")
-                schema_view = self.create_schema_view("unit-skin", entity_data, is_base_game)
-                print(f"Schema view created for unit skin {entity_id}")
+                schema_view = self.create_schema_view("unit-skin", entity_data, is_base_game, entity_file)
                 self.skin_details_layout.addWidget(schema_view)
             elif entity_type == "ability":
                 self.clear_layout(self.ability_details_layout)
-                schema_view = self.create_schema_view("ability", entity_data, is_base_game)
+                schema_view = self.create_schema_view("ability", entity_data, is_base_game, entity_file)
                 self.ability_details_layout.addWidget(schema_view)
                 
         except Exception as e:
@@ -1573,19 +1620,21 @@ class EntityToolGUI(QMainWindow):
         player_file = self.current_folder / "entities" / f"{player_name}.player"
         self.load_main_file(player_file) 
 
-    def create_schema_view(self, file_type: str, file_data: dict, is_base_game: bool = False) -> QWidget:
+    def create_schema_view(self, file_type: str, file_data: dict, is_base_game: bool = False, file_path: Path = None) -> QWidget:
         """Create a reusable schema view for any file type.
         
         Args:
             file_type: The type of file (e.g. 'unit', 'research-subject')
             file_data: The data to display
             is_base_game: Whether the data is from the base game
+            file_path: The path to the file being displayed
             
         Returns:
             A QWidget containing the schema view
         """
         logging.debug(f"Creating schema view for {file_type}")
         logging.debug(f"Is base game: {is_base_game}")
+        logging.debug(f"File path: {file_path}")
         
         # Get the schema name
         schema_name = f"{file_type}-schema"
@@ -1603,6 +1652,10 @@ class EntityToolGUI(QMainWindow):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        
+        # Store file path and type in the scroll area
+        scroll.setProperty("file_path", str(file_path) if file_path else None)
+        scroll.setProperty("file_type", file_type)
         
         # Create content widget
         content = QWidget()
@@ -1641,9 +1694,9 @@ class EntityToolGUI(QMainWindow):
         if is_base_game:
             details_group.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
         
-        # Create the content widget using the schema
+        # Create the content widget using the schema, passing an empty path to start tracking
         logging.debug("Creating schema content widget")
-        details_widget = self.create_widget_for_schema(file_data, self.current_schema, is_base_game)
+        details_widget = self.create_widget_for_schema(file_data, self.current_schema, is_base_game, [])
         details_layout = QVBoxLayout()
         details_layout.addWidget(details_widget)
         details_group.setLayout(details_layout)
