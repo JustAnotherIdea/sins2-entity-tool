@@ -120,10 +120,38 @@ class CommandStack:
         self.is_executing = True
         command = self.undo_stack.pop()
         logging.info(f"Undoing command for file: {command.file_path}, path: {command.data_path}")
-        command.undo()
+        
+        # Get current data and update it
+        data = self.get_file_data(command.file_path)
+        if data is not None:
+            command.undo()
+            
+            # Update the stored data
+            current = data
+            for i, key in enumerate(command.data_path[:-1]):
+                if isinstance(current, dict):
+                    if key not in current:
+                        current[key] = {} if isinstance(command.data_path[i + 1], str) else []
+                    current = current[key]
+                elif isinstance(current, list):
+                    while len(current) <= key:
+                        current.append({} if isinstance(command.data_path[i + 1], str) else [])
+                    current = current[key]
+            
+            if command.data_path:
+                if isinstance(current, dict):
+                    current[command.data_path[-1]] = command.old_value
+                elif isinstance(current, list):
+                    while len(current) <= command.data_path[-1]:
+                        current.append(None)
+                    current[command.data_path[-1]] = command.old_value
+                    
+            # Store updated data
+            self.update_file_data(command.file_path, data)
+            
         self.redo_stack.append(command)
         
-        # Update modified files tracking - mark file as modified since we changed its data
+        # Mark file as modified since we changed its data
         self.modified_files.add(command.file_path)
         logging.info(f"Marked {command.file_path} as modified after undo")
             
@@ -139,9 +167,41 @@ class CommandStack:
         self.is_executing = True
         command = self.redo_stack.pop()
         logging.info(f"Redoing command for file: {command.file_path}, path: {command.data_path}")
-        command.redo()
+        
+        # Get current data and update it
+        data = self.get_file_data(command.file_path)
+        if data is not None:
+            command.redo()
+            
+            # Update the stored data
+            current = data
+            for i, key in enumerate(command.data_path[:-1]):
+                if isinstance(current, dict):
+                    if key not in current:
+                        current[key] = {} if isinstance(command.data_path[i + 1], str) else []
+                    current = current[key]
+                elif isinstance(current, list):
+                    while len(current) <= key:
+                        current.append({} if isinstance(command.data_path[i + 1], str) else [])
+                    current = current[key]
+            
+            if command.data_path:
+                if isinstance(current, dict):
+                    current[command.data_path[-1]] = command.new_value
+                elif isinstance(current, list):
+                    while len(current) <= command.data_path[-1]:
+                        current.append(None)
+                    current[command.data_path[-1]] = command.new_value
+                    
+            # Store updated data
+            self.update_file_data(command.file_path, data)
+            
         self.undo_stack.append(command)
-        self.modified_files.add(command.file_path)  # Track modified file
+        
+        # Mark file as modified since we changed its data
+        self.modified_files.add(command.file_path)
+        logging.info(f"Marked {command.file_path} as modified after redo")
+        
         self.is_executing = False
         logging.debug(f"Modified files after redo: {self.modified_files}")
         
