@@ -1,4 +1,4 @@
-from typing import Any, List, Dict, Set
+from typing import Any, List, Dict, Set, Callable
 from pathlib import Path
 import json
 import logging
@@ -18,30 +18,26 @@ class Command:
         raise NotImplementedError
         
 class EditValueCommand(Command):
-    """Command for editing a value in a schema"""
-    def __init__(self, file_path: Path, data_path: List[str | int], old_value: Any, new_value: Any, 
-                 update_widget_callback=None, update_data_callback=None):
+    """Command for editing a value in a data structure"""
+    def __init__(self, file_path: Path, data_path: list, old_value: any, new_value: any, 
+                 update_widget_func: Callable, update_data_func: Callable):
         super().__init__(file_path, data_path, old_value, new_value)
-        self.update_widget = update_widget_callback
-        self.update_data = update_data_callback
+        self.update_widget_func = update_widget_func
+        self.update_data_func = update_data_func
         logging.debug(f"Created EditValueCommand for {file_path} at path {data_path}")
         logging.debug(f"Old value: {old_value}, New value: {new_value}")
         
-    def undo(self) -> None:
+    def undo(self):
+        """Restore the old value"""
         logging.info(f"Undoing EditValueCommand for {self.file_path} at path {self.data_path}")
-        logging.debug(f"Restoring value from {self.new_value} to {self.old_value}")
-        if self.update_widget:
-            self.update_widget(self.old_value)
-        if self.update_data:
-            self.update_data(self.data_path, self.old_value)
-            
-    def redo(self) -> None:
+        self.update_widget_func(self.old_value)
+        self.update_data_func(self.data_path, self.old_value)
+        
+    def redo(self):
+        """Apply the new value"""
         logging.info(f"Redoing EditValueCommand for {self.file_path} at path {self.data_path}")
-        logging.debug(f"Changing value from {self.old_value} to {self.new_value}")
-        if self.update_widget:
-            self.update_widget(self.new_value)
-        if self.update_data:
-            self.update_data(self.data_path, self.new_value)
+        self.update_widget_func(self.new_value)
+        self.update_data_func(self.data_path, self.new_value)
 
 class CommandStack:
     """Manages undo/redo operations"""
@@ -53,6 +49,21 @@ class CommandStack:
         self.file_data: Dict[Path, dict] = {}  # Store current data for each file
         logging.info("Initialized new CommandStack")
         
+    def update_file_data(self, file_path: Path, data: dict) -> None:
+        """Update the stored data for a file"""
+        logging.info(f"Updating stored data for file: {file_path}")
+        logging.debug(f"New data: {data}")
+        self.file_data[file_path] = data.copy()  # Store a copy to prevent reference issues
+        
+    def get_file_data(self, file_path: Path) -> dict:
+        """Get the current data for a file"""
+        if file_path not in self.file_data:
+            logging.error(f"No data found for file: {file_path}")
+            return None
+        logging.info(f"Retrieving stored data for file: {file_path}")
+        logging.debug(f"Current data: {self.file_data[file_path]}")
+        return self.file_data[file_path].copy()  # Return a copy to prevent reference issues
+        
     def push(self, command: Command) -> None:
         """Add a new command to the stack"""
         if self.is_executing:
@@ -60,9 +71,41 @@ class CommandStack:
             return
         
         logging.info(f"Pushing command for file: {command.file_path}, path: {command.data_path}, old value: {command.old_value}, new value: {command.new_value}")
+        
+        # Get current data for the file
+        data = self.get_file_data(command.file_path)
+        if data is None:
+            logging.error(f"No data found for file {command.file_path} when pushing command")
+            return
+            
+        # Execute the command
         self.is_executing = True
         command.redo()  # Execute the command immediately
         self.is_executing = False
+        
+        # Update the stored data
+        current = data
+        for i, key in enumerate(command.data_path[:-1]):
+            if isinstance(current, dict):
+                if key not in current:
+                    current[key] = {} if isinstance(command.data_path[i + 1], str) else []
+                current = current[key]
+            elif isinstance(current, list):
+                while len(current) <= key:
+                    current.append({} if isinstance(command.data_path[i + 1], str) else [])
+                current = current[key]
+        
+        if command.data_path:
+            if isinstance(current, dict):
+                current[command.data_path[-1]] = command.new_value
+            elif isinstance(current, list):
+                while len(current) <= command.data_path[-1]:
+                    current.append(None)
+                current[command.data_path[-1]] = command.new_value
+                
+        # Store updated data
+        self.update_file_data(command.file_path, data)
+        
         self.undo_stack.append(command)
         self.redo_stack.clear()  # Clear redo stack when new command is added
         self.modified_files.add(command.file_path)  # Track modified file
@@ -121,14 +164,6 @@ class CommandStack:
         logging.debug(f"Getting modified files: {self.modified_files}")
         return self.modified_files.copy()
         
-    def get_file_data(self, file_path: Path) -> dict:
-        """Get the current data for a file"""
-        return self.file_data.get(file_path, {})
-        
-    def update_file_data(self, file_path: Path, data: dict) -> None:
-        """Update the stored data for a file"""
-        self.file_data[file_path] = data
-        
     def save_file(self, file_path: Path, data: dict) -> bool:
         """Save changes to a specific file"""
         try:
@@ -142,8 +177,7 @@ class CommandStack:
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=4)
             
-            # Update stored data and remove from modified files
-            self.file_data[file_path] = data
+            # Remove from modified files
             self.modified_files.discard(file_path)
             logging.info(f"Successfully saved changes to {file_path}")
             logging.debug(f"Modified files after save: {self.modified_files}")

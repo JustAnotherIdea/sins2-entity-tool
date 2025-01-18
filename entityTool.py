@@ -14,6 +14,8 @@ from research_view import ResearchTreeView
 import os
 from command_stack import CommandStack, EditValueCommand
 
+logging.basicConfig(level=logging.DEBUG)
+
 class GUILogHandler(logging.Handler):
     def __init__(self, log_widget):
         super().__init__()
@@ -1588,39 +1590,52 @@ class EntityToolGUI(QMainWindow):
         try:
             # Try mod folder first
             if entity_file.exists():
+                logging.info(f"Loading referenced entity from mod folder: {entity_file}")
                 with open(entity_file, encoding='utf-8') as f:
                     entity_data = json.load(f)
                     is_base_game = False
+                logging.info(f"Successfully loaded data for {entity_file}")
+                logging.debug(f"Initial data for {entity_file}: {entity_data}")
             
             # Try base game folder if not found in mod folder
             elif self.config.get("base_game_folder"):
                 base_game_file = Path(self.config["base_game_folder"]) / "entities" / f"{entity_id}.{entity_type}"
                 if base_game_file.exists():
+                    logging.info(f"Loading referenced entity from base game: {base_game_file}")
                     with open(base_game_file, encoding='utf-8') as f:
                         entity_data = json.load(f)
                         is_base_game = True
                     entity_file = base_game_file
+                    logging.info(f"Successfully loaded base game data for {entity_file}")
+                    logging.debug(f"Initial base game data for {entity_file}: {entity_data}")
             
             if not entity_data:
                 logging.error(f"{entity_type} file not found: {entity_id}")
                 return
                 
+            # Store data in command stack before creating view
+            logging.info(f"Storing initial data in command stack for {entity_file}")
+            self.command_stack.update_file_data(entity_file, entity_data)
+            
             # Clear the appropriate panel and display the new data
             if entity_type == "weapon":
                 self.clear_layout(self.weapon_details_layout)
                 schema_view = self.create_schema_view("weapon", entity_data, is_base_game, entity_file)
                 self.weapon_details_layout.addWidget(schema_view)
                 self.weapon_file = entity_file  # Store file path
+                logging.info(f"Created weapon schema view for {entity_file}")
             elif entity_type == "unit_skin":
                 self.clear_layout(self.skin_details_layout)
                 schema_view = self.create_schema_view("unit-skin", entity_data, is_base_game, entity_file)
                 self.skin_details_layout.addWidget(schema_view)
                 self.skin_file = entity_file  # Store file path
+                logging.info(f"Created unit skin schema view for {entity_file}")
             elif entity_type == "ability":
                 self.clear_layout(self.ability_details_layout)
                 schema_view = self.create_schema_view("ability", entity_data, is_base_game, entity_file)
                 self.ability_details_layout.addWidget(schema_view)
                 self.ability_file = entity_file  # Store file path
+                logging.info(f"Created ability schema view for {entity_file}")
                 
         except Exception as e:
             logging.error(f"Error loading {entity_type} {entity_id}: {str(e)}")
@@ -1928,6 +1943,7 @@ class EntityToolGUI(QMainWindow):
         # Get all modified files
         modified_files = self.command_stack.get_modified_files()
         logging.info(f"Found {len(modified_files)} modified files to save")
+        logging.debug(f"Modified files list: {modified_files}")
         
         success = True
         for file_path in modified_files:
@@ -1935,6 +1951,8 @@ class EntityToolGUI(QMainWindow):
             
             # Get the latest data from the command stack
             data = self.command_stack.get_file_data(file_path)
+            logging.debug(f"Retrieved data from command stack for {file_path}: {data}")
+            
             if not data:
                 logging.error(f"No data found in command stack for file: {file_path}")
                 success = False
@@ -1946,6 +1964,7 @@ class EntityToolGUI(QMainWindow):
                 with open(file_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=4)
                 logging.info(f"Successfully saved file: {file_path}")
+                logging.debug(f"Saved data for {file_path}: {data}")
             except Exception as e:
                 logging.error(f"Failed to save file {file_path}: {str(e)}")
                 success = False
