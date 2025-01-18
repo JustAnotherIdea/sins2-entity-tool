@@ -3,8 +3,6 @@ from pathlib import Path
 import json
 import logging
 
-logging.basicConfig(level=logging.DEBUG)
-
 class Command:
     """Base class for all commands"""
     def __init__(self, file_path: Path, data_path: List[str | int], old_value: Any, new_value: Any):

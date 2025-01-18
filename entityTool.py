@@ -13,8 +13,6 @@ from research_view import ResearchTreeView
 import os
 from command_stack import CommandStack, EditValueCommand
 
-logging.basicConfig(level=logging.DEBUG)
-
 class GUILogHandler(logging.Handler):
     def __init__(self, log_widget):
         super().__init__()
