@@ -27,16 +27,24 @@ class EditValueCommand(Command):
         logging.debug(f"Created EditValueCommand for {file_path} at path {data_path}")
         logging.debug(f"Old value: {old_value}, New value: {new_value}")
         
+    def update_widget_safely(self, value: any):
+        """Try to update widget, but don't fail if widget is gone"""
+        try:
+            self.update_widget_func(value)
+        except RuntimeError as e:
+            # Widget was deleted, just log and continue
+            logging.debug(f"Widget was deleted, skipping UI update: {str(e)}")
+        
     def undo(self):
         """Restore the old value"""
         logging.info(f"Undoing EditValueCommand for {self.file_path} at path {self.data_path}")
-        self.update_widget_func(self.old_value)
+        self.update_widget_safely(self.old_value)
         self.update_data_func(self.data_path, self.old_value)
         
     def redo(self):
         """Apply the new value"""
         logging.info(f"Redoing EditValueCommand for {self.file_path} at path {self.data_path}")
-        self.update_widget_func(self.new_value)
+        self.update_widget_safely(self.new_value)
         self.update_data_func(self.data_path, self.new_value)
 
 class CommandStack:
