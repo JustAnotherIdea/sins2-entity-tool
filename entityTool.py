@@ -13,6 +13,8 @@ from research_view import ResearchTreeView
 import os
 from command_stack import CommandStack, EditValueCommand
 
+logging.basicConfig(level=logging.DEBUG)
+
 class GUILogHandler(logging.Handler):
     def __init__(self, log_widget):
         super().__init__()
@@ -78,24 +80,35 @@ class EntityToolGUI(QMainWindow):
     
     def update_data_value(self, data_path: list, new_value: any):
         """Update a value in the data structure using its path"""
+        logging.info(f"Updating data value at path {data_path} to {new_value}")
+        logging.debug(f"Current data before update: {self.current_data}")
+        
         current = self.current_data
         for i, key in enumerate(data_path[:-1]):
+            logging.debug(f"Traversing path element {i}: {key}")
             if isinstance(current, dict):
                 if key not in current:
                     current[key] = {} if isinstance(data_path[i + 1], str) else []
+                    logging.debug(f"Created new dict/list for key {key}")
                 current = current[key]
             elif isinstance(current, list):
                 while len(current) <= key:
                     current.append({} if isinstance(data_path[i + 1], str) else [])
+                    logging.debug(f"Extended list to accommodate index {key}")
                 current = current[key]
         
         if data_path:
             if isinstance(current, dict):
+                logging.debug(f"Setting dict key {data_path[-1]} to {new_value}")
                 current[data_path[-1]] = new_value
             elif isinstance(current, list):
                 while len(current) <= data_path[-1]:
                     current.append(None)
+                    logging.debug(f"Extended list to accommodate final index {data_path[-1]}")
+                logging.debug(f"Setting list index {data_path[-1]} to {new_value}")
                 current[data_path[-1]] = new_value
+                
+        logging.debug(f"Current data after update: {self.current_data}")
     
     def init_ui(self):
         self.setWindowTitle('Sins 2 Entity Tool')
@@ -1865,18 +1878,24 @@ class EntityToolGUI(QMainWindow):
     def save_changes(self):
         """Save all pending changes"""
         if not self.command_stack.has_unsaved_changes():
+            logging.info("No unsaved changes to save")
             return
             
         # Get all modified files
         modified_files = self.command_stack.get_modified_files()
+        logging.info(f"Found {len(modified_files)} modified files to save")
         
         success = True
         for file_path in modified_files:
+            logging.info(f"Processing file for save: {file_path}")
             # Find the data for this file
             if file_path == self.current_file:
                 data = self.current_data
+                logging.info(f"Using current data for {file_path}")
+                logging.debug(f"Current data: {data}")
             else:
                 # Load the file to get its current state
+                logging.info(f"Loading file data for {file_path}")
                 data, is_base_game = self.load_file(file_path, try_base_game=False)
                 if not data:
                     logging.error(f"Could not load file for saving: {file_path}")
@@ -1884,21 +1903,28 @@ class EntityToolGUI(QMainWindow):
                     continue
                     
             # Save the file
+            logging.info(f"Attempting to save file: {file_path}")
             if not self.command_stack.save_file(file_path, data):
                 success = False
+                logging.error(f"Failed to save file: {file_path}")
+            else:
+                logging.info(f"Successfully saved file: {file_path}")
                 
         # Update UI
         if success:
             self.status_label.setText("All changes saved")
             self.status_label.setProperty("status", "success")
+            logging.info("All files saved successfully")
         else:
             self.status_label.setText("Error saving some changes")
             self.status_label.setProperty("status", "error")
+            logging.error("Some files failed to save")
         self.status_label.style().unpolish(self.status_label)
         self.status_label.style().polish(self.status_label)
         
         # Update save button state
         self.save_btn.setEnabled(self.command_stack.has_unsaved_changes())
+        logging.info(f"Save button enabled: {self.command_stack.has_unsaved_changes()}")
         
     def update_save_button(self):
         """Update save button enabled state"""
