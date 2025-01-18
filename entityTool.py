@@ -840,8 +840,8 @@ class EntityToolGUI(QMainWindow):
             label.setStyleSheet("color: #666666; font-style: italic;")  # Gray and italic for base game content
         return label
     
-    def load_main_file(self, file_path: Path):
-        """Load a file as the main displayed file"""
+    def load_player_file(self, file_path: Path):
+        """Load a player file into the application"""
         try:
             with open(file_path, encoding='utf-8') as f:
                 data = json.load(f)
@@ -1711,7 +1711,7 @@ class EntityToolGUI(QMainWindow):
             
         # Find and load the selected player file
         player_file = self.current_folder / "entities" / f"{player_name}.player"
-        self.load_main_file(player_file) 
+        self.load_player_file(player_file) 
 
     def create_schema_view(self, file_type: str, file_data: dict, is_base_game: bool = False, file_path: Path = None) -> QWidget:
         """Create a reusable schema view for any file type.
