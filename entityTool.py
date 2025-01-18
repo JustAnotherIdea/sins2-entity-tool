@@ -426,18 +426,25 @@ class EntityToolGUI(QMainWindow):
         unit_file = self.current_folder / "entities" / f"{unit_id}.unit"
         
         try:
-            # Load unit data
-            unit_data, is_base_game = self.load_file(unit_file)
-            if not unit_data:
-                logging.error(f"Unit file not found: {unit_file}")
-                return
+            # Check if we have data in the command stack first
+            unit_data = self.command_stack.get_file_data(unit_file)
+            is_base_game = False
+            
+            if unit_data is None:
+                # Load from file if not in command stack
+                unit_data, is_base_game = self.load_file(unit_file)
+                if not unit_data:
+                    logging.error(f"Unit file not found: {unit_file}")
+                    return
+                    
+                # Store initial data in command stack
+                self.command_stack.update_file_data(unit_file, unit_data)
+            else:
+                logging.info(f"Using data from command stack for {unit_file}")
                 
             # Update current file and data
             self.current_file = unit_file
             self.current_data = unit_data
-            
-            # Store file data in command stack
-            self.command_stack.update_file_data(unit_file, unit_data)
                 
             # Clear existing details in all panels
             self.clear_layout(self.unit_details_layout)
@@ -1588,34 +1595,41 @@ class EntityToolGUI(QMainWindow):
         is_base_game = False
         
         try:
-            # Try mod folder first
-            if entity_file.exists():
-                logging.info(f"Loading referenced entity from mod folder: {entity_file}")
-                with open(entity_file, encoding='utf-8') as f:
-                    entity_data = json.load(f)
-                    is_base_game = False
-                logging.info(f"Successfully loaded data for {entity_file}")
-                logging.debug(f"Initial data for {entity_file}: {entity_data}")
-            
-            # Try base game folder if not found in mod folder
-            elif self.config.get("base_game_folder"):
-                base_game_file = Path(self.config["base_game_folder"]) / "entities" / f"{entity_id}.{entity_type}"
-                if base_game_file.exists():
-                    logging.info(f"Loading referenced entity from base game: {base_game_file}")
-                    with open(base_game_file, encoding='utf-8') as f:
+            # Check if we have data in the command stack first
+            entity_data = self.command_stack.get_file_data(entity_file)
+            if entity_data is not None:
+                logging.info(f"Using data from command stack for {entity_file}")
+                is_base_game = False
+            else:
+                # Try mod folder first
+                if entity_file.exists():
+                    logging.info(f"Loading referenced entity from mod folder: {entity_file}")
+                    with open(entity_file, encoding='utf-8') as f:
                         entity_data = json.load(f)
-                        is_base_game = True
-                    entity_file = base_game_file
-                    logging.info(f"Successfully loaded base game data for {entity_file}")
-                    logging.debug(f"Initial base game data for {entity_file}: {entity_data}")
+                        is_base_game = False
+                    logging.info(f"Successfully loaded data for {entity_file}")
+                    logging.debug(f"Initial data for {entity_file}: {entity_data}")
+                
+                # Try base game folder if not found in mod folder
+                elif self.config.get("base_game_folder"):
+                    base_game_file = Path(self.config["base_game_folder"]) / "entities" / f"{entity_id}.{entity_type}"
+                    if base_game_file.exists():
+                        logging.info(f"Loading referenced entity from base game: {base_game_file}")
+                        with open(base_game_file, encoding='utf-8') as f:
+                            entity_data = json.load(f)
+                            is_base_game = True
+                        entity_file = base_game_file
+                        logging.info(f"Successfully loaded base game data for {entity_file}")
+                        logging.debug(f"Initial base game data for {entity_file}: {entity_data}")
             
             if not entity_data:
                 logging.error(f"{entity_type} file not found: {entity_id}")
                 return
                 
-            # Store data in command stack before creating view
-            logging.info(f"Storing initial data in command stack for {entity_file}")
-            self.command_stack.update_file_data(entity_file, entity_data)
+            # Store data in command stack if it wasn't already there
+            if entity_file not in self.command_stack.file_data:
+                logging.info(f"Storing initial data in command stack for {entity_file}")
+                self.command_stack.update_file_data(entity_file, entity_data)
             
             # Clear the appropriate panel and display the new data
             if entity_type == "weapon":
@@ -1656,21 +1670,29 @@ class EntityToolGUI(QMainWindow):
             
         # Look for the research subject file in the entities folder
         subject_file = self.current_folder / "entities" / f"{subject_id}.research_subject"
-        subject_data, is_base_game = self.load_file(subject_file)
         
-        if not subject_data:
-            logging.error(f"Research subject file not found: {subject_file}")
-            return
-            
         try:
+            # Check if we have data in the command stack first
+            subject_data = self.command_stack.get_file_data(subject_file)
+            is_base_game = False
+            
+            if subject_data is None:
+                # Load from file if not in command stack
+                subject_data, is_base_game = self.load_file(subject_file)
+                if not subject_data:
+                    logging.error(f"Research subject file not found: {subject_file}")
+                    return
+                    
+                # Store initial data in command stack
+                self.command_stack.update_file_data(subject_file, subject_data)
+            else:
+                logging.info(f"Using data from command stack for {subject_file}")
+            
             # Clear any existing details
             while self.research_details_layout.count():
                 item = self.research_details_layout.takeAt(0)
                 if item.widget():
                     item.widget().deleteLater()
-            
-            # Store file data in command stack
-            self.command_stack.update_file_data(subject_file, subject_data)
             
             # Create and add the schema view
             schema_view = self.create_schema_view("research-subject", subject_data, is_base_game, subject_file)
