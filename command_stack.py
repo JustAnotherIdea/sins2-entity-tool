@@ -1,5 +1,7 @@
-from typing import Any, List, Dict
+from typing import Any, List, Dict, Set
 from pathlib import Path
+import json
+import logging
 
 class Command:
     """Base class for all commands"""
@@ -41,6 +43,7 @@ class CommandStack:
         self.undo_stack: List[Command] = []
         self.redo_stack: List[Command] = []
         self.is_executing = False  # Flag to prevent recursive command execution
+        self.modified_files: Set[Path] = set()  # Track files with unsaved changes
         
     def push(self, command: Command) -> None:
         """Add a new command to the stack"""
@@ -49,6 +52,7 @@ class CommandStack:
             
         self.undo_stack.append(command)
         self.redo_stack.clear()  # Clear redo stack when new command is added
+        self.modified_files.add(command.file_path)  # Track modified file
         
     def undo(self) -> None:
         """Undo the last command"""
@@ -59,6 +63,11 @@ class CommandStack:
         command = self.undo_stack.pop()
         command.undo()
         self.redo_stack.append(command)
+        
+        # Update modified files tracking
+        if not any(cmd.file_path == command.file_path for cmd in self.undo_stack):
+            self.modified_files.discard(command.file_path)
+            
         self.is_executing = False
         
     def redo(self) -> None:
@@ -70,6 +79,7 @@ class CommandStack:
         command = self.redo_stack.pop()
         command.redo()
         self.undo_stack.append(command)
+        self.modified_files.add(command.file_path)  # Track modified file
         self.is_executing = False
         
     def can_undo(self) -> bool:
@@ -78,4 +88,28 @@ class CommandStack:
         
     def can_redo(self) -> bool:
         """Check if there are commands that can be redone"""
-        return len(self.redo_stack) > 0 
+        return len(self.redo_stack) > 0
+        
+    def has_unsaved_changes(self) -> bool:
+        """Check if there are any unsaved changes"""
+        return len(self.modified_files) > 0
+        
+    def get_modified_files(self) -> Set[Path]:
+        """Get the set of files that have unsaved changes"""
+        return self.modified_files.copy()
+        
+    def save_file(self, file_path: Path, data: dict) -> bool:
+        """Save changes to a specific file"""
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4)
+            self.modified_files.discard(file_path)
+            logging.info(f"Saved changes to {file_path}")
+            return True
+        except Exception as e:
+            logging.error(f"Error saving file {file_path}: {str(e)}")
+            return False
+            
+    def clear_modified_state(self, file_path: Path) -> None:
+        """Clear the modified state for a file without saving"""
+        self.modified_files.discard(file_path) 

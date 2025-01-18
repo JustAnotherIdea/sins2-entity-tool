@@ -131,6 +131,16 @@ class EntityToolGUI(QMainWindow):
         settings_btn.clicked.connect(self.show_settings_dialog)
         left_toolbar_layout.addWidget(settings_btn)
         
+        # Save button with icon
+        save_btn = QPushButton()
+        save_btn.setIcon(QIcon(str(Path(__file__).parent / "icons" / "save.png")))
+        save_btn.setToolTip('Save Changes')
+        save_btn.setFixedSize(32, 32)
+        save_btn.clicked.connect(self.save_changes)
+        save_btn.setEnabled(False)  # Initially disabled
+        self.save_btn = save_btn  # Store reference
+        left_toolbar_layout.addWidget(save_btn)
+        
         toolbar_layout.addWidget(left_toolbar)
         toolbar_layout.addStretch()
         
@@ -385,6 +395,10 @@ class EntityToolGUI(QMainWindow):
             if not unit_data:
                 logging.error(f"Unit file not found: {unit_file}")
                 return
+                
+            # Update current file and data
+            self.current_file = unit_file
+            self.current_data = unit_data
                 
             # Clear existing details in all panels
             self.clear_layout(self.unit_details_layout)
@@ -1783,6 +1797,7 @@ class EntityToolGUI(QMainWindow):
             )
             self.command_stack.push(command)
             widget.setProperty("original_value", new_text)
+            self.update_save_button()  # Update save button state
             
     def on_combo_changed(self, widget: QComboBox, new_text: str):
         """Handle selection changes in QComboBox widgets"""
@@ -1803,6 +1818,7 @@ class EntityToolGUI(QMainWindow):
             )
             self.command_stack.push(command)
             widget.setProperty("original_value", new_text)
+            self.update_save_button()  # Update save button state
             
     def on_spin_changed(self, widget: QSpinBox | QDoubleSpinBox, new_value: int | float):
         """Handle value changes in QSpinBox and QDoubleSpinBox widgets"""
@@ -1823,6 +1839,7 @@ class EntityToolGUI(QMainWindow):
             )
             self.command_stack.push(command)
             widget.setProperty("original_value", new_value)
+            self.update_save_button()  # Update save button state
             
     def on_checkbox_changed(self, widget: QCheckBox, new_state: int):
         """Handle state changes in QCheckBox widgets"""
@@ -1844,3 +1861,47 @@ class EntityToolGUI(QMainWindow):
             )
             self.command_stack.push(command)
             widget.setProperty("original_value", new_value)
+            self.update_save_button()  # Update save button state
+    
+    def save_changes(self):
+        """Save all pending changes"""
+        if not self.command_stack.has_unsaved_changes():
+            return
+            
+        # Get all modified files
+        modified_files = self.command_stack.get_modified_files()
+        
+        success = True
+        for file_path in modified_files:
+            # Find the data for this file
+            if file_path == self.current_file:
+                data = self.current_data
+            else:
+                # Load the file to get its current state
+                data, is_base_game = self.load_file(file_path, try_base_game=False)
+                if not data:
+                    logging.error(f"Could not load file for saving: {file_path}")
+                    success = False
+                    continue
+                    
+            # Save the file
+            if not self.command_stack.save_file(file_path, data):
+                success = False
+                
+        # Update UI
+        if success:
+            self.status_label.setText("All changes saved")
+            self.status_label.setProperty("status", "success")
+        else:
+            self.status_label.setText("Error saving some changes")
+            self.status_label.setProperty("status", "error")
+        self.status_label.style().unpolish(self.status_label)
+        self.status_label.style().polish(self.status_label)
+        
+        # Update save button state
+        self.save_btn.setEnabled(self.command_stack.has_unsaved_changes())
+        
+    def update_save_button(self):
+        """Update save button enabled state"""
+        if hasattr(self, 'save_btn'):
+            self.save_btn.setEnabled(self.command_stack.has_unsaved_changes())
