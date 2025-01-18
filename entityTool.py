@@ -1379,7 +1379,6 @@ class EntityToolGUI(QMainWindow):
         is_weapon = isinstance(value, str) and property_name in ["weapon"]
         is_skin = isinstance(value, str) and property_name in ["skins"]
         is_ability = isinstance(value, str) and property_name in ["abilities"]
-        
         if is_weapon or is_skin or is_ability:
             btn = QPushButton(value_str)
             btn.setStyleSheet("text-align: left; padding: 2px;")
@@ -1488,20 +1487,26 @@ class EntityToolGUI(QMainWindow):
             
         elif schema_type == "number":
             spin = QDoubleSpinBox()
-            spin.setValue(float(value) if value is not None else 0.0)
-            spin.setDecimals(4)  # Allow 4 decimal places
             
-            # Set minimum and maximum if specified
-            if "minimum" in schema:
-                spin.setMinimum(schema["minimum"])
-            else:
-                spin.setMinimum(-1000000.0)  # Reasonable default minimum
-                
-            if "maximum" in schema:
-                spin.setMaximum(schema["maximum"])
-            else:
-                spin.setMaximum(1000000.0)  # Reasonable default maximum
-                
+            # Convert value to float, handling scientific notation
+            try:
+                float_value = float(value) if value is not None else 0.0
+            except (ValueError, TypeError):
+                float_value = 0.0
+            
+            # Set range first to ensure value can be set
+            spin.setRange(-1e20, 1e20)
+            
+            # Set decimals before value to ensure precision
+            spin.setDecimals(15)  # Maximum precision
+            
+            # Now set the value
+            spin.setValue(float_value)
+            
+            # Set step size
+            spin.setStepType(QDoubleSpinBox.StepType.AdaptiveDecimalStepType)
+            spin.setSingleStep(0.000001)  # Small step size for precision
+            
             if is_base_game:
                 spin.setStyleSheet("color: #666666; font-style: italic;")
                 spin.setReadOnly(True)  # Make spinbox read-only for base game content
