@@ -413,6 +413,9 @@ class EntityToolGUI(QMainWindow):
             # Update current file and data
             self.current_file = unit_file
             self.current_data = unit_data
+            
+            # Store file data in command stack
+            self.command_stack.update_file_data(unit_file, unit_data)
                 
             # Clear existing details in all panels
             self.clear_layout(self.unit_details_layout)
@@ -421,7 +424,7 @@ class EntityToolGUI(QMainWindow):
             self.clear_layout(self.ability_details_layout)
             
             # Create and add the schema view for unit details
-            schema_view = self.create_schema_view("unit", unit_data, is_base_game)
+            schema_view = self.create_schema_view("unit", unit_data, is_base_game, unit_file)
             self.unit_details_layout.addWidget(schema_view)
             
         except Exception as e:
@@ -1607,14 +1610,17 @@ class EntityToolGUI(QMainWindow):
                 self.clear_layout(self.weapon_details_layout)
                 schema_view = self.create_schema_view("weapon", entity_data, is_base_game, entity_file)
                 self.weapon_details_layout.addWidget(schema_view)
+                self.weapon_file = entity_file  # Store file path
             elif entity_type == "unit_skin":
                 self.clear_layout(self.skin_details_layout)
                 schema_view = self.create_schema_view("unit-skin", entity_data, is_base_game, entity_file)
                 self.skin_details_layout.addWidget(schema_view)
+                self.skin_file = entity_file  # Store file path
             elif entity_type == "ability":
                 self.clear_layout(self.ability_details_layout)
                 schema_view = self.create_schema_view("ability", entity_data, is_base_game, entity_file)
                 self.ability_details_layout.addWidget(schema_view)
+                self.ability_file = entity_file  # Store file path
                 
         except Exception as e:
             logging.error(f"Error loading {entity_type} {entity_id}: {str(e)}")
@@ -1728,6 +1734,11 @@ class EntityToolGUI(QMainWindow):
         logging.debug(f"Is base game: {is_base_game}")
         logging.debug(f"File path: {file_path}")
         
+        # Store file data in command stack if file path is provided
+        if file_path is not None:
+            self.command_stack.update_file_data(file_path, file_data)
+            logging.debug(f"Stored file data for {file_path} in command stack")
+        
         # Get the schema name
         schema_name = f"{file_type}-schema"
         if schema_name not in self.schemas:
@@ -1752,6 +1763,7 @@ class EntityToolGUI(QMainWindow):
         # Create content widget
         content = QWidget()
         content_layout = QVBoxLayout(content)
+        content_layout.setSpacing(10)  # Add spacing between elements
         
         # Add name if available
         if "name" in file_data:
@@ -1798,9 +1810,24 @@ class EntityToolGUI(QMainWindow):
         logging.debug("Finished creating schema view")
         return scroll 
 
+    def get_schema_view_file_path(self, widget: QWidget) -> Path | None:
+        """Get the file path from the parent schema view of a widget"""
+        # Walk up the widget hierarchy until we find a QScrollArea (schema view)
+        current = widget
+        while current is not None:
+            if isinstance(current, QScrollArea):
+                file_path_str = current.property("file_path")
+                if file_path_str:
+                    return Path(file_path_str)
+                break
+            current = current.parent()
+        return None
+
     def on_text_changed(self, widget: QLineEdit, new_text: str):
         """Handle text changes in QLineEdit widgets"""
-        if not hasattr(self, 'current_file'):
+        # Get file path from parent schema view
+        file_path = self.get_schema_view_file_path(widget)
+        if not file_path:
             return
             
         data_path = widget.property("data_path")
@@ -1811,7 +1838,7 @@ class EntityToolGUI(QMainWindow):
         
         if data_path is not None and old_value_str != new_text:
             command = EditValueCommand(
-                self.current_file,
+                file_path,
                 data_path,
                 old_value,
                 new_text,
@@ -1824,7 +1851,9 @@ class EntityToolGUI(QMainWindow):
             
     def on_combo_changed(self, widget: QComboBox, new_text: str):
         """Handle selection changes in QComboBox widgets"""
-        if not hasattr(self, 'current_file'):
+        # Get file path from parent schema view
+        file_path = self.get_schema_view_file_path(widget)
+        if not file_path:
             return
             
         data_path = widget.property("data_path")
@@ -1832,7 +1861,7 @@ class EntityToolGUI(QMainWindow):
         
         if data_path is not None and old_value != new_text:
             command = EditValueCommand(
-                self.current_file,
+                file_path,
                 data_path,
                 old_value,
                 new_text,
@@ -1845,7 +1874,9 @@ class EntityToolGUI(QMainWindow):
             
     def on_spin_changed(self, widget: QSpinBox | QDoubleSpinBox, new_value: int | float):
         """Handle value changes in QSpinBox and QDoubleSpinBox widgets"""
-        if not hasattr(self, 'current_file'):
+        # Get file path from parent schema view
+        file_path = self.get_schema_view_file_path(widget)
+        if not file_path:
             return
             
         data_path = widget.property("data_path")
@@ -1853,7 +1884,7 @@ class EntityToolGUI(QMainWindow):
         
         if data_path is not None and old_value != new_value:
             command = EditValueCommand(
-                self.current_file,
+                file_path,
                 data_path,
                 old_value,
                 new_value,
@@ -1866,7 +1897,9 @@ class EntityToolGUI(QMainWindow):
             
     def on_checkbox_changed(self, widget: QCheckBox, new_state: int):
         """Handle state changes in QCheckBox widgets"""
-        if not hasattr(self, 'current_file'):
+        # Get file path from parent schema view
+        file_path = self.get_schema_view_file_path(widget)
+        if not file_path:
             return
             
         data_path = widget.property("data_path")
@@ -1875,7 +1908,7 @@ class EntityToolGUI(QMainWindow):
         
         if data_path is not None and old_value != new_value:
             command = EditValueCommand(
-                self.current_file,
+                file_path,
                 data_path,
                 old_value,
                 new_value,
@@ -1899,27 +1932,24 @@ class EntityToolGUI(QMainWindow):
         success = True
         for file_path in modified_files:
             logging.info(f"Processing file for save: {file_path}")
-            # Find the data for this file
-            if file_path == self.current_file:
-                data = self.current_data
-                logging.info(f"Using current data for {file_path}")
-                logging.debug(f"Current data: {data}")
-            else:
-                # Load the file to get its current state
-                logging.info(f"Loading file data for {file_path}")
-                data, is_base_game = self.load_file(file_path, try_base_game=False)
-                if not data:
-                    logging.error(f"Could not load file for saving: {file_path}")
-                    success = False
-                    continue
+            
+            # Get the latest data from the command stack
+            data = self.command_stack.get_file_data(file_path)
+            if not data:
+                logging.error(f"No data found in command stack for file: {file_path}")
+                success = False
+                continue
                     
             # Save the file
             logging.info(f"Attempting to save file: {file_path}")
-            if not self.command_stack.save_file(file_path, data):
-                success = False
-                logging.error(f"Failed to save file: {file_path}")
-            else:
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=4)
                 logging.info(f"Successfully saved file: {file_path}")
+            except Exception as e:
+                logging.error(f"Failed to save file {file_path}: {str(e)}")
+                success = False
+                continue
                 
         # Update UI
         if success:

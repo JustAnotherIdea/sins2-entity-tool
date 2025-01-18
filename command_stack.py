@@ -50,6 +50,7 @@ class CommandStack:
         self.redo_stack: List[Command] = []
         self.is_executing = False  # Flag to prevent recursive command execution
         self.modified_files: Set[Path] = set()  # Track files with unsaved changes
+        self.file_data: Dict[Path, dict] = {}  # Store current data for each file
         logging.info("Initialized new CommandStack")
         
     def push(self, command: Command) -> None:
@@ -120,6 +121,14 @@ class CommandStack:
         logging.debug(f"Getting modified files: {self.modified_files}")
         return self.modified_files.copy()
         
+    def get_file_data(self, file_path: Path) -> dict:
+        """Get the current data for a file"""
+        return self.file_data.get(file_path, {})
+        
+    def update_file_data(self, file_path: Path, data: dict) -> None:
+        """Update the stored data for a file"""
+        self.file_data[file_path] = data
+        
     def save_file(self, file_path: Path, data: dict) -> bool:
         """Save changes to a specific file"""
         try:
@@ -133,7 +142,8 @@ class CommandStack:
             with open(file_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, indent=4)
             
-            # Remove from modified files
+            # Update stored data and remove from modified files
+            self.file_data[file_path] = data
             self.modified_files.discard(file_path)
             logging.info(f"Successfully saved changes to {file_path}")
             logging.debug(f"Modified files after save: {self.modified_files}")
