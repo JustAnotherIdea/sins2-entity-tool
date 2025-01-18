@@ -1649,8 +1649,11 @@ class EntityToolGUI(QMainWindow):
                 if item.widget():
                     item.widget().deleteLater()
             
+            # Store file data in command stack
+            self.command_stack.update_file_data(subject_file, subject_data)
+            
             # Create and add the schema view
-            schema_view = self.create_schema_view("research-subject", subject_data, is_base_game)
+            schema_view = self.create_schema_view("research-subject", subject_data, is_base_game, subject_file)
             self.research_details_layout.addWidget(schema_view)
             
         except Exception as e:
