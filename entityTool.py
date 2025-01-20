@@ -1458,12 +1458,28 @@ class EntityToolGUI(QMainWindow):
             edit.setProperty("original_value", value)
             return edit
             
-        elif schema.get("format") == "texture":
-            # Handle texture references - keep as non-editable for now
+        elif schema.get("format") == "texture" or value_str in self.all_texture_files['mod'] or value_str in self.all_texture_files['base_game']:
+            # Handle texture references - create a container with both texture and editable field
+            container = QWidget()
+            layout = QVBoxLayout(container)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(4)
+            
+            # Add texture preview
             label = self.create_texture_label(value_str)
-            label.setProperty("data_path", path)
-            label.setProperty("original_value", value)
-            return label
+            layout.addWidget(label)
+            
+            # Add editable field if not base game
+            if not is_base_game:
+                edit = QLineEdit(value_str)
+                edit.textChanged.connect(lambda text: self.on_text_changed(edit, text))
+                edit.setProperty("data_path", path)
+                edit.setProperty("original_value", value)
+                layout.addWidget(edit)
+            
+            container.setProperty("data_path", path)
+            container.setProperty("original_value", value)
+            return container
             
         # Handle different schema types
         schema_type = schema.get("type")
