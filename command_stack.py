@@ -55,7 +55,33 @@ class CommandStack:
         self.is_executing = False  # Flag to prevent recursive command execution
         self.modified_files: Set[Path] = set()  # Track files with unsaved changes
         self.file_data: Dict[Path, dict] = {}  # Store current data for each file
+        self.data_change_callbacks: Dict[Path, List[Callable]] = {}  # Callbacks for data changes
         logging.info("Initialized new CommandStack")
+        
+    def register_data_change_callback(self, file_path: Path, callback: Callable) -> None:
+        """Register a callback to be called when data changes for a file"""
+        if file_path not in self.data_change_callbacks:
+            self.data_change_callbacks[file_path] = []
+        self.data_change_callbacks[file_path].append(callback)
+        logging.debug(f"Registered data change callback for {file_path}")
+        
+    def unregister_data_change_callback(self, file_path: Path, callback: Callable) -> None:
+        """Unregister a data change callback"""
+        if file_path in self.data_change_callbacks:
+            try:
+                self.data_change_callbacks[file_path].remove(callback)
+                logging.debug(f"Unregistered data change callback for {file_path}")
+            except ValueError:
+                pass
+            
+    def notify_data_change(self, file_path: Path) -> None:
+        """Notify all registered callbacks that data has changed for a file"""
+        if file_path in self.data_change_callbacks:
+            for callback in self.data_change_callbacks[file_path]:
+                try:
+                    callback(self.get_file_data(file_path))
+                except Exception as e:
+                    logging.error(f"Error in data change callback for {file_path}: {str(e)}")
         
     def update_file_data(self, file_path: Path, data: dict) -> None:
         """Update the stored data for a file"""
@@ -154,8 +180,9 @@ class CommandStack:
                         current.append(None)
                     current[command.data_path[-1]] = command.old_value
                     
-            # Store updated data
+            # Store updated data and notify listeners
             self.update_file_data(command.file_path, data)
+            self.notify_data_change(command.file_path)
             
         self.redo_stack.append(command)
         
@@ -201,8 +228,9 @@ class CommandStack:
                         current.append(None)
                     current[command.data_path[-1]] = command.new_value
                     
-            # Store updated data
+            # Store updated data and notify listeners
             self.update_file_data(command.file_path, data)
+            self.notify_data_change(command.file_path)
             
         self.undo_stack.append(command)
         

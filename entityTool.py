@@ -1805,50 +1805,72 @@ class EntityToolGUI(QMainWindow):
         content_layout = QVBoxLayout(content)
         content_layout.setSpacing(10)  # Add spacing between elements
         
-        # Add name if available
-        if "name" in file_data:
-            logging.debug("Adding name field")
-            name_text, is_base_game_name = self.get_localized_text(file_data["name"])
-            name_label = QLabel(name_text)
-            name_label.setStyleSheet("font-size: 16px; font-weight: bold;")
-            if is_base_game or is_base_game_name:
-                name_label.setStyleSheet(name_label.styleSheet() + "; color: #666666; font-style: italic;")
-            content_layout.addWidget(name_label)
+        def update_content(new_data: dict):
+            """Update the content widget with new data"""
+            logging.info(f"Updating schema view content for {file_path}")
+            
+            # Clear existing content
+            while content_layout.count():
+                item = content_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+            
+            # Add name if available
+            if "name" in new_data:
+                logging.debug("Adding name field")
+                name_text, is_base_game_name = self.get_localized_text(new_data["name"])
+                name_label = QLabel(name_text)
+                name_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+                if is_base_game or is_base_game_name:
+                    name_label.setStyleSheet(name_label.styleSheet() + "; color: #666666; font-style: italic;")
+                content_layout.addWidget(name_label)
+            
+            # Add description if available
+            if "description" in new_data:
+                logging.debug("Adding description field")
+                desc_text, is_base_game_desc = self.get_localized_text(new_data["description"])
+                desc_label = QLabel(desc_text)
+                desc_label.setWordWrap(True)
+                if is_base_game or is_base_game_desc:
+                    desc_label.setStyleSheet("color: #666666; font-style: italic;")
+                content_layout.addWidget(desc_label)
+            
+            # Add picture if available
+            if "tooltip_picture" in new_data:
+                logging.debug("Adding tooltip picture")
+                picture_label = self.create_texture_label(new_data["tooltip_picture"], max_size=256)
+                content_layout.addWidget(picture_label)
+            
+            # Create the main details widget using the schema
+            title = f"{file_type.replace('-', ' ').title()} Details (Base Game)" if is_base_game else f"{file_type.replace('-', ' ').title()} Details"
+            logging.debug(f"Creating details group with title: {title}")
+            details_group = QGroupBox(title)
+            if is_base_game:
+                details_group.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
+            
+            # Create the content widget using the schema, passing an empty path to start tracking
+            logging.debug("Creating schema content widget")
+            details_widget = self.create_widget_for_schema(new_data, self.current_schema, is_base_game, [])
+            details_layout = QVBoxLayout()
+            details_layout.addWidget(details_widget)
+            details_group.setLayout(details_layout)
+            content_layout.addWidget(details_group)
         
-        # Add description if available
-        if "description" in file_data:
-            logging.debug("Adding description field")
-            desc_text, is_base_game_desc = self.get_localized_text(file_data["description"])
-            desc_label = QLabel(desc_text)
-            desc_label.setWordWrap(True)
-            if is_base_game or is_base_game_desc:
-                desc_label.setStyleSheet("color: #666666; font-style: italic;")
-            content_layout.addWidget(desc_label)
+        # Initial content update
+        update_content(file_data)
         
-        # Add picture if available
-        if "tooltip_picture" in file_data:
-            logging.debug("Adding tooltip picture")
-            picture_label = self.create_texture_label(file_data["tooltip_picture"], max_size=256)
-            content_layout.addWidget(picture_label)
-        
-        # Create the main details widget using the schema
-        title = f"{file_type.replace('-', ' ').title()} Details (Base Game)" if is_base_game else f"{file_type.replace('-', ' ').title()} Details"
-        logging.debug(f"Creating details group with title: {title}")
-        details_group = QGroupBox(title)
-        if is_base_game:
-            details_group.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
-        
-        # Create the content widget using the schema, passing an empty path to start tracking
-        logging.debug("Creating schema content widget")
-        details_widget = self.create_widget_for_schema(file_data, self.current_schema, is_base_game, [])
-        details_layout = QVBoxLayout()
-        details_layout.addWidget(details_widget)
-        details_group.setLayout(details_layout)
-        content_layout.addWidget(details_group)
+        # Register for data changes if file path is provided
+        if file_path is not None:
+            self.command_stack.register_data_change_callback(file_path, update_content)
+            
+            # Clean up callback when widget is destroyed
+            def cleanup():
+                self.command_stack.unregister_data_change_callback(file_path, update_content)
+            scroll.destroyed.connect(cleanup)
         
         scroll.setWidget(content)
         logging.debug("Finished creating schema view")
-        return scroll 
+        return scroll
 
     def get_schema_view_file_path(self, widget: QWidget) -> Path | None:
         """Get the file path from the parent schema view of a widget"""
