@@ -32,27 +32,39 @@ class GUILogHandler(logging.Handler):
 class EntityToolGUI(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.command_stack = CommandStack()
         
-        # Initialize data structures
+        # Initialize variables
         self.current_folder = None
-        self.files_by_type = {}
-        self.manifest_files = {}
-        self.schema_extensions = set()
-        self.localized_text = {}
-        self.schemas = {}  # Initialize schemas dict first
-        self.current_schema = None
-        self.current_game_folder = None
+        self.base_game_folder = None  # Initialize base game folder
         self.current_file = None
         self.current_data = None
-        self.schema_dir = None
-        self.base_game_localized_text = {}  # Store base game localized text
-        self.current_language = "en"  # Default language
-        self.texture_cache = {}  # Cache for loaded textures
+        self.current_schema = None
+        self.current_language = "en"  # Default to English
+        self.files_by_type = {}
+        self.manifest_files = {}
+        self.texture_cache = {}
+        self.schemas = {}
+        self.schema_extensions = set()
+        self.localized_text = {}
+        self.base_game_localized_text = {}
+        self.command_stack = CommandStack()
         
-        # Load configuration and schemas
-        self.config = self.load_config()
-        self.load_schemas()  # Load schemas after config is loaded
+        # Load config
+        try:
+            with open('config.json', 'r') as f:
+                self.config = json.load(f)
+                if "base_game_folder" in self.config:
+                    self.base_game_folder = Path(self.config["base_game_folder"])
+                    logging.info(f"Loaded base game folder from config: {self.base_game_folder}")
+        except FileNotFoundError:
+            self.config = {}
+            logging.warning("No config.json found, using defaults")
+        except json.JSONDecodeError:
+            self.config = {}
+            logging.error("Error parsing config.json, using defaults")
+        
+        # Load schemas
+        self.load_schemas()
         
         # Initialize UI
         self.init_ui()
@@ -344,8 +356,10 @@ class EntityToolGUI(QMainWindow):
             if folder:
                 base_game_path.setText(folder)
                 self.config["base_game_folder"] = folder
+                self.base_game_folder = Path(folder)  # Update base_game_folder path
                 self.save_config()
-                self.load_localized_text()  # Reload localized text with new path
+                self.load_all_localized_strings()  # Reload localized strings with new path
+                self.load_all_texture_files()  # Reload texture files with new path
         
         base_game_btn.clicked.connect(select_base_game_folder)
         base_game_layout.addWidget(base_game_label)
@@ -568,8 +582,9 @@ class EntityToolGUI(QMainWindow):
             self.manifest_files.clear()  # Clear existing manifest data
             self.player_selector.clear()  # Clear player selector
             
-            # Load localized text first
-            self.load_localized_text()
+            # Load localized text and textures
+            self.load_all_localized_strings()  # Load all strings into memory
+            self.load_all_texture_files()  # Load all texture files into memory
             
             # First, look for and process manifest files in the entities folder
             entities_folder = self.current_folder / "entities"
@@ -838,24 +853,24 @@ class EntityToolGUI(QMainWindow):
             return text_key[1:], False
         
         # Try current language in mod folder first
-        if self.current_language in self.localized_text:
-            if text_key in self.localized_text[self.current_language]:
-                return self.localized_text[self.current_language][text_key], False
+        if self.current_language in self.all_localized_strings['mod']:
+            if text_key in self.all_localized_strings['mod'][self.current_language]:
+                return self.all_localized_strings['mod'][self.current_language][text_key], False
         
         # Try English in mod folder
-        if "en" in self.localized_text:
-            if text_key in self.localized_text["en"]:
-                return self.localized_text["en"][text_key], False
+        if "en" in self.all_localized_strings['mod']:
+            if text_key in self.all_localized_strings['mod']["en"]:
+                return self.all_localized_strings['mod']["en"][text_key], False
         
         # Try base game current language
-        if self.current_language in self.base_game_localized_text:
-            if text_key in self.base_game_localized_text[self.current_language]:
-                return self.base_game_localized_text[self.current_language][text_key], True
+        if self.current_language in self.all_localized_strings['base_game']:
+            if text_key in self.all_localized_strings['base_game'][self.current_language]:
+                return self.all_localized_strings['base_game'][self.current_language][text_key], True
         
         # Try base game English
-        if "en" in self.base_game_localized_text:
-            if text_key in self.base_game_localized_text["en"]:
-                return self.base_game_localized_text["en"][text_key], True
+        if "en" in self.all_localized_strings['base_game']:
+            if text_key in self.all_localized_strings['base_game']["en"]:
+                return self.all_localized_strings['base_game']["en"][text_key], True
         
         return text_key, False  # Return key if no translation found
     
@@ -908,8 +923,16 @@ class EntityToolGUI(QMainWindow):
             return self.texture_cache[cache_key]
             
         # Try mod folder first
-        if self.current_folder:
+        if texture_name in self.all_texture_files['mod']:
             texture_path = self.current_folder / "textures" / f"{texture_name}.png"
+            if texture_path.exists():
+                pixmap = QPixmap(str(texture_path))
+                if not pixmap.isNull():
+                    self.texture_cache[cache_key] = (pixmap, False)
+                    return pixmap, False
+                    
+            # Try DDS if PNG not found
+            texture_path = self.current_folder / "textures" / f"{texture_name}.dds"
             if texture_path.exists():
                 pixmap = QPixmap(str(texture_path))
                 if not pixmap.isNull():
@@ -917,9 +940,18 @@ class EntityToolGUI(QMainWindow):
                     return pixmap, False
         
         # Try base game folder
-        base_game_folder = self.config.get("base_game_folder")
-        if base_game_folder:
-            texture_path = Path(base_game_folder) / "textures" / f"{texture_name}.png"
+        if texture_name in self.all_texture_files['base_game']:
+            base_game_folder = self.config.get("base_game_folder")
+            if base_game_folder:
+                texture_path = Path(base_game_folder) / "textures" / f"{texture_name}.png"
+                if texture_path.exists():
+                    pixmap = QPixmap(str(texture_path))
+                    if not pixmap.isNull():
+                        self.texture_cache[cache_key] = (pixmap, True)
+                        return pixmap, True
+                        
+                # Try DDS if PNG not found
+                texture_path = Path(base_game_folder) / "textures" / f"{texture_name}.dds"
             if texture_path.exists():
                 pixmap = QPixmap(str(texture_path))
                 if not pixmap.isNull():
@@ -927,7 +959,6 @@ class EntityToolGUI(QMainWindow):
                     return pixmap, True
         
         # Return empty pixmap if texture not found
-        logging.warning(f"Texture not found: {texture_name}")
         return QPixmap(), False
     
     def create_texture_label(self, texture_name: str, max_size: int = 128) -> QLabel:
@@ -2100,3 +2131,100 @@ class EntityToolGUI(QMainWindow):
         """Redo the last undone command"""
         self.command_stack.redo()
         self.update_save_button()  # Update button states
+
+    def load_all_localized_strings(self) -> None:
+        """Load all localized strings from both mod and base game into memory"""
+        logging.info("Loading all localized strings...")
+        
+        # Initialize dictionaries to store all strings
+        self.all_localized_strings = {
+            'mod': {},  # {language: {key: text}}
+            'base_game': {}  # {language: {key: text}}
+        }
+        
+        # Load mod strings (.str files)
+        if self.current_folder:
+            strings_folder = self.current_folder / "strings"
+            if strings_folder.exists():
+                for lang_file in strings_folder.glob("*.str"):
+                    language = lang_file.stem
+                    self.all_localized_strings['mod'][language] = {}
+                    try:
+                        with open(lang_file, 'r', encoding='utf-8') as f:
+                            for line in f:
+                                line = line.strip()
+                                if line and not line.startswith("//"):
+                                    key, value = line.split('\t', 1)
+                                    self.all_localized_strings['mod'][language][key] = value
+                        logging.info(f"Loaded {len(self.all_localized_strings['mod'][language])} strings for language {language} from mod")
+                    except Exception as e:
+                        logging.error(f"Error loading strings for language {language} from mod: {str(e)}")
+        
+        # Load base game strings (both .str and .json files)
+        if self.base_game_folder:
+            # Load .str files from strings folder
+            strings_folder = self.base_game_folder / "strings"
+            if strings_folder.exists():
+                for lang_file in strings_folder.glob("*.str"):
+                    language = lang_file.stem
+                    if language not in self.all_localized_strings['base_game']:
+                        self.all_localized_strings['base_game'][language] = {}
+                    try:
+                        with open(lang_file, 'r', encoding='utf-8') as f:
+                            for line in f:
+                                line = line.strip()
+                                if line and not line.startswith("//"):
+                                    key, value = line.split('\t', 1)
+                                    self.all_localized_strings['base_game'][language][key] = value
+                        logging.info(f"Loaded {len(self.all_localized_strings['base_game'][language])} strings for language {language} from base game .str file")
+                    except Exception as e:
+                        logging.error(f"Error loading strings for language {language} from base game .str file: {str(e)}")
+            
+            # Load .json files from localization folder
+            localization_folder = self.base_game_folder / "localization"
+            if localization_folder.exists():
+                for lang_file in localization_folder.glob("*.json"):
+                    language = lang_file.stem
+                    if language not in self.all_localized_strings['base_game']:
+                        self.all_localized_strings['base_game'][language] = {}
+                    try:
+                        with open(lang_file, 'r', encoding='utf-8') as f:
+                            json_data = json.load(f)
+                            self.all_localized_strings['base_game'][language].update(json_data)
+                        logging.info(f"Loaded strings for language {language} from base game .json file")
+                    except Exception as e:
+                        logging.error(f"Error loading strings for language {language} from base game .json file: {str(e)}")
+                        
+        # Log summary
+        for source in ['mod', 'base_game']:
+            for language in self.all_localized_strings[source]:
+                count = len(self.all_localized_strings[source][language])
+                logging.info(f"Total {source} strings for {language}: {count}")
+    
+    def load_all_texture_files(self) -> None:
+        """Load list of all texture files from both mod and base game into memory"""
+        logging.info("Loading all texture files...")
+        
+        # Initialize lists to store texture file paths
+        self.all_texture_files = {
+            'mod': set(),  # Set of texture file names without extension
+            'base_game': set()  # Set of texture file names without extension
+        }
+        
+        # Load mod textures
+        if self.current_folder:
+            textures_folder = self.current_folder / "textures"
+            if textures_folder.exists():
+                for texture_file in textures_folder.glob("*.*"):
+                    if texture_file.suffix.lower() in ['.png', '.dds']:
+                        self.all_texture_files['mod'].add(texture_file.stem)
+                logging.info(f"Found {len(self.all_texture_files['mod'])} texture files in mod")
+        
+        # Load base game textures
+        if self.base_game_folder:
+            textures_folder = self.base_game_folder / "textures"
+            if textures_folder.exists():
+                for texture_file in textures_folder.glob("*.*"):
+                    if texture_file.suffix.lower() in ['.png', '.dds']:
+                        self.all_texture_files['base_game'].add(texture_file.stem)
+                logging.info(f"Found {len(self.all_texture_files['base_game'])} texture files in base game")
