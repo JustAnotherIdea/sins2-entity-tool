@@ -13,6 +13,7 @@ import jsonschema
 from research_view import ResearchTreeView
 import os
 from command_stack import CommandStack, EditValueCommand
+from typing import List, Any
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -1805,56 +1806,97 @@ class EntityToolGUI(QMainWindow):
         content_layout = QVBoxLayout(content)
         content_layout.setSpacing(10)  # Add spacing between elements
         
-        def update_content(new_data: dict):
+        def update_content(new_data: dict, data_path: List[str] = None, value: Any = None, source_widget = None):
             """Update the content widget with new data"""
             logging.info(f"Updating schema view content for {file_path}")
+            logging.debug(f"Data path: {data_path}, Value: {value}, Source widget: {source_widget}")
             
-            # Clear existing content
-            while content_layout.count():
-                item = content_layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
-            
-            # Add name if available
-            if "name" in new_data:
-                logging.debug("Adding name field")
-                name_text, is_base_game_name = self.get_localized_text(new_data["name"])
-                name_label = QLabel(name_text)
-                name_label.setStyleSheet("font-size: 16px; font-weight: bold;")
-                if is_base_game or is_base_game_name:
-                    name_label.setStyleSheet(name_label.styleSheet() + "; color: #666666; font-style: italic;")
-                content_layout.addWidget(name_label)
-            
-            # Add description if available
-            if "description" in new_data:
-                logging.debug("Adding description field")
-                desc_text, is_base_game_desc = self.get_localized_text(new_data["description"])
-                desc_label = QLabel(desc_text)
-                desc_label.setWordWrap(True)
-                if is_base_game or is_base_game_desc:
-                    desc_label.setStyleSheet("color: #666666; font-style: italic;")
-                content_layout.addWidget(desc_label)
-            
-            # Add picture if available
-            if "tooltip_picture" in new_data:
-                logging.debug("Adding tooltip picture")
-                picture_label = self.create_texture_label(new_data["tooltip_picture"], max_size=256)
-                content_layout.addWidget(picture_label)
-            
-            # Create the main details widget using the schema
-            title = f"{file_type.replace('-', ' ').title()} Details (Base Game)" if is_base_game else f"{file_type.replace('-', ' ').title()} Details"
-            logging.debug(f"Creating details group with title: {title}")
-            details_group = QGroupBox(title)
-            if is_base_game:
-                details_group.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
-            
-            # Create the content widget using the schema, passing an empty path to start tracking
-            logging.debug("Creating schema content widget")
-            details_widget = self.create_widget_for_schema(new_data, self.current_schema, is_base_game, [])
-            details_layout = QVBoxLayout()
-            details_layout.addWidget(details_widget)
-            details_group.setLayout(details_layout)
-            content_layout.addWidget(details_group)
+            if data_path is None or source_widget is None:
+                # Full update - recreate entire view
+                logging.debug("Performing full update")
+                
+                # Clear existing content
+                while content_layout.count():
+                    item = content_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+                
+                # Add name if available
+                if "name" in new_data:
+                    logging.debug("Adding name field")
+                    name_text, is_base_game_name = self.get_localized_text(new_data["name"])
+                    name_label = QLabel(name_text)
+                    name_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+                    if is_base_game or is_base_game_name:
+                        name_label.setStyleSheet(name_label.styleSheet() + "; color: #666666; font-style: italic;")
+                    content_layout.addWidget(name_label)
+                
+                # Add description if available
+                if "description" in new_data:
+                    logging.debug("Adding description field")
+                    desc_text, is_base_game_desc = self.get_localized_text(new_data["description"])
+                    desc_label = QLabel(desc_text)
+                    desc_label.setWordWrap(True)
+                    if is_base_game or is_base_game_desc:
+                        desc_label.setStyleSheet("color: #666666; font-style: italic;")
+                    content_layout.addWidget(desc_label)
+                
+                # Add picture if available
+                if "tooltip_picture" in new_data:
+                    logging.debug("Adding tooltip picture")
+                    picture_label = self.create_texture_label(new_data["tooltip_picture"], max_size=256)
+                    content_layout.addWidget(picture_label)
+                
+                # Create the main details widget using the schema
+                title = f"{file_type.replace('-', ' ').title()} Details (Base Game)" if is_base_game else f"{file_type.replace('-', ' ').title()} Details"
+                logging.debug(f"Creating details group with title: {title}")
+                details_group = QGroupBox(title)
+                if is_base_game:
+                    details_group.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
+                
+                # Create the content widget using the schema, passing an empty path to start tracking
+                logging.debug("Creating schema content widget")
+                details_widget = self.create_widget_for_schema(new_data, self.current_schema, is_base_game, [])
+                details_layout = QVBoxLayout()
+                details_layout.addWidget(details_widget)
+                details_group.setLayout(details_layout)
+                content_layout.addWidget(details_group)
+            else:
+                # Partial update - find and update specific widget
+                logging.debug("Performing partial update")
+                
+                def find_widget_by_path(widget: QWidget, target_path: List[str]) -> QWidget:
+                    """Recursively find a widget by its data path"""
+                    if hasattr(widget, 'property'):
+                        widget_path = widget.property('data_path')
+                        if widget_path == target_path:
+                            return widget
+                            
+                    # Search children
+                    if hasattr(widget, 'children'):
+                        for child in widget.children():
+                            result = find_widget_by_path(child, target_path)
+                            if result is not None:
+                                return result
+                    return None
+                
+                # Find widget with matching data path
+                target_widget = find_widget_by_path(content, data_path)
+                if target_widget is not None and target_widget is not source_widget:
+                    logging.debug(f"Found widget to update: {target_widget}")
+                    # Update widget value based on its type
+                    if isinstance(target_widget, QLineEdit):
+                        target_widget.setText(str(value) if value is not None else "")
+                    elif isinstance(target_widget, QSpinBox):
+                        target_widget.setValue(int(value) if value is not None else 0)
+                    elif isinstance(target_widget, QDoubleSpinBox):
+                        target_widget.setValue(float(value) if value is not None else 0.0)
+                    elif isinstance(target_widget, QCheckBox):
+                        target_widget.setChecked(bool(value))
+                    elif isinstance(target_widget, QComboBox):
+                        target_widget.setCurrentText(str(value) if value is not None else "")
+                    # Update original value property
+                    target_widget.setProperty("original_value", value)
         
         # Initial content update
         update_content(file_data)
@@ -1907,6 +1949,7 @@ class EntityToolGUI(QMainWindow):
                 lambda value: widget.setText(str(value) if value is not None else ""),
                 self.update_data_value
             )
+            command.source_widget = widget  # Track which widget initiated the change
             self.command_stack.push(command)
             widget.setProperty("original_value", new_text)
             self.update_save_button()  # Update save button state
@@ -1930,6 +1973,7 @@ class EntityToolGUI(QMainWindow):
                 lambda value: widget.setCurrentText(value),
                 self.update_data_value
             )
+            command.source_widget = widget  # Track which widget initiated the change
             self.command_stack.push(command)
             widget.setProperty("original_value", new_text)
             self.update_save_button()  # Update save button state
@@ -1953,6 +1997,7 @@ class EntityToolGUI(QMainWindow):
                 lambda value: widget.setValue(value),
                 self.update_data_value
             )
+            command.source_widget = widget  # Track which widget initiated the change
             self.command_stack.push(command)
             widget.setProperty("original_value", new_value)
             self.update_save_button()  # Update save button state
@@ -1977,6 +2022,7 @@ class EntityToolGUI(QMainWindow):
                 lambda value: widget.setChecked(value),
                 self.update_data_value
             )
+            command.source_widget = widget  # Track which widget initiated the change
             self.command_stack.push(command)
             widget.setProperty("original_value", new_value)
             self.update_save_button()  # Update save button state

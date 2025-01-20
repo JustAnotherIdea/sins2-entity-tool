@@ -10,6 +10,7 @@ class Command:
         self.data_path = data_path
         self.old_value = old_value
         self.new_value = new_value
+        self.source_widget = None  # Track which widget initiated the change
         
     def undo(self) -> None:
         raise NotImplementedError
@@ -74,12 +75,17 @@ class CommandStack:
             except ValueError:
                 pass
             
-    def notify_data_change(self, file_path: Path) -> None:
+    def notify_data_change(self, file_path: Path, data_path: List = None, value: Any = None, source_widget = None) -> None:
         """Notify all registered callbacks that data has changed for a file"""
         if file_path in self.data_change_callbacks:
             for callback in self.data_change_callbacks[file_path]:
                 try:
-                    callback(self.get_file_data(file_path))
+                    if data_path is not None:
+                        # Partial update with path and value
+                        callback(self.get_file_data(file_path), data_path, value, source_widget)
+                    else:
+                        # Full update with just data
+                        callback(self.get_file_data(file_path), None, None, None)
                 except Exception as e:
                     logging.error(f"Error in data change callback for {file_path}: {str(e)}")
         
@@ -137,8 +143,9 @@ class CommandStack:
                     current.append(None)
                 current[command.data_path[-1]] = command.new_value
                 
-        # Store updated data
+        # Store updated data and notify listeners
         self.update_file_data(command.file_path, data)
+        self.notify_data_change(command.file_path, command.data_path, command.new_value, command.source_widget)
         
         self.undo_stack.append(command)
         self.redo_stack.clear()  # Clear redo stack when new command is added
@@ -182,7 +189,7 @@ class CommandStack:
                     
             # Store updated data and notify listeners
             self.update_file_data(command.file_path, data)
-            self.notify_data_change(command.file_path)
+            self.notify_data_change(command.file_path, command.data_path, command.old_value, command.source_widget)
             
         self.redo_stack.append(command)
         
@@ -230,7 +237,7 @@ class CommandStack:
                     
             # Store updated data and notify listeners
             self.update_file_data(command.file_path, data)
-            self.notify_data_change(command.file_path)
+            self.notify_data_change(command.file_path, command.data_path, command.new_value, command.source_widget)
             
         self.undo_stack.append(command)
         
