@@ -218,25 +218,15 @@ class EntityToolGUI(QMainWindow):
         # Tab widget for different sections
         self.tab_widget = QTabWidget()
         
-        # Basic Info Tab
-        basic_info_widget = QScrollArea()
-        basic_info_widget.setWidgetResizable(True)
-        basic_info_content = QWidget()
-        basic_info_layout = QVBoxLayout(basic_info_content)
-        self.basic_info_form = QFormLayout()
-        basic_info_layout.addLayout(self.basic_info_form)
-        basic_info_widget.setWidget(basic_info_content)
-        self.tab_widget.addTab(basic_info_widget, "Basic Info")
+        # Player Tab
+        player_widget = QScrollArea()
+        player_widget.setWidgetResizable(True)
+        player_content = QWidget()
+        self.player_layout = QVBoxLayout(player_content)
+        player_widget.setWidget(player_content)
+        self.tab_widget.addTab(player_widget, "Player")
         
-        # Home Planet Tab
-        home_planet_widget = QScrollArea()
-        home_planet_widget.setWidgetResizable(True)
-        home_planet_content = QWidget()
-        self.home_planet_layout = QVBoxLayout(home_planet_content)
-        home_planet_widget.setWidget(home_planet_content)
-        self.tab_widget.addTab(home_planet_widget, "Home Planet")
-        
-        # Units Tab with split panels
+        # Units Tab (existing)
         units_widget = QScrollArea()
         units_widget.setWidgetResizable(True)
         units_content = QWidget()
@@ -305,22 +295,263 @@ class EntityToolGUI(QMainWindow):
         self.units_layout.addWidget(units_split)
         units_widget.setWidget(units_content)
         self.tab_widget.addTab(units_widget, "Units")
+
+        # Unit Items Tab
+        unit_items_widget = QScrollArea()
+        unit_items_widget.setWidgetResizable(True)
+        unit_items_content = QWidget()
+        unit_items_layout = QVBoxLayout(unit_items_content)
         
-        # Research Tab
+        # Create split layout for unit items tab
+        unit_items_split = QSplitter(Qt.Orientation.Horizontal)
+        
+        # Left side - Items list
+        items_list_group = QGroupBox("Unit Items")
+        items_list_layout = QVBoxLayout()
+        self.items_list = QListWidget()
+        self.items_list.itemClicked.connect(self.on_item_selected)
+        items_list_layout.addWidget(self.items_list)
+        items_list_group.setLayout(items_list_layout)
+        unit_items_split.addWidget(items_list_group)
+        
+        # Right side - Item details
+        item_details_group = QGroupBox("Item Details")
+        self.item_details_layout = QVBoxLayout(item_details_group)
+        unit_items_split.addWidget(item_details_group)
+        
+        # Set initial sizes (1:4 ratio)
+        unit_items_split.setSizes([100, 400])
+        
+        unit_items_layout.addWidget(unit_items_split)
+        unit_items_widget.setWidget(unit_items_content)
+        self.tab_widget.addTab(unit_items_widget, "Unit Items")
+
+        # Abilities/Buffs Tab
+        abilities_widget = QScrollArea()
+        abilities_widget.setWidgetResizable(True)
+        abilities_content = QWidget()
+        abilities_layout = QVBoxLayout(abilities_content)
+        
+        abilities_split = QSplitter(Qt.Orientation.Horizontal)
+        
+        # Left side - Selection panels
+        left_panel = QWidget()
+        left_layout = QVBoxLayout(left_panel)
+        
+        # Ability selection
+        ability_group = QGroupBox("Abilities")
+        ability_layout = QVBoxLayout()
+        self.ability_list = QListWidget()
+        self.ability_list.itemClicked.connect(self.on_ability_selected)
+        ability_layout.addWidget(self.ability_list)
+        ability_group.setLayout(ability_layout)
+        left_layout.addWidget(ability_group)
+        
+        # Action Data Source selection
+        action_group = QGroupBox("Action Data Sources")
+        action_layout = QVBoxLayout()
+        self.action_list = QListWidget()
+        self.action_list.itemClicked.connect(self.on_action_selected)
+        action_layout.addWidget(self.action_list)
+        action_group.setLayout(action_layout)
+        left_layout.addWidget(action_group)
+        
+        # Buff selection
+        buff_group = QGroupBox("Buffs")
+        buff_layout = QVBoxLayout()
+        self.buff_list = QListWidget()
+        self.buff_list.itemClicked.connect(self.on_buff_selected)
+        buff_layout.addWidget(self.buff_list)
+        buff_group.setLayout(buff_layout)
+        left_layout.addWidget(buff_group)
+        
+        abilities_split.addWidget(left_panel)
+        
+        # Right side - Schema views
+        right_panel = QWidget()
+        right_layout = QVBoxLayout(right_panel)
+        
+        # Ability details
+        ability_details_group = QGroupBox("Ability Details")
+        self.ability_details_layout = QVBoxLayout(ability_details_group)
+        right_layout.addWidget(ability_details_group)
+        
+        # Action Data Source details
+        action_details_group = QGroupBox("Action Data Source Details")
+        self.action_details_layout = QVBoxLayout(action_details_group)
+        right_layout.addWidget(action_details_group)
+        
+        # Buff details
+        buff_details_group = QGroupBox("Buff Details")
+        self.buff_details_layout = QVBoxLayout(buff_details_group)
+        right_layout.addWidget(buff_details_group)
+        
+        abilities_split.addWidget(right_panel)
+        
+        # Set initial sizes (1:4 ratio)
+        abilities_split.setSizes([100, 400])
+        
+        abilities_layout.addWidget(abilities_split)
+        abilities_widget.setWidget(abilities_content)
+        self.tab_widget.addTab(abilities_widget, "Abilities/Buffs")
+
+        # Research Tab (existing)
         research_widget = QScrollArea()
         research_widget.setWidgetResizable(True)
         research_content = QWidget()
         self.research_layout = QVBoxLayout(research_content)
         research_widget.setWidget(research_content)
         self.tab_widget.addTab(research_widget, "Research")
+
+        # Formations/Flight Patterns Tab
+        formations_widget = QScrollArea()
+        formations_widget.setWidgetResizable(True)
+        formations_content = QWidget()
+        formations_layout = QVBoxLayout(formations_content)
         
-        # Planet Types Tab
-        planet_types_widget = QScrollArea()
-        planet_types_widget.setWidgetResizable(True)
-        planet_types_content = QWidget()
-        self.planet_types_layout = QVBoxLayout(planet_types_content)
-        planet_types_widget.setWidget(planet_types_content)
-        self.tab_widget.addTab(planet_types_widget, "Planet Types")
+        formations_split = QSplitter(Qt.Orientation.Horizontal)
+        
+        # Left side - Selection panels
+        formations_left = QWidget()
+        formations_left_layout = QVBoxLayout(formations_left)
+        
+        # Formations selection
+        formations_group = QGroupBox("Formations")
+        formations_list_layout = QVBoxLayout()
+        self.formations_list = QListWidget()
+        self.formations_list.itemClicked.connect(self.on_formation_selected)
+        formations_list_layout.addWidget(self.formations_list)
+        formations_group.setLayout(formations_list_layout)
+        formations_left_layout.addWidget(formations_group)
+        
+        # Flight Patterns selection
+        patterns_group = QGroupBox("Flight Patterns")
+        patterns_list_layout = QVBoxLayout()
+        self.patterns_list = QListWidget()
+        self.patterns_list.itemClicked.connect(self.on_pattern_selected)
+        patterns_list_layout.addWidget(self.patterns_list)
+        patterns_group.setLayout(patterns_list_layout)
+        formations_left_layout.addWidget(patterns_group)
+        
+        formations_split.addWidget(formations_left)
+        
+        # Right side - Schema views
+        formations_right = QWidget()
+        formations_right_layout = QVBoxLayout(formations_right)
+        
+        # Formation details
+        formation_details_group = QGroupBox("Formation Details")
+        self.formation_details_layout = QVBoxLayout(formation_details_group)
+        formations_right_layout.addWidget(formation_details_group)
+        
+        # Flight Pattern details
+        pattern_details_group = QGroupBox("Flight Pattern Details")
+        self.pattern_details_layout = QVBoxLayout(pattern_details_group)
+        formations_right_layout.addWidget(pattern_details_group)
+        
+        formations_split.addWidget(formations_right)
+        
+        # Set initial sizes (1:4 ratio)
+        formations_split.setSizes([100, 400])
+        
+        formations_layout.addWidget(formations_split)
+        formations_widget.setWidget(formations_content)
+        self.tab_widget.addTab(formations_widget, "Formations/Flight Patterns")
+
+        # NPC Rewards Tab
+        rewards_widget = QScrollArea()
+        rewards_widget.setWidgetResizable(True)
+        rewards_content = QWidget()
+        rewards_layout = QVBoxLayout(rewards_content)
+        
+        rewards_split = QSplitter(Qt.Orientation.Horizontal)
+        
+        # Left side - Rewards list
+        rewards_list_group = QGroupBox("NPC Rewards")
+        rewards_list_layout = QVBoxLayout()
+        self.rewards_list = QListWidget()
+        self.rewards_list.itemClicked.connect(self.on_reward_selected)
+        rewards_list_layout.addWidget(self.rewards_list)
+        rewards_list_group.setLayout(rewards_list_layout)
+        rewards_split.addWidget(rewards_list_group)
+        
+        # Right side - Reward details
+        reward_details_group = QGroupBox("Reward Details")
+        self.reward_details_layout = QVBoxLayout(reward_details_group)
+        rewards_split.addWidget(reward_details_group)
+        
+        # Set initial sizes (1:4 ratio)
+        rewards_split.setSizes([100, 400])
+        
+        rewards_layout.addWidget(rewards_split)
+        rewards_widget.setWidget(rewards_content)
+        self.tab_widget.addTab(rewards_widget, "NPC Rewards")
+
+        # Exotics Tab
+        exotics_widget = QScrollArea()
+        exotics_widget.setWidgetResizable(True)
+        exotics_content = QWidget()
+        exotics_layout = QVBoxLayout(exotics_content)
+        
+        exotics_split = QSplitter(Qt.Orientation.Horizontal)
+        
+        # Left side - Exotics list
+        exotics_list_group = QGroupBox("Exotics")
+        exotics_list_layout = QVBoxLayout()
+        self.exotics_list = QListWidget()
+        self.exotics_list.itemClicked.connect(self.on_exotic_selected)
+        exotics_list_layout.addWidget(self.exotics_list)
+        exotics_list_group.setLayout(exotics_list_layout)
+        exotics_split.addWidget(exotics_list_group)
+        
+        # Right side - Exotic details
+        exotic_details_group = QGroupBox("Exotic Details")
+        self.exotic_details_layout = QVBoxLayout(exotic_details_group)
+        exotics_split.addWidget(exotic_details_group)
+        
+        # Set initial sizes (1:4 ratio)
+        exotics_split.setSizes([100, 400])
+        
+        exotics_layout.addWidget(exotics_split)
+        exotics_widget.setWidget(exotics_content)
+        self.tab_widget.addTab(exotics_widget, "Exotics")
+
+        # Uniforms Tab
+        uniforms_widget = QScrollArea()
+        uniforms_widget.setWidgetResizable(True)
+        uniforms_content = QWidget()
+        uniforms_layout = QVBoxLayout(uniforms_content)
+        
+        uniforms_split = QSplitter(Qt.Orientation.Horizontal)
+        
+        # Left side - Uniforms list
+        uniforms_list_group = QGroupBox("Uniforms")
+        uniforms_list_layout = QVBoxLayout()
+        self.uniforms_list = QListWidget()
+        self.uniforms_list.itemClicked.connect(self.on_uniform_selected)
+        uniforms_list_layout.addWidget(self.uniforms_list)
+        uniforms_list_group.setLayout(uniforms_list_layout)
+        uniforms_split.addWidget(uniforms_list_group)
+        
+        # Right side - Uniform details
+        uniform_details_group = QGroupBox("Uniform Details")
+        self.uniform_details_layout = QVBoxLayout(uniform_details_group)
+        uniforms_split.addWidget(uniform_details_group)
+        
+        # Set initial sizes (1:4 ratio)
+        uniforms_split.setSizes([100, 400])
+        
+        uniforms_layout.addWidget(uniforms_split)
+        uniforms_widget.setWidget(uniforms_content)
+        self.tab_widget.addTab(uniforms_widget, "Uniforms")
+
+        # Mod Meta Data Tab
+        meta_widget = QScrollArea()
+        meta_widget.setWidgetResizable(True)
+        meta_content = QWidget()
+        self.meta_layout = QVBoxLayout(meta_content)
+        meta_widget.setWidget(meta_content)
+        self.tab_widget.addTab(meta_widget, "Mod Meta Data")
         
         main_layout.addWidget(self.tab_widget)
         
@@ -393,32 +624,11 @@ class EntityToolGUI(QMainWindow):
             return
             
         # Clear existing content
-        self.clear_all_layouts()
+        self.clear_layout(self.player_layout)
         
-        # Basic Info Tab
-        self.basic_info_form.addRow("Version:", QLabel(str(self.current_data.get("version", ""))))
-        race_text, is_base_game_race = self.get_localized_text(str(self.current_data.get("race", "")))
-        fleet_text, is_base_game_fleet = self.get_localized_text(str(self.current_data.get("fleet", "")))
-        
-        race_label = QLabel(race_text)
-        fleet_label = QLabel(fleet_text)
-        if is_base_game_race:
-            race_label.setStyleSheet("color: #666666; font-style: italic;")
-        if is_base_game_fleet:
-            fleet_label.setStyleSheet("color: #666666; font-style: italic;")
-            
-        self.basic_info_form.addRow("Race:", race_label)
-        self.basic_info_form.addRow("Fleet:", fleet_label)
-        
-        if "default_starting_assets" in self.current_data:
-            assets_group = QGroupBox("Starting Assets")
-            assets_layout = QFormLayout()
-            assets = self.current_data["default_starting_assets"]
-            assets_layout.addRow("Credits:", QLabel(str(assets.get("credits", ""))))
-            assets_layout.addRow("Metal:", QLabel(str(assets.get("metal", ""))))
-            assets_layout.addRow("Crystal:", QLabel(str(assets.get("crystal", ""))))
-            assets_group.setLayout(assets_layout)
-            self.basic_info_form.addRow(assets_group)
+        # Create schema view for player data
+        schema_view = self.create_schema_view("player", self.current_data, False, self.current_file)
+        self.player_layout.addWidget(schema_view)
         
         # Units Tab
         if "buildable_units" in self.current_data:
@@ -550,20 +760,67 @@ class EntityToolGUI(QMainWindow):
             self.load_all_texture_files()
             self.load_mod_manifest_files()
             
+            # Clear all lists
+            self.items_list.clear()
+            self.ability_list.clear()
+            self.action_list.clear()
+            self.buff_list.clear()
+            self.formations_list.clear()
+            self.patterns_list.clear()
+            self.rewards_list.clear()
+            self.exotics_list.clear()
+            self.uniforms_list.clear()
+            
             # Process all files recursively
-            for file_path in self.current_folder.rglob("*"):
-                if file_path.is_file():
-                    if file_path.suffix in self.schema_extensions:
-                        try:
-                            with open(file_path, encoding='utf-8') as f:
-                                data = json.load(f)
-                            file_type = self.get_file_type_from_extension(file_path)
-                            if file_type not in self.files_by_type:
-                                self.files_by_type[file_type] = []
-                            self.files_by_type[file_type].append((file_path, data))
-                            logging.debug(f"Loaded file: {file_path}")
-                        except Exception as e:
-                            logging.error(f"Error loading file {file_path}: {str(e)}")
+            entities_folder = self.current_folder / "entities"
+            if entities_folder.exists():
+                # Load unit items
+                for item_file in entities_folder.glob("*.unit_item"):
+                    self.items_list.addItem(item_file.stem)
+                
+                # Load abilities
+                for ability_file in entities_folder.glob("*.ability"):
+                    self.ability_list.addItem(ability_file.stem)
+                
+                # Load action data sources
+                for action_file in entities_folder.glob("*.action_data_source"):
+                    self.action_list.addItem(action_file.stem)
+                
+                # Load buffs
+                for buff_file in entities_folder.glob("*.buff"):
+                    self.buff_list.addItem(buff_file.stem)
+                
+                # Load formations
+                for formation_file in entities_folder.glob("*.formation"):
+                    self.formations_list.addItem(formation_file.stem)
+                
+                # Load flight patterns
+                for pattern_file in entities_folder.glob("*.flight_pattern"):
+                    self.patterns_list.addItem(pattern_file.stem)
+                
+                # Load NPC rewards
+                for reward_file in entities_folder.glob("*.npc_reward"):
+                    self.rewards_list.addItem(reward_file.stem)
+                
+                # Load exotics
+                for exotic_file in entities_folder.glob("*.exotic"):
+                    self.exotics_list.addItem(exotic_file.stem)
+                
+                # Load uniforms
+                for uniform_file in entities_folder.glob("*.uniforms"):
+                    self.uniforms_list.addItem(uniform_file.stem)
+            
+            # Load mod meta data if exists
+            meta_file = self.current_folder / ".mod_meta_data"
+            if meta_file.exists():
+                try:
+                    with open(meta_file, 'r', encoding='utf-8') as f:
+                        meta_data = json.load(f)
+                    self.clear_layout(self.meta_layout)
+                    schema_view = self.create_schema_view("mod-meta-data", meta_data, False, meta_file)
+                    self.meta_layout.addWidget(schema_view)
+                except Exception as e:
+                    logging.error(f"Error loading mod meta data: {str(e)}")
             
             # Update player selector from manifest data
             if 'player' in self.manifest_data['mod']:
@@ -572,7 +829,6 @@ class EntityToolGUI(QMainWindow):
                 logging.info(f"Added {len(player_ids)} players to selector")
             
             logging.info(f"Successfully loaded folder: {self.current_folder}")
-            logging.info(f"Found files of types: {list(self.files_by_type.keys())}")
             
         except Exception as e:
             logging.error(f"Error loading folder: {str(e)}")
@@ -1633,18 +1889,18 @@ class EntityToolGUI(QMainWindow):
                 # Try mod folder first
                 if entity_file.exists():
                     logging.info(f"Loading referenced entity from mod folder: {entity_file}")
-                    with open(entity_file, encoding='utf-8') as f:
+                    with open(entity_file, 'r', encoding='utf-8') as f:
                         entity_data = json.load(f)
                         is_base_game = False
                     logging.info(f"Successfully loaded data for {entity_file}")
                     logging.debug(f"Initial data for {entity_file}: {entity_data}")
                 
                 # Try base game folder if not found in mod folder
-                elif self.config.get("base_game_folder"):
-                    base_game_file = Path(self.config["base_game_folder"]) / "entities" / f"{entity_id}.{entity_type}"
+                elif self.base_game_folder:
+                    base_game_file = self.base_game_folder / "entities" / f"{entity_id}.{entity_type}"
                     if base_game_file.exists():
                         logging.info(f"Loading referenced entity from base game: {base_game_file}")
-                        with open(base_game_file, encoding='utf-8') as f:
+                        with open(base_game_file, 'r', encoding='utf-8') as f:
                             entity_data = json.load(f)
                             is_base_game = True
                         entity_file = base_game_file
@@ -1660,25 +1916,100 @@ class EntityToolGUI(QMainWindow):
                 logging.info(f"Storing initial data in command stack for {entity_file}")
                 self.command_stack.update_file_data(entity_file, entity_data)
             
-            # Clear the appropriate panel and display the new data
+            # Handle different entity types and switch to appropriate tab
             if entity_type == "weapon":
-                self.clear_layout(self.weapon_details_layout)
+                # Weapons are shown in the Units tab
+                units_tab = next((i for i in range(self.tab_widget.count()) if self.tab_widget.tabText(i) == "Units"), 0)
+                self.tab_widget.setCurrentIndex(units_tab)
+                
+                # Only clear and update the weapon panel content
+                while self.weapon_details_layout.count():
+                    item = self.weapon_details_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+                
                 schema_view = self.create_schema_view("weapon", entity_data, is_base_game, entity_file)
                 self.weapon_details_layout.addWidget(schema_view)
                 self.weapon_file = entity_file  # Store file path
                 logging.info(f"Created weapon schema view for {entity_file}")
+                
             elif entity_type == "unit_skin":
-                self.clear_layout(self.skin_details_layout)
+                # Unit skins are shown in the Units tab
+                units_tab = next((i for i in range(self.tab_widget.count()) if self.tab_widget.tabText(i) == "Units"), 0)
+                self.tab_widget.setCurrentIndex(units_tab)
+                
+                # Only clear and update the skin panel content
+                while self.skin_details_layout.count():
+                    item = self.skin_details_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+                
                 schema_view = self.create_schema_view("unit-skin", entity_data, is_base_game, entity_file)
                 self.skin_details_layout.addWidget(schema_view)
                 self.skin_file = entity_file  # Store file path
                 logging.info(f"Created unit skin schema view for {entity_file}")
+                
             elif entity_type == "ability":
-                self.clear_layout(self.ability_details_layout)
+                # Switch to Abilities/Buffs tab
+                abilities_tab = next((i for i in range(self.tab_widget.count()) if self.tab_widget.tabText(i) == "Abilities/Buffs"), 0)
+                self.tab_widget.setCurrentIndex(abilities_tab)
+                
+                # Select the ability in the list if it exists
+                for i in range(self.ability_list.count()):
+                    if self.ability_list.item(i).text() == entity_id:
+                        self.ability_list.setCurrentRow(i)
+                        break
+                
+                # Only clear and update the ability panel content
+                while self.ability_details_layout.count():
+                    item = self.ability_details_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+                
                 schema_view = self.create_schema_view("ability", entity_data, is_base_game, entity_file)
                 self.ability_details_layout.addWidget(schema_view)
                 self.ability_file = entity_file  # Store file path
                 logging.info(f"Created ability schema view for {entity_file}")
+                
+            elif entity_type == "unit_item":
+                # Switch to Unit Items tab
+                items_tab = next((i for i in range(self.tab_widget.count()) if self.tab_widget.tabText(i) == "Unit Items"), 0)
+                self.tab_widget.setCurrentIndex(items_tab)
+                
+                # Select the item in the list if it exists
+                for i in range(self.items_list.count()):
+                    if self.items_list.item(i).text() == entity_id:
+                        self.items_list.setCurrentRow(i)
+                        break
+                
+                # Only clear and update the item panel content
+                while self.item_details_layout.count():
+                    item = self.item_details_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+                
+                schema_view = self.create_schema_view("unit-item", entity_data, is_base_game, entity_file)
+                self.item_details_layout.addWidget(schema_view)
+                
+            elif entity_type == "buff":
+                # Switch to Abilities/Buffs tab
+                abilities_tab = next((i for i in range(self.tab_widget.count()) if self.tab_widget.tabText(i) == "Abilities/Buffs"), 0)
+                self.tab_widget.setCurrentIndex(abilities_tab)
+                
+                # Select the buff in the list if it exists
+                for i in range(self.buff_list.count()):
+                    if self.buff_list.item(i).text() == entity_id:
+                        self.buff_list.setCurrentRow(i)
+                        break
+                
+                # Only clear and update the buff panel content
+                while self.buff_details_layout.count():
+                    item = self.buff_details_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+                
+                schema_view = self.create_schema_view("buff", entity_data, is_base_game, entity_file)
+                self.buff_details_layout.addWidget(schema_view)
                 
         except Exception as e:
             logging.error(f"Error loading {entity_type} {entity_id}: {str(e)}")
@@ -1691,6 +2022,10 @@ class EntityToolGUI(QMainWindow):
                 self.skin_details_layout.addWidget(error_label)
             elif entity_type == "ability":
                 self.ability_details_layout.addWidget(error_label)
+            elif entity_type == "unit_item":
+                self.item_details_layout.addWidget(error_label)
+            elif entity_type == "buff":
+                self.buff_details_layout.addWidget(error_label)
     
     def load_research_subject(self, subject_id: str):
         """Load a research subject file and display its details using the schema"""
@@ -2301,3 +2636,196 @@ class EntityToolGUI(QMainWindow):
         for manifest_type in self.manifest_data['mod']:
             count = len(self.manifest_data['mod'][manifest_type])
             logging.info(f"Total mod {manifest_type} entries: {count}")
+
+    def on_item_selected(self, item):
+        """Handle unit item selection"""
+        if not self.current_folder:
+            return
+            
+        item_id = item.text()
+        item_file = self.current_folder / "entities" / f"{item_id}.unit_item"
+        
+        try:
+            # Check if we have data in the command stack first
+            item_data = self.command_stack.get_file_data(item_file)
+            is_base_game = False
+            
+            if item_data is None:
+                # Load from file if not in command stack
+                item_data, is_base_game = self.load_file(item_file)
+                if not item_data:
+                    logging.error(f"Item file not found: {item_file}")
+                    return
+                    
+                # Store initial data in command stack
+                self.command_stack.update_file_data(item_file, item_data)
+            
+            # Clear existing details
+            self.clear_layout(self.item_details_layout)
+            
+            # Create and add the schema view
+            schema_view = self.create_schema_view("unit-item", item_data, is_base_game, item_file)
+            self.item_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            logging.error(f"Error loading item {item_id}: {str(e)}")
+
+    def on_ability_selected(self, item):
+        """Handle ability selection"""
+        if not self.current_folder:
+            return
+            
+        ability_id = item.text()
+        ability_file = self.current_folder / "entities" / f"{ability_id}.ability"
+        
+        try:
+            ability_data, is_base_game = self.load_file(ability_file)
+            if not ability_data:
+                return
+                
+            self.clear_layout(self.ability_details_layout)
+            schema_view = self.create_schema_view("ability", ability_data, is_base_game, ability_file)
+            self.ability_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            logging.error(f"Error loading ability {ability_id}: {str(e)}")
+
+    def on_action_selected(self, item):
+        """Handle action data source selection"""
+        if not self.current_folder:
+            return
+            
+        action_id = item.text()
+        action_file = self.current_folder / "entities" / f"{action_id}.action_data_source"
+        
+        try:
+            action_data, is_base_game = self.load_file(action_file)
+            if not action_data:
+                return
+                
+            self.clear_layout(self.action_details_layout)
+            schema_view = self.create_schema_view("action-data-source", action_data, is_base_game, action_file)
+            self.action_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            logging.error(f"Error loading action {action_id}: {str(e)}")
+
+    def on_buff_selected(self, item):
+        """Handle buff selection"""
+        if not self.current_folder:
+            return
+            
+        buff_id = item.text()
+        buff_file = self.current_folder / "entities" / f"{buff_id}.buff"
+        
+        try:
+            buff_data, is_base_game = self.load_file(buff_file)
+            if not buff_data:
+                return
+                
+            self.clear_layout(self.buff_details_layout)
+            schema_view = self.create_schema_view("buff", buff_data, is_base_game, buff_file)
+            self.buff_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            logging.error(f"Error loading buff {buff_id}: {str(e)}")
+
+    def on_formation_selected(self, item):
+        """Handle formation selection"""
+        if not self.current_folder:
+            return
+            
+        formation_id = item.text()
+        formation_file = self.current_folder / "entities" / f"{formation_id}.formation"
+        
+        try:
+            formation_data, is_base_game = self.load_file(formation_file)
+            if not formation_data:
+                return
+                
+            self.clear_layout(self.formation_details_layout)
+            schema_view = self.create_schema_view("formation", formation_data, is_base_game, formation_file)
+            self.formation_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            logging.error(f"Error loading formation {formation_id}: {str(e)}")
+
+    def on_pattern_selected(self, item):
+        """Handle flight pattern selection"""
+        if not self.current_folder:
+            return
+            
+        pattern_id = item.text()
+        pattern_file = self.current_folder / "entities" / f"{pattern_id}.flight_pattern"
+        
+        try:
+            pattern_data, is_base_game = self.load_file(pattern_file)
+            if not pattern_data:
+                return
+                
+            self.clear_layout(self.pattern_details_layout)
+            schema_view = self.create_schema_view("flight-pattern", pattern_data, is_base_game, pattern_file)
+            self.pattern_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            logging.error(f"Error loading pattern {pattern_id}: {str(e)}")
+
+    def on_reward_selected(self, item):
+        """Handle NPC reward selection"""
+        if not self.current_folder:
+            return
+            
+        reward_id = item.text()
+        reward_file = self.current_folder / "entities" / f"{reward_id}.npc_reward"
+        
+        try:
+            reward_data, is_base_game = self.load_file(reward_file)
+            if not reward_data:
+                return
+                
+            self.clear_layout(self.reward_details_layout)
+            schema_view = self.create_schema_view("npc-reward", reward_data, is_base_game, reward_file)
+            self.reward_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            logging.error(f"Error loading reward {reward_id}: {str(e)}")
+
+    def on_exotic_selected(self, item):
+        """Handle exotic selection"""
+        if not self.current_folder:
+            return
+            
+        exotic_id = item.text()
+        exotic_file = self.current_folder / "entities" / f"{exotic_id}.exotic"
+        
+        try:
+            exotic_data, is_base_game = self.load_file(exotic_file)
+            if not exotic_data:
+                return
+                
+            self.clear_layout(self.exotic_details_layout)
+            schema_view = self.create_schema_view("exotic", exotic_data, is_base_game, exotic_file)
+            self.exotic_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            logging.error(f"Error loading exotic {exotic_id}: {str(e)}")
+
+    def on_uniform_selected(self, item):
+        """Handle uniform selection"""
+        if not self.current_folder:
+            return
+            
+        uniform_id = item.text()
+        uniform_file = self.current_folder / "entities" / f"{uniform_id}.uniform"
+        
+        try:
+            uniform_data, is_base_game = self.load_file(uniform_file)
+            if not uniform_data:
+                return
+                
+            self.clear_layout(self.uniform_details_layout)
+            schema_view = self.create_schema_view("uniform", uniform_data, is_base_game, uniform_file)
+            self.uniform_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            logging.error(f"Error loading uniform {uniform_id}: {str(e)}")
