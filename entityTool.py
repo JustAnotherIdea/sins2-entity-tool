@@ -35,18 +35,24 @@ class EntityToolGUI(QMainWindow):
         
         # Initialize variables
         self.current_folder = None
-        self.base_game_folder = None  # Initialize base game folder
+        self.base_game_folder = None
         self.current_file = None
         self.current_data = None
         self.current_schema = None
-        self.current_language = "en"  # Default to English
+        self.current_language = "en"
         self.files_by_type = {}
         self.manifest_files = {}
+        self.manifest_data = {
+            'mod': {},      # {manifest_type: {id: data}}
+            'base_game': {} # {manifest_type: {id: data}}
+        }
         self.texture_cache = {}
         self.schemas = {}
         self.schema_extensions = set()
-        self.localized_text = {}
-        self.base_game_localized_text = {}
+        self.all_localized_strings = {
+            'mod': {},
+            'base_game': {}
+        }
         self.command_stack = CommandStack()
         
         # Load config
@@ -65,6 +71,9 @@ class EntityToolGUI(QMainWindow):
         
         # Load schemas
         self.load_schemas()
+
+        # Load manifest files
+        self.load_base_game_manifest_files()
         
         # Initialize UI
         self.init_ui()
@@ -360,6 +369,7 @@ class EntityToolGUI(QMainWindow):
                 self.save_config()
                 self.load_all_localized_strings()  # Reload localized strings with new path
                 self.load_all_texture_files()  # Reload texture files with new path
+                self.load_base_game_manifest_files()  # Reload base game manifest files
         
         base_game_btn.clicked.connect(select_base_game_folder)
         base_game_layout.addWidget(base_game_label)
@@ -510,53 +520,6 @@ class EntityToolGUI(QMainWindow):
                 else:
                     self.clear_layout(item.layout())
     
-    def select_schema_directory(self):
-        """Open directory dialog to select schema directory"""
-        dir_path = QFileDialog.getExistingDirectory(
-            self,
-            "Select Schema Directory",
-            str(self.schema_dir) if self.schema_dir else ""
-        )
-        if dir_path:
-            self.schema_dir = Path(dir_path)
-            self.schema_path_label.setText(str(self.schema_dir))
-            self.load_schemas()
-    
-    def select_base_game_directory(self):
-        """Open directory dialog to select base game directory"""
-        dir_path = QFileDialog.getExistingDirectory(
-            self,
-            "Select Base Game Directory",
-            str(self.base_game_folder) if self.base_game_folder else ""
-        )
-        if dir_path:
-            self.base_game_folder = Path(dir_path)
-            self.base_game_path_label.setText(str(self.base_game_folder))
-            self.load_base_game_localized_text()
-    
-    def load_base_game_localized_text(self):
-        """Load localized text files from the base game folder"""
-        if not self.base_game_folder:
-            return
-            
-        localized_text_dir = self.base_game_folder / "localized_text"
-        if not localized_text_dir.exists():
-            logging.warning("No localized_text directory found in base game folder")
-            return
-            
-        # Clear existing base game localized text
-        self.base_game_localized_text.clear()
-        
-        # Load all localized text files
-        for text_file in localized_text_dir.glob("*.localized_text"):
-            try:
-                language_code = text_file.stem
-                with open(text_file, encoding='utf-8') as f:
-                    text_data = json.load(f)
-                self.base_game_localized_text[language_code] = text_data
-                logging.info(f"Loaded base game localized text for {language_code}")
-            except Exception as e:
-                logging.error(f"Error loading base game localized text file {text_file}: {str(e)}")
     
     def open_folder_dialog(self):
         """Open directory dialog to select mod folder"""
@@ -579,44 +542,17 @@ class EntityToolGUI(QMainWindow):
         try:
             self.current_folder = folder_path.resolve()  # Get absolute path
             self.files_by_type.clear()
-            self.manifest_files.clear()  # Clear existing manifest data
-            self.player_selector.clear()  # Clear player selector
+            self.manifest_files.clear()
+            self.player_selector.clear()
             
-            # Load localized text and textures
-            self.load_all_localized_strings()  # Load all strings into memory
-            self.load_all_texture_files()  # Load all texture files into memory
-            
-            # First, look for and process manifest files in the entities folder
-            entities_folder = self.current_folder / "entities"
-            if entities_folder.exists():
-                logging.info(f"Found entities folder: {entities_folder}")
-                
-                # Process player manifest first to populate player selector
-                player_manifest = entities_folder / "player.entity_manifest"
-                if player_manifest.exists():
-                    try:
-                        with open(player_manifest) as f:
-                            data = json.load(f)
-                            if 'ids' in data:
-                                self.player_selector.addItems(sorted(data['ids']))
-                                logging.info(f"Added {len(data['ids'])} players to selector")
-                    except Exception as e:
-                        logging.error(f"Error processing player manifest: {str(e)}")
-                
-                # Process other manifest files
-                for file_path in entities_folder.glob("*.entity_manifest"):
-                    try:
-                        with open(file_path) as f:
-                            data = json.load(f)
-                        self.process_manifest_file(file_path, data)
-                        logging.info(f"Processed manifest file: {file_path.name}")
-                    except Exception as e:
-                        logging.error(f"Error processing manifest file {file_path}: {str(e)}")
+            # Load all data into memory
+            self.load_all_localized_strings()
+            self.load_all_texture_files()
+            self.load_mod_manifest_files()
             
             # Process all files recursively
             for file_path in self.current_folder.rglob("*"):
                 if file_path.is_file():
-                    # Check if this file extension has a corresponding schema
                     if file_path.suffix in self.schema_extensions:
                         try:
                             with open(file_path, encoding='utf-8') as f:
@@ -629,9 +565,14 @@ class EntityToolGUI(QMainWindow):
                         except Exception as e:
                             logging.error(f"Error loading file {file_path}: {str(e)}")
             
+            # Update player selector from manifest data
+            if 'player' in self.manifest_data['mod']:
+                player_ids = sorted(self.manifest_data['mod']['player'].keys())
+                self.player_selector.addItems(player_ids)
+                logging.info(f"Added {len(player_ids)} players to selector")
+            
             logging.info(f"Successfully loaded folder: {self.current_folder}")
             logging.info(f"Found files of types: {list(self.files_by_type.keys())}")
-            logging.info(f"Found manifest files: {list(self.manifest_files.keys())}")
             
         except Exception as e:
             logging.error(f"Error loading folder: {str(e)}")
@@ -2284,3 +2225,79 @@ class EntityToolGUI(QMainWindow):
                     if texture_file.suffix.lower() in ['.png', '.dds']:
                         self.all_texture_files['base_game'].add(texture_file.stem)
                 logging.info(f"Found {len(self.all_texture_files['base_game'])} texture files in base game")
+
+    def load_base_game_manifest_files(self) -> None:
+        """Load manifest files from base game into memory"""
+        logging.info("Loading base game manifest files...")
+        
+        # Clear existing base game manifest data
+        self.manifest_data['base_game'] = {}
+        
+        if self.base_game_folder:
+            entities_folder = self.base_game_folder / "entities"
+            if entities_folder.exists():
+                for manifest_file in entities_folder.glob("*.entity_manifest"):
+                    try:
+                        manifest_type = manifest_file.stem  # e.g., 'player', 'weapon'
+                        with open(manifest_file, 'r', encoding='utf-8') as f:
+                            manifest_data = json.load(f)
+                            
+                        if manifest_type not in self.manifest_data['base_game']:
+                            self.manifest_data['base_game'][manifest_type] = {}
+                            
+                        # Load each referenced entity file
+                        if 'ids' in manifest_data:
+                            for entity_id in manifest_data['ids']:
+                                entity_file = entities_folder / f"{entity_id}.{manifest_type}"
+                                if entity_file.exists():
+                                    with open(entity_file, 'r', encoding='utf-8') as f:
+                                        entity_data = json.load(f)
+                                        self.manifest_data['base_game'][manifest_type][entity_id] = entity_data
+                                        logging.debug(f"Loaded base game {manifest_type} data for {entity_id}")
+                                        
+                        logging.info(f"Loaded base game manifest {manifest_type} with {len(manifest_data.get('ids', []))} entries")
+                    except Exception as e:
+                        logging.error(f"Error loading base game manifest file {manifest_file}: {str(e)}")
+                        
+        # Log summary
+        for manifest_type in self.manifest_data['base_game']:
+            count = len(self.manifest_data['base_game'][manifest_type])
+            logging.info(f"Total base game {manifest_type} entries: {count}")
+
+    def load_mod_manifest_files(self) -> None:
+        """Load manifest files from mod folder into memory"""
+        logging.info("Loading mod manifest files...")
+        
+        # Clear existing mod manifest data
+        self.manifest_data['mod'] = {}
+        
+        if self.current_folder:
+            entities_folder = self.current_folder / "entities"
+            if entities_folder.exists():
+                for manifest_file in entities_folder.glob("*.entity_manifest"):
+                    try:
+                        manifest_type = manifest_file.stem  # e.g., 'player', 'weapon'
+                        with open(manifest_file, 'r', encoding='utf-8') as f:
+                            manifest_data = json.load(f)
+                            
+                        if manifest_type not in self.manifest_data['mod']:
+                            self.manifest_data['mod'][manifest_type] = {}
+                            
+                        # Load each referenced entity file
+                        if 'ids' in manifest_data:
+                            for entity_id in manifest_data['ids']:
+                                entity_file = entities_folder / f"{entity_id}.{manifest_type}"
+                                if entity_file.exists():
+                                    with open(entity_file, 'r', encoding='utf-8') as f:
+                                        entity_data = json.load(f)
+                                        self.manifest_data['mod'][manifest_type][entity_id] = entity_data
+                                        logging.debug(f"Loaded mod {manifest_type} data for {entity_id}")
+                                        
+                        logging.info(f"Loaded mod manifest {manifest_type} with {len(manifest_data.get('ids', []))} entries")
+                    except Exception as e:
+                        logging.error(f"Error loading mod manifest file {manifest_file}: {str(e)}")
+                        
+        # Log summary
+        for manifest_type in self.manifest_data['mod']:
+            count = len(self.manifest_data['mod'][manifest_type])
+            logging.info(f"Total mod {manifest_type} entries: {count}")
