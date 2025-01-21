@@ -1419,6 +1419,9 @@ class EntityToolGUI(QMainWindow):
         # Convert value to string if it's not already
         value_str = str(value) if value is not None else ""
         
+        # Debug log the value we're checking
+        logging.debug(f"Checking value for localized text or texture: {value_str}")
+        
         # Check if this is a reference to another entity type
         is_weapon = isinstance(value, str) and property_name in ["weapon"]
         is_skin = isinstance(value, str) and property_name in ["skins"]
@@ -1458,6 +1461,64 @@ class EntityToolGUI(QMainWindow):
             edit.setProperty("original_value", value)
             return edit
             
+        # Check if the string value is a localized text key
+        elif isinstance(value, str):
+            # Check if this string exists as a key in any language
+            is_localized_key = False
+            localized_text = None
+            is_base = False
+            
+            # Try mod strings first
+            if self.current_language in self.all_localized_strings['mod'] and value_str in self.all_localized_strings['mod'][self.current_language]:
+                is_localized_key = True
+                localized_text = self.all_localized_strings['mod'][self.current_language][value_str]
+                is_base = False
+                logging.debug(f"Found localized text in mod {self.current_language}: {localized_text}")
+            elif "en" in self.all_localized_strings['mod'] and value_str in self.all_localized_strings['mod']["en"]:
+                is_localized_key = True
+                localized_text = self.all_localized_strings['mod']["en"][value_str]
+                is_base = False
+                logging.debug(f"Found localized text in mod en: {localized_text}")
+            # Try base game strings
+            elif self.current_language in self.all_localized_strings['base_game'] and value_str in self.all_localized_strings['base_game'][self.current_language]:
+                is_localized_key = True
+                localized_text = self.all_localized_strings['base_game'][self.current_language][value_str]
+                is_base = True
+                logging.debug(f"Found localized text in base game {self.current_language}: {localized_text}")
+            elif "en" in self.all_localized_strings['base_game'] and value_str in self.all_localized_strings['base_game']["en"]:
+                is_localized_key = True
+                localized_text = self.all_localized_strings['base_game']["en"][value_str]
+                is_base = True
+                logging.debug(f"Found localized text in base game en: {localized_text}")
+            
+            if is_localized_key:
+                logging.debug(f"Creating localized text widget for key: {value_str}")
+                # Create a container with both localized text and editable field
+                container = QWidget()
+                layout = QVBoxLayout(container)
+                layout.setContentsMargins(0, 0, 0, 0)
+                layout.setSpacing(4)
+                
+                # Add localized text preview
+                preview = QLabel(f"{localized_text} [{value_str}]")  # Show both text and key
+                preview.setWordWrap(True)
+                if is_base:
+                    preview.setStyleSheet("color: #666666; font-style: italic;")
+                layout.addWidget(preview)
+                
+                # Add editable field if not base game
+                if not is_base_game:
+                    edit = QLineEdit(value_str)
+                    edit.textChanged.connect(lambda text: self.on_text_changed(edit, text))
+                    edit.setProperty("data_path", path)
+                    edit.setProperty("original_value", value)
+                    layout.addWidget(edit)
+                
+                container.setProperty("data_path", path)
+                container.setProperty("original_value", value)
+                return container
+            
+        # Check if the string value is a texture file name
         elif schema.get("format") == "texture" or value_str in self.all_texture_files['mod'] or value_str in self.all_texture_files['base_game']:
             # Handle texture references - create a container with both texture and editable field
             container = QWidget()
@@ -2158,64 +2219,64 @@ class EntityToolGUI(QMainWindow):
             'base_game': {}  # {language: {key: text}}
         }
         
-        # Load mod strings (.str files)
+        # Load mod strings
         if self.current_folder:
-            strings_folder = self.current_folder / "strings"
-            if strings_folder.exists():
-                for lang_file in strings_folder.glob("*.str"):
-                    language = lang_file.stem
-                    self.all_localized_strings['mod'][language] = {}
+            # Load .localized_text files (JSON format)
+            localized_text_folder = self.current_folder / "localized_text"
+            logging.debug(f"Checking mod localized_text folder: {localized_text_folder}")
+            if localized_text_folder.exists():
+                for text_file in localized_text_folder.glob("*.localized_text"):
+                    logging.debug(f"Loading mod localized text from: {text_file}")
                     try:
-                        with open(lang_file, 'r', encoding='utf-8') as f:
-                            for line in f:
-                                line = line.strip()
-                                if line and not line.startswith("//"):
-                                    key, value = line.split('\t', 1)
-                                    self.all_localized_strings['mod'][language][key] = value
-                        logging.info(f"Loaded {len(self.all_localized_strings['mod'][language])} strings for language {language} from mod")
-                    except Exception as e:
-                        logging.error(f"Error loading strings for language {language} from mod: {str(e)}")
-        
-        # Load base game strings (both .str and .json files)
-        if self.base_game_folder:
-            # Load .str files from strings folder
-            strings_folder = self.base_game_folder / "strings"
-            if strings_folder.exists():
-                for lang_file in strings_folder.glob("*.str"):
-                    language = lang_file.stem
-                    if language not in self.all_localized_strings['base_game']:
-                        self.all_localized_strings['base_game'][language] = {}
-                    try:
-                        with open(lang_file, 'r', encoding='utf-8') as f:
-                            for line in f:
-                                line = line.strip()
-                                if line and not line.startswith("//"):
-                                    key, value = line.split('\t', 1)
-                                    self.all_localized_strings['base_game'][language][key] = value
-                        logging.info(f"Loaded {len(self.all_localized_strings['base_game'][language])} strings for language {language} from base game .str file")
-                    except Exception as e:
-                        logging.error(f"Error loading strings for language {language} from base game .str file: {str(e)}")
-            
-            # Load .json files from localization folder
-            localization_folder = self.base_game_folder / "localization"
-            if localization_folder.exists():
-                for lang_file in localization_folder.glob("*.json"):
-                    language = lang_file.stem
-                    if language not in self.all_localized_strings['base_game']:
-                        self.all_localized_strings['base_game'][language] = {}
-                    try:
-                        with open(lang_file, 'r', encoding='utf-8') as f:
+                        with open(text_file, 'r', encoding='utf-8') as f:
                             json_data = json.load(f)
-                            self.all_localized_strings['base_game'][language].update(json_data)
-                        logging.info(f"Loaded strings for language {language} from base game .json file")
+                            # Initialize language dictionary if needed
+                            language = text_file.stem
+                            if language not in self.all_localized_strings['mod']:
+                                self.all_localized_strings['mod'][language] = {}
+                            # Add strings for this language
+                            self.all_localized_strings['mod'][language].update(json_data)
+                            logging.debug(f"Loaded {len(json_data)} strings for language {language} from {text_file}")
                     except Exception as e:
-                        logging.error(f"Error loading strings for language {language} from base game .json file: {str(e)}")
+                        logging.error(f"Error loading localized text file {text_file}: {str(e)}")
+            else:
+                logging.debug("No mod localized_text folder found")
+        
+        # Load base game strings
+        if self.base_game_folder:
+            # Load .localized_text files (JSON format)
+            localized_text_folder = self.base_game_folder / "localized_text"
+            logging.debug(f"Checking base game localized_text folder: {localized_text_folder}")
+            if localized_text_folder.exists():
+                for text_file in localized_text_folder.glob("*.localized_text"):
+                    logging.debug(f"Loading base game localized text from: {text_file}")
+                    try:
+                        with open(text_file, 'r', encoding='utf-8') as f:
+                            json_data = json.load(f)
+                            # Initialize language dictionary if needed
+                            language = text_file.stem
+                            if language not in self.all_localized_strings['base_game']:
+                                self.all_localized_strings['base_game'][language] = {}
+                            # Add strings for this language
+                            self.all_localized_strings['base_game'][language].update(json_data)
+                            logging.debug(f"Loaded {len(json_data)} strings for language {language} from {text_file}")
+                    except Exception as e:
+                        logging.error(f"Error loading localized text file {text_file}: {str(e)}")
+            else:
+                logging.debug("No base game localized_text folder found")
                         
         # Log summary
         for source in ['mod', 'base_game']:
             for language in self.all_localized_strings[source]:
                 count = len(self.all_localized_strings[source][language])
                 logging.info(f"Total {source} strings for {language}: {count}")
+                if count > 0:
+                    # Log a few example strings
+                    logging.debug(f"Example strings for {source} {language}:")
+                    for i, (key, value) in enumerate(list(self.all_localized_strings[source][language].items())[:3]):
+                        logging.debug(f"  {key} = {value}")
+                        if i >= 2:
+                            break
     
     def load_all_texture_files(self) -> None:
         """Load list of all texture files from both mod and base game into memory"""
