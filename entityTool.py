@@ -1364,86 +1364,6 @@ class EntityToolGUI(QMainWindow):
                     # Update path for this property
                     prop_path = path + [prop_name]
                     
-                    # Special handling for abilities array
-                    if prop_name == "abilities" and isinstance(value, list):
-                        group_widget = QWidget()
-                        group_layout = QVBoxLayout(group_widget)
-                        group_layout.setContentsMargins(0, 0, 0, 0)
-                        
-                        # Create collapsible button
-                        toggle_btn = QToolButton()
-                        toggle_btn.setStyleSheet("QToolButton { border: none; }")
-                        toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-                        toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
-                        toggle_btn.setText("Abilities")
-                        toggle_btn.setCheckable(True)
-                        
-                        # Create content widget
-                        content = QWidget()
-                        content_layout = QVBoxLayout(content)
-                        content_layout.setContentsMargins(20, 0, 0, 0)  # Add left margin for indentation
-                        
-                        for ability_group in value:
-                            if isinstance(ability_group, dict) and "abilities" in ability_group:
-                                for ability_id in ability_group["abilities"]:
-                                    btn = QPushButton(ability_id)
-                                    btn.setStyleSheet("text-align: left; padding: 2px;")
-                                    btn.clicked.connect(lambda checked, a=ability_id: self.load_referenced_entity(a, "ability"))
-                                    content_layout.addWidget(btn)
-                        
-                        content.setVisible(False)  # Initially collapsed
-                        
-                        def update_arrow_state(checked, btn=toggle_btn):
-                            btn.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
-                        
-                        toggle_btn.toggled.connect(content.setVisible)
-                        toggle_btn.toggled.connect(update_arrow_state)
-                        
-                        group_layout.addWidget(toggle_btn)
-                        group_layout.addWidget(content)
-                        container_layout.addWidget(group_widget)
-                        continue
-                        
-                    # Special handling for skin_groups array
-                    elif prop_name == "skin_groups" and isinstance(value, list):
-                        group_widget = QWidget()
-                        group_layout = QVBoxLayout(group_widget)
-                        group_layout.setContentsMargins(0, 0, 0, 0)
-                        
-                        # Create collapsible button
-                        toggle_btn = QToolButton()
-                        toggle_btn.setStyleSheet("QToolButton { border: none; }")
-                        toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-                        toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
-                        toggle_btn.setText("Skins")
-                        toggle_btn.setCheckable(True)
-                        
-                        # Create content widget
-                        content = QWidget()
-                        content_layout = QVBoxLayout(content)
-                        content_layout.setContentsMargins(20, 0, 0, 0)  # Add left margin for indentation
-                        
-                        for skin_group in value:
-                            if isinstance(skin_group, dict) and "skins" in skin_group:
-                                for skin_id in skin_group["skins"]:
-                                    btn = QPushButton(skin_id)
-                                    btn.setStyleSheet("text-align: left; padding: 2px;")
-                                    btn.clicked.connect(lambda checked, s=skin_id: self.load_referenced_entity(s, "unit_skin"))
-                                    content_layout.addWidget(btn)
-                        
-                        content.setVisible(False)  # Initially collapsed
-                        
-                        def update_arrow_state(checked, btn=toggle_btn):
-                            btn.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
-                        
-                        toggle_btn.toggled.connect(content.setVisible)
-                        toggle_btn.toggled.connect(update_arrow_state)
-                        
-                        group_layout.addWidget(toggle_btn)
-                        group_layout.addWidget(content)
-                        container_layout.addWidget(group_widget)
-                        continue
-                    
                     # Create widget for the property with updated path
                     widget = self.create_widget_for_property(
                         prop_name, value, prop_schema, is_base_game, prop_path
@@ -1615,22 +1535,101 @@ class EntityToolGUI(QMainWindow):
             # Convert value to string if it's not already
             value_str = str(value) if value is not None else "ERROR: No value"
 
-            # Handle references to other entity types first
+            # First check if the property name matches a manifest type
             property_name = schema.get("property_name", "").lower()
+            manifest_type_map = {
+                "weapon": "weapon",
+                "weapons": "weapon",
+                "skins": "unit_skin",
+                "skin": "unit_skin",
+                "abilities": "ability",
+                "ability": "ability",
+                "action_data_source": "action_data_source",
+                "buffs": "buff",
+                "buff": "buff",
+                "unit_items": "unit_item",
+                "unit_item": "unit_item",
+                "formations": "formation",
+                "formation": "formation",
+                "flight_patterns": "flight_pattern",
+                "flight_pattern": "flight_pattern",
+                "npc_rewards": "npc_reward",
+                "npc_reward": "npc_reward",
+                "exotics": "exotic",
+                "exotic": "exotic",
+                "uniforms": "uniform",
+                "uniform": "uniform"
+            }
+
+            # Special handling for arrays and objects
+            if isinstance(value, list):
+                container = QWidget()
+                layout = QVBoxLayout(container)
+                layout.setContentsMargins(0, 0, 0, 0)
+                layout.setSpacing(2)
+                
+                for i, item in enumerate(value):
+                    if isinstance(item, dict):
+                        # For objects in arrays (like skin_groups), recursively process their values
+                        for key, val in item.items():
+                            if isinstance(val, list):
+                                # For arrays within objects (like "skins" array), process each item
+                                for sub_item in val:
+                                    # Check if this item is a reference based on the parent property name
+                                    if key in manifest_type_map:
+                                        expected_type = manifest_type_map[key]
+                                        is_reference = (
+                                            sub_item in self.manifest_data['mod'].get(expected_type, {}) or
+                                            sub_item in self.manifest_data['base_game'].get(expected_type, {})
+                                        )
+                                        if is_reference:
+                                            btn = QPushButton(str(sub_item))
+                                            btn.setStyleSheet("text-align: left; padding: 2px;")
+                                            btn.clicked.connect(lambda checked, eid=sub_item, etype=expected_type: 
+                                                             self.load_referenced_entity(eid, etype))
+                                            if is_base_game:
+                                                btn.setStyleSheet(btn.styleSheet() + "; color: #666666; font-style: italic;")
+                                            layout.addWidget(btn)
+                                        else:
+                                            label = QLabel(str(sub_item))
+                                            layout.addWidget(label)
+                            else:
+                                # For simple values in objects
+                                label = QLabel(f"{key}: {str(val)}")
+                                layout.addWidget(label)
+                    else:
+                        # For simple values in arrays
+                        label = QLabel(str(item))
+                        layout.addWidget(label)
+                
+                return container
+
+            # Check if property name indicates a specific entity type
+            entity_type = None
+            if property_name in manifest_type_map:
+                expected_type = manifest_type_map[property_name]
+                # Check if the value exists in this manifest type
+                if value_str in self.manifest_data['mod'].get(expected_type, {}):
+                    entity_type = expected_type
+                elif value_str in self.manifest_data['base_game'].get(expected_type, {}):
+                    entity_type = expected_type
+
+            # If no match found by property name, check all manifests
+            if not entity_type:
+                for manifest_type, manifest_data in self.manifest_data['mod'].items():
+                    if value_str in manifest_data:
+                        entity_type = manifest_type
+                        break
+                if not entity_type:
+                    for manifest_type, manifest_data in self.manifest_data['base_game'].items():
+                        if value_str in manifest_data:
+                            entity_type = manifest_type
+                            break
             
-            is_weapon = isinstance(value, str) and property_name in ["weapon"]
-            is_skin = isinstance(value, str) and property_name in ["skins"]
-            is_ability = isinstance(value, str) and property_name in ["abilities"]
-            if is_weapon or is_skin or is_ability:
+            if entity_type:
                 btn = QPushButton(value_str)
                 btn.setStyleSheet("text-align: left; padding: 2px;")
-                
-                if is_weapon:
-                    btn.clicked.connect(lambda: self.load_referenced_entity(value_str, "weapon"))
-                elif is_skin:
-                    btn.clicked.connect(lambda: self.load_referenced_entity(value_str, "unit_skin"))
-                elif is_ability:
-                    btn.clicked.connect(lambda: self.load_referenced_entity(value_str, "ability"))
+                btn.clicked.connect(lambda checked, eid=value_str, etype=entity_type: self.load_referenced_entity(eid, etype))
                 
                 if is_base_game:
                     btn.setStyleSheet(btn.styleSheet() + "; color: #666666; font-style: italic;")
