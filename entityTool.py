@@ -1410,60 +1410,40 @@ class EntityToolGUI(QMainWindow):
         """Create an editable widget for a value based on its schema type"""
         if path is None:
             path = []
-            
-        from PyQt6.QtWidgets import QSpinBox, QDoubleSpinBox, QComboBox, QLineEdit, QCheckBox
         
-        # Handle references to other entity types first
-        property_name = schema.get("property_name", "").lower()
+        # Handle different schema types
+        schema_type = schema.get("type")
         
-        # Convert value to string if it's not already
-        value_str = str(value) if value is not None else ""
-        
-        # Debug log the value we're checking
-        logging.debug(f"Checking value for localized text or texture: {value_str}")
-        
-        # Check if this is a reference to another entity type
-        is_weapon = isinstance(value, str) and property_name in ["weapon"]
-        is_skin = isinstance(value, str) and property_name in ["skins"]
-        is_ability = isinstance(value, str) and property_name in ["abilities"]
-        if is_weapon or is_skin or is_ability:
-            btn = QPushButton(value_str)
-            btn.setStyleSheet("text-align: left; padding: 2px;")
+        if schema_type == "string":
+            # Convert value to string if it's not already
+            value_str = str(value) if value is not None else "ERROR: No value"
+
+            # Handle references to other entity types first
+            property_name = schema.get("property_name", "").lower()
             
-            if is_weapon:
-                btn.clicked.connect(lambda: self.load_referenced_entity(value_str, "weapon"))
-            elif is_skin:
-                btn.clicked.connect(lambda: self.load_referenced_entity(value_str, "unit_skin"))
-            elif is_ability:
-                btn.clicked.connect(lambda: self.load_referenced_entity(value_str, "ability"))
-            
-            if is_base_game:
-                btn.setStyleSheet(btn.styleSheet() + "; color: #666666; font-style: italic;")
-            
-            # Store path and original value
-            btn.setProperty("data_path", path)
-            btn.setProperty("original_value", value)
-            return btn
-            
-        # Special handling for name and description fields - treat them as localized text
-        elif property_name in ["name", "name_uppercase", "description"] or schema.get("format") == "localized_text":
-            text, is_base = self.get_localized_text(value_str)
-            edit = QLineEdit(text)
-            if is_base or is_base_game:
-                edit.setStyleSheet("color: #666666; font-style: italic;")
-                edit.setReadOnly(True)
-            else:
-                # Connect text changed signal to command creation
-                edit.textChanged.connect(lambda text: self.on_text_changed(edit, text))
-            
-            # Store path and original value
-            edit.setProperty("data_path", path)
-            edit.setProperty("original_value", value)
-            return edit
-            
-        # Check if the string value is a localized text key
-        elif isinstance(value, str):
-            # Check if this string exists as a key in any language
+            is_weapon = isinstance(value, str) and property_name in ["weapon"]
+            is_skin = isinstance(value, str) and property_name in ["skins"]
+            is_ability = isinstance(value, str) and property_name in ["abilities"]
+            if is_weapon or is_skin or is_ability:
+                btn = QPushButton(value_str)
+                btn.setStyleSheet("text-align: left; padding: 2px;")
+                
+                if is_weapon:
+                    btn.clicked.connect(lambda: self.load_referenced_entity(value_str, "weapon"))
+                elif is_skin:
+                    btn.clicked.connect(lambda: self.load_referenced_entity(value_str, "unit_skin"))
+                elif is_ability:
+                    btn.clicked.connect(lambda: self.load_referenced_entity(value_str, "ability"))
+                
+                if is_base_game:
+                    btn.setStyleSheet(btn.styleSheet() + "; color: #666666; font-style: italic;")
+                
+                # Store path and original value
+                btn.setProperty("data_path", path)
+                btn.setProperty("original_value", value)
+                return btn
+                
+            # Check if the string value is a localized text key
             is_localized_key = False
             localized_text = None
             is_base = False
@@ -1518,34 +1498,31 @@ class EntityToolGUI(QMainWindow):
                 container.setProperty("original_value", value)
                 return container
             
-        # Check if the string value is a texture file name
-        elif schema.get("format") == "texture" or value_str in self.all_texture_files['mod'] or value_str in self.all_texture_files['base_game']:
-            # Handle texture references - create a container with both texture and editable field
-            container = QWidget()
-            layout = QVBoxLayout(container)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(4)
-            
-            # Add texture preview
-            label = self.create_texture_label(value_str)
-            layout.addWidget(label)
-            
-            # Add editable field if not base game
-            if not is_base_game:
-                edit = QLineEdit(value_str)
-                edit.textChanged.connect(lambda text: self.on_text_changed(edit, text))
-                edit.setProperty("data_path", path)
-                edit.setProperty("original_value", value)
-                layout.addWidget(edit)
-            
-            container.setProperty("data_path", path)
-            container.setProperty("original_value", value)
-            return container
-            
-        # Handle different schema types
-        schema_type = schema.get("type")
-        
-        if schema_type == "string":
+            # Check if the string value is a texture file name
+            elif value_str in self.all_texture_files['mod'] or value_str in self.all_texture_files['base_game']:
+                # Handle texture references - create a container with both texture and editable field
+                container = QWidget()
+                layout = QVBoxLayout(container)
+                layout.setContentsMargins(0, 0, 0, 0)
+                layout.setSpacing(4)
+                
+                # Add texture preview
+                label = self.create_texture_label(value_str)
+                layout.addWidget(label)
+                
+                # Add editable field if not base game
+                if not is_base_game:
+                    edit = QLineEdit(value_str)
+                    edit.textChanged.connect(lambda text: self.on_text_changed(edit, text))
+                    edit.setProperty("data_path", path)
+                    edit.setProperty("original_value", value)
+                    layout.addWidget(edit)
+                
+                container.setProperty("data_path", path)
+                container.setProperty("original_value", value)
+                return container
+
+            # Handle enum values
             if "enum" in schema:
                 # Create dropdown for enum values
                 combo = QComboBox()
@@ -1564,6 +1541,8 @@ class EntityToolGUI(QMainWindow):
                 combo.setProperty("data_path", path)
                 combo.setProperty("original_value", value)
                 return combo
+
+            # Handle all other values
             else:
                 edit = QLineEdit(value_str)
                 if is_base_game:
