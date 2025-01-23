@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
                             QLineEdit, QListWidget, QComboBox, QTreeWidget, QTreeWidgetItem,
                             QTabWidget, QScrollArea, QGroupBox, QFormLayout, QDialog, QSplitter, QToolButton,
-                            QSpinBox, QDoubleSpinBox, QCheckBox)
+                            QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox)
 from PyQt6.QtCore import Qt, QMimeData
 from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QPixmap, QIcon, QKeySequence,
                         QShortcut)
@@ -1575,9 +1575,17 @@ class EntityToolGUI(QMainWindow):
                             if isinstance(val, list):
                                 # For arrays within objects (like "skins" array), process each item
                                 for sub_item in val:
+                                    # Skip non-string values
+                                    if not isinstance(sub_item, str):
+                                        label = QLabel(str(sub_item))
+                                        layout.addWidget(label)
+                                        continue
+                                        
                                     # Check if this item is a reference based on the parent property name
                                     if key in manifest_type_map:
                                         expected_type = manifest_type_map[key]
+                                        logging.debug(f"Checking for {sub_item} in manifest type {expected_type}")
+                                        # Only check the expected type based on property name
                                         is_reference = (
                                             sub_item in self.manifest_data['mod'].get(expected_type, {}) or
                                             sub_item in self.manifest_data['base_game'].get(expected_type, {})
@@ -1585,14 +1593,24 @@ class EntityToolGUI(QMainWindow):
                                         if is_reference:
                                             btn = QPushButton(str(sub_item))
                                             btn.setStyleSheet("text-align: left; padding: 2px;")
-                                            btn.clicked.connect(lambda checked, eid=sub_item, etype=expected_type: 
-                                                             self.load_referenced_entity(eid, etype))
+                                            # Create a closure to properly capture the values
+                                            def create_click_handler(entity_id=str(sub_item), entity_type=expected_type):
+                                                def handler(checked):
+                                                    self.load_referenced_entity(entity_id, entity_type)
+                                                return handler
+                                            btn.clicked.connect(create_click_handler())
                                             if is_base_game:
                                                 btn.setStyleSheet(btn.styleSheet() + "; color: #666666; font-style: italic;")
                                             layout.addWidget(btn)
                                         else:
+                                            # If not found in the expected type, log a warning
+                                            logging.warning(f"Referenced {expected_type} not found: {sub_item}")
                                             label = QLabel(str(sub_item))
                                             layout.addWidget(label)
+                                    else:
+                                        # For values without a mapped type
+                                        label = QLabel(str(sub_item))
+                                        layout.addWidget(label)
                             else:
                                 # For simple values in objects
                                 label = QLabel(f"{key}: {str(val)}")
@@ -1608,28 +1626,66 @@ class EntityToolGUI(QMainWindow):
             entity_type = None
             if property_name in manifest_type_map:
                 expected_type = manifest_type_map[property_name]
-                # Check if the value exists in this manifest type
+                logging.debug(f"Checking for {value_str} in manifest type {expected_type}")
+                # Only check the expected type based on property name
                 if value_str in self.manifest_data['mod'].get(expected_type, {}):
+                    logging.debug(f"Found {value_str} in mod manifest {expected_type}")
                     entity_type = expected_type
                 elif value_str in self.manifest_data['base_game'].get(expected_type, {}):
+                    logging.debug(f"Found {value_str} in base game manifest {expected_type}")
                     entity_type = expected_type
-
-            # If no match found by property name, check all manifests
-            if not entity_type:
+                else:
+                    # If not found in the expected type, log a warning
+                    logging.warning(f"Referenced {expected_type} not found: {value_str}")
+                    # Don't search other manifests if we have a specific type
+                    return QLabel(value_str)
+            else:
+                # Only search all manifests if no specific type is mapped
+                logging.debug(f"Checking all manifests for {value_str}")
                 for manifest_type, manifest_data in self.manifest_data['mod'].items():
                     if value_str in manifest_data:
+                        logging.debug(f"Found {value_str} in mod manifest {manifest_type}")
                         entity_type = manifest_type
                         break
                 if not entity_type:
                     for manifest_type, manifest_data in self.manifest_data['base_game'].items():
                         if value_str in manifest_data:
+                            logging.debug(f"Found {value_str} in base game manifest {manifest_type}")
                             entity_type = manifest_type
                             break
             
             if entity_type:
+                logging.debug(f"Creating button for {value_str} of type {entity_type}")
                 btn = QPushButton(value_str)
                 btn.setStyleSheet("text-align: left; padding: 2px;")
-                btn.clicked.connect(lambda checked, eid=value_str, etype=entity_type: self.load_referenced_entity(eid, etype))
+                
+                # Create a closure to properly capture the values
+                def create_click_handler(entity_id=str(value_str), entity_type=entity_type):
+                    def handler(checked):
+                        try:
+                            if not isinstance(entity_id, str):
+                                QMessageBox.warning(self, "Error", f"Invalid entity ID: {entity_id}")
+                                return
+                                
+                            # Check if the file exists before trying to load it
+                            mod_file = self.current_folder / "entities" / f"{entity_id}.{entity_type}"
+                            base_file = None if not self.base_game_folder else self.base_game_folder / "entities" / f"{entity_id}.{entity_type}"
+                            
+                            if not mod_file.exists() and (not base_file or not base_file.exists()):
+                                error_msg = f"Could not find {entity_type} file: {entity_id}\n\n"
+                                if not self.base_game_folder:
+                                    error_msg += "Note: Base game folder is not configured. Some references may not be found."
+                                else:
+                                    error_msg += f"Looked in:\n- {mod_file}\n- {base_file}"
+                                QMessageBox.warning(self, "Error", error_msg)
+                                return
+                                
+                            self.load_referenced_entity(entity_id, entity_type)
+                        except Exception as e:
+                            QMessageBox.warning(self, "Error", f"Error loading {entity_type} {entity_id}:\n{str(e)}")
+                    return handler
+                
+                btn.clicked.connect(create_click_handler())
                 
                 if is_base_game:
                     btn.setStyleSheet(btn.styleSheet() + "; color: #666666; font-style: italic;")
@@ -1870,7 +1926,13 @@ class EntityToolGUI(QMainWindow):
     
     def load_referenced_entity(self, entity_id: str, entity_type: str):
         """Load a referenced entity file and display it in the appropriate panel"""
+        if not isinstance(entity_id, str):
+            logging.error(f"Invalid entity_id type: {type(entity_id)}. Expected string.")
+            QMessageBox.warning(self, "Error", f"Invalid entity ID: {entity_id}")
+            return
+            
         if not self.current_folder:
+            QMessageBox.warning(self, "Error", "No mod folder is currently loaded.")
             return
             
         # Try mod folder first
@@ -1905,8 +1967,14 @@ class EntityToolGUI(QMainWindow):
                         entity_file = base_game_file
                         logging.info(f"Successfully loaded base game data for {entity_file}")
                         logging.debug(f"Initial base game data for {entity_file}: {entity_data}")
-            
+                
             if not entity_data:
+                error_msg = f"Could not find {entity_type} file: {entity_id}\n\n"
+                if not self.base_game_folder:
+                    error_msg += "Note: Base game folder is not configured. Some references may not be found."
+                else:
+                    error_msg += f"Looked in:\n- {entity_file}\n- {self.base_game_folder}/entities/{entity_id}.{entity_type}"
+                QMessageBox.warning(self, "Error", error_msg)
                 logging.error(f"{entity_type} file not found: {entity_id}")
                 return
                 
@@ -2010,21 +2078,136 @@ class EntityToolGUI(QMainWindow):
                 schema_view = self.create_schema_view("buff", entity_data, is_base_game, entity_file)
                 self.buff_details_layout.addWidget(schema_view)
                 
+            elif entity_type == "action_data_source":
+                # Switch to Abilities/Buffs tab
+                abilities_tab = next((i for i in range(self.tab_widget.count()) if self.tab_widget.tabText(i) == "Abilities/Buffs"), 0)
+                self.tab_widget.setCurrentIndex(abilities_tab)
+                
+                # Select the action in the list if it exists
+                for i in range(self.action_list.count()):
+                    if self.action_list.item(i).text() == entity_id:
+                        self.action_list.setCurrentRow(i)
+                        break
+                
+                # Only clear and update the action panel content
+                while self.action_details_layout.count():
+                    item = self.action_details_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+                
+                schema_view = self.create_schema_view("action-data-source", entity_data, is_base_game, entity_file)
+                self.action_details_layout.addWidget(schema_view)
+                
+            elif entity_type == "formation":
+                # Switch to Formations tab
+                formations_tab = next((i for i in range(self.tab_widget.count()) if self.tab_widget.tabText(i) == "Formations"), 0)
+                self.tab_widget.setCurrentIndex(formations_tab)
+                
+                # Select the formation in the list if it exists
+                for i in range(self.formations_list.count()):
+                    if self.formations_list.item(i).text() == entity_id:
+                        self.formations_list.setCurrentRow(i)
+                        break
+                
+                # Only clear and update the formation panel content
+                while self.formation_details_layout.count():
+                    item = self.formation_details_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+                
+                schema_view = self.create_schema_view("formation", entity_data, is_base_game, entity_file)
+                self.formation_details_layout.addWidget(schema_view)
+                
+            elif entity_type == "flight_pattern":
+                # Switch to Flight Patterns tab
+                patterns_tab = next((i for i in range(self.tab_widget.count()) if self.tab_widget.tabText(i) == "Flight Patterns"), 0)
+                self.tab_widget.setCurrentIndex(patterns_tab)
+                
+                # Select the pattern in the list if it exists
+                for i in range(self.patterns_list.count()):
+                    if self.patterns_list.item(i).text() == entity_id:
+                        self.patterns_list.setCurrentRow(i)
+                        break
+                
+                # Only clear and update the pattern panel content
+                while self.pattern_details_layout.count():
+                    item = self.pattern_details_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+                
+                schema_view = self.create_schema_view("flight-pattern", entity_data, is_base_game, entity_file)
+                self.pattern_details_layout.addWidget(schema_view)
+                
+            elif entity_type == "npc_reward":
+                # Switch to NPC Rewards tab
+                rewards_tab = next((i for i in range(self.tab_widget.count()) if self.tab_widget.tabText(i) == "NPC Rewards"), 0)
+                self.tab_widget.setCurrentIndex(rewards_tab)
+                
+                # Select the reward in the list if it exists
+                for i in range(self.rewards_list.count()):
+                    if self.rewards_list.item(i).text() == entity_id:
+                        self.rewards_list.setCurrentRow(i)
+                        break
+                
+                # Only clear and update the reward panel content
+                while self.reward_details_layout.count():
+                    item = self.reward_details_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+                
+                schema_view = self.create_schema_view("npc-reward", entity_data, is_base_game, entity_file)
+                self.reward_details_layout.addWidget(schema_view)
+                
+            elif entity_type == "exotic":
+                # Switch to Exotics tab
+                exotics_tab = next((i for i in range(self.tab_widget.count()) if self.tab_widget.tabText(i) == "Exotics"), 0)
+                self.tab_widget.setCurrentIndex(exotics_tab)
+                
+                # Select the exotic in the list if it exists
+                for i in range(self.exotics_list.count()):
+                    if self.exotics_list.item(i).text() == entity_id:
+                        self.exotics_list.setCurrentRow(i)
+                        break
+                
+                # Only clear and update the exotic panel content
+                while self.exotic_details_layout.count():
+                    item = self.exotic_details_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+                
+                schema_view = self.create_schema_view("exotic", entity_data, is_base_game, entity_file)
+                self.exotic_details_layout.addWidget(schema_view)
+                
+            elif entity_type == "uniform":
+                # Switch to Uniforms tab
+                uniforms_tab = next((i for i in range(self.tab_widget.count()) if self.tab_widget.tabText(i) == "Uniforms"), 0)
+                self.tab_widget.setCurrentIndex(uniforms_tab)
+                
+                # Select the uniform in the list if it exists
+                for i in range(self.uniforms_list.count()):
+                    if self.uniforms_list.item(i).text() == entity_id:
+                        self.uniforms_list.setCurrentRow(i)
+                        break
+                
+                # Only clear and update the uniform panel content
+                while self.uniform_details_layout.count():
+                    item = self.uniform_details_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+                
+                schema_view = self.create_schema_view("uniform", entity_data, is_base_game, entity_file)
+                self.uniform_details_layout.addWidget(schema_view)
+                
+            else:
+                QMessageBox.warning(self, "Error", f"Unknown entity type: {entity_type}")
+                logging.error(f"Unknown entity type: {entity_type}")
+                return
+                
         except Exception as e:
-            logging.error(f"Error loading {entity_type} {entity_id}: {str(e)}")
-            # Add error message to appropriate panel
-            error_label = QLabel(f"Error loading {entity_type}: {str(e)}")
-            error_label.setStyleSheet("color: red;")
-            if entity_type == "weapon":
-                self.weapon_details_layout.addWidget(error_label)
-            elif entity_type == "unit_skin":
-                self.skin_details_layout.addWidget(error_label)
-            elif entity_type == "ability":
-                self.ability_details_layout.addWidget(error_label)
-            elif entity_type == "unit_item":
-                self.item_details_layout.addWidget(error_label)
-            elif entity_type == "buff":
-                self.buff_details_layout.addWidget(error_label)
+            error_msg = f"Error loading {entity_type} file {entity_id}:\n{str(e)}"
+            QMessageBox.warning(self, "Error", error_msg)
+            logging.error(f"Error loading {entity_type} file {entity_id}: {str(e)}")
+            return
     
     def load_research_subject(self, subject_id: str):
         """Load a research subject file and display its details using the schema"""
@@ -2568,11 +2751,14 @@ class EntityToolGUI(QMainWindow):
         self.manifest_data['base_game'] = {}
         
         if self.base_game_folder:
+            logging.debug(f"Using base game folder: {self.base_game_folder}")
             entities_folder = self.base_game_folder / "entities"
             if entities_folder.exists():
+                logging.debug(f"Found base game entities folder: {entities_folder}")
                 for manifest_file in entities_folder.glob("*.entity_manifest"):
                     try:
                         manifest_type = manifest_file.stem  # e.g., 'player', 'weapon'
+                        logging.debug(f"Loading base game manifest: {manifest_file}")
                         with open(manifest_file, 'r', encoding='utf-8') as f:
                             manifest_data = json.load(f)
                             
@@ -2588,15 +2774,23 @@ class EntityToolGUI(QMainWindow):
                                         entity_data = json.load(f)
                                         self.manifest_data['base_game'][manifest_type][entity_id] = entity_data
                                         logging.debug(f"Loaded base game {manifest_type} data for {entity_id}")
+                                else:
+                                    logging.warning(f"Referenced base game entity file not found: {entity_file}")
                                         
                         logging.info(f"Loaded base game manifest {manifest_type} with {len(manifest_data.get('ids', []))} entries")
                     except Exception as e:
                         logging.error(f"Error loading base game manifest file {manifest_file}: {str(e)}")
+            else:
+                logging.warning(f"Base game entities folder not found: {entities_folder}")
+        else:
+            logging.warning("No base game folder configured")
                         
         # Log summary
         for manifest_type in self.manifest_data['base_game']:
             count = len(self.manifest_data['base_game'][manifest_type])
             logging.info(f"Total base game {manifest_type} entries: {count}")
+            if count > 0:
+                logging.debug(f"Example {manifest_type} entries: {list(self.manifest_data['base_game'][manifest_type].keys())[:3]}")
 
     def load_mod_manifest_files(self) -> None:
         """Load manifest files from mod folder into memory"""
@@ -2606,11 +2800,14 @@ class EntityToolGUI(QMainWindow):
         self.manifest_data['mod'] = {}
         
         if self.current_folder:
+            logging.debug(f"Using mod folder: {self.current_folder}")
             entities_folder = self.current_folder / "entities"
             if entities_folder.exists():
+                logging.debug(f"Found mod entities folder: {entities_folder}")
                 for manifest_file in entities_folder.glob("*.entity_manifest"):
                     try:
                         manifest_type = manifest_file.stem  # e.g., 'player', 'weapon'
+                        logging.debug(f"Loading mod manifest: {manifest_file}")
                         with open(manifest_file, 'r', encoding='utf-8') as f:
                             manifest_data = json.load(f)
                             
@@ -2626,15 +2823,23 @@ class EntityToolGUI(QMainWindow):
                                         entity_data = json.load(f)
                                         self.manifest_data['mod'][manifest_type][entity_id] = entity_data
                                         logging.debug(f"Loaded mod {manifest_type} data for {entity_id}")
+                                else:
+                                    logging.warning(f"Referenced mod entity file not found: {entity_file}")
                                         
                         logging.info(f"Loaded mod manifest {manifest_type} with {len(manifest_data.get('ids', []))} entries")
                     except Exception as e:
                         logging.error(f"Error loading mod manifest file {manifest_file}: {str(e)}")
+            else:
+                logging.warning(f"Mod entities folder not found: {entities_folder}")
+        else:
+            logging.warning("No mod folder loaded")
                         
         # Log summary
         for manifest_type in self.manifest_data['mod']:
             count = len(self.manifest_data['mod'][manifest_type])
             logging.info(f"Total mod {manifest_type} entries: {count}")
+            if count > 0:
+                logging.debug(f"Example {manifest_type} entries: {list(self.manifest_data['mod'][manifest_type].keys())[:3]}")
 
     def on_item_selected(self, item):
         """Handle unit item selection"""
