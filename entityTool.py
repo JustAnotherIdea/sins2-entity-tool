@@ -284,16 +284,19 @@ class EntityToolGUI(QMainWindow):
         right_side = QWidget()
         right_layout = QVBoxLayout(right_side)
         right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(10)  # Add some spacing between panels
         
         # Unit Skin panel
         skin_details_group = QGroupBox("Unit Skin")
+        skin_details_group.setMinimumHeight(400)  # Increased height
         self.skin_details_layout = QVBoxLayout(skin_details_group)
-        right_layout.addWidget(skin_details_group)
+        right_layout.addWidget(skin_details_group, 1)  # 1:1 ratio with weapon
         
-        # Weapon panel - now below skin on right
+        # Weapon panel
         weapon_details_group = QGroupBox("Weapon")
+        weapon_details_group.setMinimumHeight(400)  # Increased height
         self.weapon_details_layout = QVBoxLayout(weapon_details_group)
-        right_layout.addWidget(weapon_details_group)
+        right_layout.addWidget(weapon_details_group, 1)  # 1:1 ratio with skin
         
         # Add right side to top row
         top_row.addWidget(right_side)
@@ -389,21 +392,26 @@ class EntityToolGUI(QMainWindow):
         # Right side - Schema views
         right_panel = QWidget()
         right_layout = QVBoxLayout(right_panel)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(10)  # Add some spacing between panels
         
         # Ability details
         ability_details_group = QGroupBox("Ability Details")
+        ability_details_group.setMinimumHeight(250)  # Adjusted for 1/3 height
         self.ability_details_layout = QVBoxLayout(ability_details_group)
-        right_layout.addWidget(ability_details_group)
+        right_layout.addWidget(ability_details_group, 1)  # Equal ratio
         
         # Action Data Source details
         action_details_group = QGroupBox("Action Data Source Details")
+        action_details_group.setMinimumHeight(250)  # Adjusted for 1/3 height
         self.action_details_layout = QVBoxLayout(action_details_group)
-        right_layout.addWidget(action_details_group)
+        right_layout.addWidget(action_details_group, 1)  # Equal ratio
         
         # Buff details
         buff_details_group = QGroupBox("Buff Details")
+        buff_details_group.setMinimumHeight(250)  # Adjusted for 1/3 height
         self.buff_details_layout = QVBoxLayout(buff_details_group)
-        right_layout.addWidget(buff_details_group)
+        right_layout.addWidget(buff_details_group, 1)  # Equal ratio
         
         abilities_split.addWidget(right_panel)
         
