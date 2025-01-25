@@ -2217,7 +2217,13 @@ class EntityToolGUI(QMainWindow):
             logging.debug(f"Stored file data for {file_path} in command stack")
         
         # Get the schema name
-        schema_name = f"{file_type}-schema"
+        if file_type == "uniform":
+            # Convert from snake_case to kebab-case and append -uniforms-schema
+            schema_name = file_path.stem.replace("_", "-") + "-uniforms-schema"
+            logging.debug(f"Looking for uniform schema: {schema_name}")
+        else:
+            schema_name = f"{file_type}-schema"
+            
         if schema_name not in self.schemas:
             logging.info(f"Schema not found for {schema_name}, using generic schema")
             # Create a generic schema based on the data structure
