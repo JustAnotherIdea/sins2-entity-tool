@@ -465,16 +465,20 @@ class EntityToolGUI(QMainWindow):
         # Right side - Schema views
         formations_right = QWidget()
         formations_right_layout = QVBoxLayout(formations_right)
+        formations_right_layout.setContentsMargins(0, 0, 0, 0)
+        formations_right_layout.setSpacing(10)  # Add spacing between panels
         
         # Formation details
         formation_details_group = QGroupBox("Formation Details")
+        formation_details_group.setMinimumHeight(400)  # Set minimum height
         self.formation_details_layout = QVBoxLayout(formation_details_group)
-        formations_right_layout.addWidget(formation_details_group)
+        formations_right_layout.addWidget(formation_details_group, 1)  # Equal ratio
         
         # Flight Pattern details
         pattern_details_group = QGroupBox("Flight Pattern Details")
+        pattern_details_group.setMinimumHeight(400)  # Set minimum height
         self.pattern_details_layout = QVBoxLayout(pattern_details_group)
-        formations_right_layout.addWidget(pattern_details_group)
+        formations_right_layout.addWidget(pattern_details_group, 1)  # Equal ratio
         
         formations_split.addWidget(formations_right)
         
