@@ -697,28 +697,6 @@ class EntityToolGUI(QMainWindow):
             error_label.setStyleSheet("color: red;")
             self.unit_details_layout.addWidget(error_label)
     
-    def clear_all_layouts(self):
-        """Clear all tab layouts"""
-        # Clear Basic Info
-        while self.basic_info_form.rowCount() > 0:
-            self.basic_info_form.removeRow(0)
-        
-        # Clear Home Planet
-        self.clear_layout(self.home_planet_layout)
-        
-        # Clear Units
-        self.units_list.clear()
-        self.clear_layout(self.unit_details_layout)
-        self.clear_layout(self.weapon_details_layout)
-        self.clear_layout(self.skin_details_layout)
-        self.clear_layout(self.ability_details_layout)
-        
-        # Clear Research
-        self.clear_layout(self.research_layout)
-        
-        # Clear Planet Types
-        self.clear_layout(self.planet_types_layout)
-    
     def clear_layout(self, layout):
         """Clear a layout and all its widgets"""
         if layout is not None:
@@ -730,7 +708,6 @@ class EntityToolGUI(QMainWindow):
                 else:
                     self.clear_layout(item.layout())
     
-    
     def open_folder_dialog(self):
         """Open directory dialog to select mod folder"""
         dir_path = QFileDialog.getExistingDirectory(
@@ -740,12 +717,6 @@ class EntityToolGUI(QMainWindow):
         )
         if dir_path:
             self.load_folder(Path(dir_path))
-    
-    def get_file_type_from_extension(self, file_path: Path) -> str:
-        """Convert file extension to schema type"""
-        # Remove the dot and convert to schema name format
-        ext = file_path.suffix.lstrip('.')
-        return ext.replace('_', '-')
     
     def load_folder(self, folder_path: Path):
         """Load all files from the mod folder"""
@@ -846,53 +817,7 @@ class EntityToolGUI(QMainWindow):
                 logging.info(f"Processed manifest {base_name} with {len(data['ids'])} entries")
         except Exception as e:
             logging.error(f"Error processing manifest {file_path}: {str(e)}")
-    
-    def find_related_files(self, file_path: Path) -> list:
-        """Find files related through manifests"""
-        try:
-            entities_folder = self.current_folder / "entities"
-            
-            # If this is a manifest file, return paths for all referenced IDs
-            if file_path.suffix == '.entity_manifest':
-                base_name = file_path.stem
-                if base_name in self.manifest_files:
-                    manifest_data = self.manifest_files[base_name]
-                    base_type = base_name  # e.g., 'player' from 'player.entity_manifest'
-                    return [
-                        (f"{id_name}", entities_folder / f"{id_name}.{base_type}")
-                        for id_name in manifest_data['ids']
-                    ]
-            
-            # If this is a referenced file, find manifests that reference it
-            base_name = file_path.stem  # e.g., 'trader_loyalist' from 'trader_loyalist.player'
-            file_type = file_path.suffix.lstrip('.')  # e.g., 'player' from '.player'
-            
-            related = []
-            if file_type in self.manifest_files:
-                manifest = self.manifest_files[file_type]
-                if base_name in manifest['ids']:
-                    related.append((
-                        f"{file_type}.entity_manifest",
-                        entities_folder / f"{file_type}.entity_manifest"
-                    ))
-            
-            return related
-            
-        except Exception as e:
-            logging.error(f"Error finding related files: {str(e)}")
-            return []
-    
-    def on_manifest_item_clicked(self, item):
-        """Handle clicking on a manifest-related file"""
-        file_path = item.data(Qt.ItemDataRole.UserRole)
-        if file_path and Path(file_path).exists():
-            self.load_file(Path(file_path))
-    
-    def update_manifest_view(self, file_path: Path):
-        """Update the manifest view with related files"""
-        # This functionality has been removed
-        pass
-    
+               
     def load_file(self, file_path: Path, try_base_game: bool = True) -> tuple[dict, bool]:
         """Load a file from mod folder or base game folder.
         Returns tuple of (data, is_from_base_game)"""
@@ -914,36 +839,7 @@ class EntityToolGUI(QMainWindow):
         except Exception as e:
             logging.error(f"Error loading file {file_path}: {str(e)}")
             return None, False
-    
-    def validate_current_file(self):
-        """Validate the current file against the selected schema"""
-        if not self.current_data or not self.schema_selector.currentText():
-            return
         
-        schema_name = self.schema_selector.currentText()
-        schema = self.schemas.get(schema_name)
-        if not schema:
-            return
-        
-        try:
-            jsonschema.validate(self.current_data, schema)
-            logging.info(f"File validates against schema: {schema_name}")
-            self.status_label.setText(f"Valid {schema_name}")
-            self.status_label.setProperty("status", "success")
-            self.status_label.style().unpolish(self.status_label)
-            self.status_label.style().polish(self.status_label)
-        except jsonschema.exceptions.ValidationError as e:
-            logging.error(f"Validation error: {str(e)}")
-            self.status_label.setText(f"Invalid {schema_name}")
-            self.status_label.setProperty("status", "error")
-            self.status_label.style().unpolish(self.status_label)
-            self.status_label.style().polish(self.status_label)
-        except Exception as e:
-            logging.error(f"Error during validation: {str(e)}")
-            self.status_label.setProperty("status", "error")
-            self.status_label.style().unpolish(self.status_label)
-            self.status_label.style().polish(self.status_label)
-    
     def dragEnterEvent(self, event: QDragEnterEvent):
         if event.mimeData().hasUrls():
             event.accept()
@@ -1005,36 +901,7 @@ class EntityToolGUI(QMainWindow):
             
         except Exception as e:
             logging.error(f"Error loading schemas: {str(e)}")
-    
-    def load_localized_text(self):
-        """Load localized text from the base game folder"""
-        base_game_folder = self.config.get("base_game_folder")
-        if not base_game_folder:
-            logging.warning("No base game folder configured")
-            return
-            
-        localization_path = Path(base_game_folder) / "localization"
-        if not localization_path.exists():
-            logging.error(f"Localization folder does not exist: {localization_path}")
-            return
-            
-        try:
-            # Clear existing localized text
-            self.localized_text.clear()
-            
-            # Load each language file
-            for lang_file in localization_path.glob("*.json"):
-                try:
-                    lang_code = lang_file.stem
-                    with open(lang_file, encoding='utf-8') as f:
-                        self.localized_text[lang_code] = json.load(f)
-                    logging.info(f"Loaded base game localized text for {lang_code}")
-                except Exception as e:
-                    logging.error(f"Error loading language file {lang_file}: {str(e)}")
-                    
-        except Exception as e:
-            logging.error(f"Error loading localized text: {str(e)}")
-    
+        
     def get_localized_text(self, text_key: str) -> tuple[str, bool]:
         """Get localized text for a key and whether it's from base game.
         Returns tuple of (text, is_from_base_game)"""
@@ -1070,16 +937,7 @@ class EntityToolGUI(QMainWindow):
                 return self.all_localized_strings['base_game']["en"][text_key], True
         
         return text_key, False  # Return key if no translation found
-    
-    def create_localized_label(self, text_key: str) -> QLabel:
-        """Create a QLabel with localized text"""
-        text, is_base_game = self.get_localized_text(text_key)
-        label = QLabel(text)
-        label.setWordWrap(True)
-        if is_base_game:
-            label.setStyleSheet("color: #666666; font-style: italic;")  # Gray and italic for base game content
-        return label
-    
+        
     def load_player_file(self, file_path: Path):
         """Load a player file into the application"""
         try:
@@ -2284,29 +2142,7 @@ class EntityToolGUI(QMainWindow):
             
         except Exception as e:
             logging.error(f"Error loading research subject {subject_id}: {str(e)}")
-    
-    def on_research_subject_clicked(self, item):
-        """Handle clicking on a research subject in the list"""
-        subject_id = item.text()
-        self.load_research_subject(subject_id)
-    
-    def load_config(self) -> dict:
-        """Load configuration from file"""
-        config_path = Path(__file__).parent / "config.json"
-        default_config = {
-            "schema_folder": "",
-            "base_game_folder": ""
-        }
-        
-        try:
-            if config_path.exists():
-                with open(config_path) as f:
-                    return json.load(f)
-            return default_config
-        except Exception as e:
-            logging.error(f"Error loading config: {str(e)}")
-            return default_config
-    
+            
     def save_config(self):
         """Save configuration to file"""
         config_path = Path(__file__).parent / "config.json"
@@ -2674,16 +2510,6 @@ class EntityToolGUI(QMainWindow):
         if hasattr(self, 'redo_btn'):
             self.redo_btn.setEnabled(self.command_stack.can_redo())
             
-    def undo(self):
-        """Undo the last command"""
-        self.command_stack.undo()
-        self.update_save_button()  # Update button states
-    
-    def redo(self):
-        """Redo the last undone command"""
-        self.command_stack.redo()
-        self.update_save_button()  # Update button states
-
     def load_all_localized_strings(self) -> None:
         """Load all localized strings from both mod and base game into memory"""
         logging.info("Loading all localized strings...")
