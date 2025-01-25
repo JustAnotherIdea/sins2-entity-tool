@@ -1,21 +1,17 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
-                            QLineEdit, QListWidget, QComboBox, QTreeWidget, QTreeWidgetItem,
-                            QTabWidget, QScrollArea, QGroupBox, QFormLayout, QDialog, QSplitter, QToolButton,
+                            QLineEdit, QListWidget, QComboBox, QTabWidget, QScrollArea, QGroupBox, QDialog, QSplitter, QToolButton,
                             QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox)
-from PyQt6.QtCore import Qt, QMimeData
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QPixmap, QIcon, QKeySequence,
                         QShortcut)
 import json
 import logging
 from pathlib import Path
-import jsonschema
 from research_view import ResearchTreeView
 import os
 from command_stack import CommandStack, EditValueCommand
 from typing import List, Any
-
-logging.basicConfig(level=logging.DEBUG)
 
 class GUILogHandler(logging.Handler):
     def __init__(self, log_widget):
