@@ -647,6 +647,9 @@ class EntityToolGUI(QMainWindow):
         
         # Research Tab
         if "research" in self.current_data:
+            # Clear existing research view
+            self.clear_layout(self.research_layout)
+            # Create and add new research view
             research_view = self.create_research_view(self.current_data["research"])
             self.research_layout.addWidget(research_view)
         
