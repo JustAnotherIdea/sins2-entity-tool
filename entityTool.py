@@ -804,20 +804,7 @@ class EntityToolGUI(QMainWindow):
         except Exception as e:
             logging.error(f"Error loading folder: {str(e)}")
             self.current_folder = None
-    
-    def process_manifest_file(self, file_path: Path, data: dict):
-        """Process an entity manifest file and store its data"""
-        try:
-            if 'ids' in data:
-                base_name = file_path.stem  # Remove .entity_manifest
-                self.manifest_files[base_name] = {
-                    'path': file_path,
-                    'ids': data['ids']
-                }
-                logging.info(f"Processed manifest {base_name} with {len(data['ids'])} entries")
-        except Exception as e:
-            logging.error(f"Error processing manifest {file_path}: {str(e)}")
-               
+           
     def load_file(self, file_path: Path, try_base_game: bool = True) -> tuple[dict, bool]:
         """Load a file from mod folder or base game folder.
         Returns tuple of (data, is_from_base_game)"""
@@ -947,13 +934,11 @@ class EntityToolGUI(QMainWindow):
             self.current_file = file_path
             self.current_data = data
             
-            # Process manifest if applicable
-            if file_path.suffix == '.entity_manifest':
-                self.process_manifest_file(file_path, self.current_data)
-            
-            # If it's a player file, update the display
+            # If it's a player file, update the display,otherwise error
             if file_path.suffix == '.player':
                 self.update_player_display()
+            else:
+                raise ValueError(f"File is not a player file: {file_path}")
             
             # Log data details
             logging.info(f"Successfully loaded: {file_path}")
