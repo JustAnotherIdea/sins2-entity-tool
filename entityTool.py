@@ -1527,6 +1527,11 @@ class EntityToolGUI(QMainWindow):
         """Create an editable widget for a value based on its schema type"""
         if path is None:
             path = []
+            
+        logging.debug(f"create_widget_for_value called with:")
+        logging.debug(f"  value: {value}")
+        logging.debug(f"  schema: {schema}")
+        logging.debug(f"  path: {path}")
         
         # Handle different schema types
         schema_type = schema.get("type")
@@ -1535,8 +1540,10 @@ class EntityToolGUI(QMainWindow):
             # Convert value to string if it's not already
             value_str = str(value) if value is not None else "ERROR: No value"
 
-            # First check if the property name matches a manifest type
-            property_name = schema.get("property_name", "").lower()
+            # Get property name from the path - use the last string in the path
+            property_name = next((p for p in reversed(path) if isinstance(p, str)), "").lower()
+            logging.debug(f"Extracted property_name from path: {property_name}")
+            
             manifest_type_map = {
                 "weapon": "weapon",
                 "weapons": "weapon",
@@ -1570,6 +1577,8 @@ class EntityToolGUI(QMainWindow):
                 layout.setContentsMargins(0, 0, 0, 0)
                 layout.setSpacing(2)
                 
+                logging.debug(f"Processing array with schema: {schema}")
+                
                 for i, item in enumerate(value):
                     if isinstance(item, dict):
                         # For objects in arrays (like skin_groups), recursively process their values
@@ -1583,20 +1592,43 @@ class EntityToolGUI(QMainWindow):
                                         layout.addWidget(label)
                                         continue
                                         
-                                    # Create a schema for this item with the key as the property name
-                                    item_schema = {"type": "string", "property_name": key}
-                                    widget = self.create_widget_for_value(sub_item, item_schema, is_base_game, path)
+                                    logging.debug(f"Creating widget for array item with key: {key}")
+                                    # Create widget with property name from key
+                                    widget = self.create_widget_for_value(
+                                        sub_item,
+                                        {"type": "string", "property_name": key},
+                                        is_base_game,
+                                        path + [i, key]
+                                    )
                                     layout.addWidget(widget)
+                            else:
+                                # Handle non-list values in the dictionary
+                                widget = self.create_widget_for_value(
+                                    val,
+                                    {"type": "string", "property_name": key},
+                                    is_base_game,
+                                    path + [i, key]
+                                )
+                                layout.addWidget(widget)
                     else:
-                        # For simple values in arrays
-                        label = QLabel(str(item))
-                        layout.addWidget(label)
+                        # For simple values in arrays, use the parent property name
+                        parent_property = schema.get("property_name", "")
+                        logging.debug(f"Creating widget for simple array item with parent property: {parent_property}")
+                        widget = self.create_widget_for_value(
+                            item,
+                            {"type": "string", "property_name": parent_property},
+                            is_base_game,
+                            path + [i]
+                        )
+                        layout.addWidget(widget)
                 
                 return container
 
             # Check if property name indicates a specific entity type
             entity_type = None
+            logging.debug(f"Checking for {value_str} in manifest type {property_name}")
             if property_name in manifest_type_map:
+                logging.debug(f"Found manifest type mapping: {property_name} -> {manifest_type_map[property_name]}")
                 expected_type = manifest_type_map[property_name]
                 logging.debug(f"Checking for {value_str} in manifest type {expected_type}")
                 # Only check the expected type based on property name
