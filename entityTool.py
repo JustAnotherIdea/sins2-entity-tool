@@ -1558,7 +1558,9 @@ class EntityToolGUI(QMainWindow):
                 "exotics": "exotic",
                 "exotic": "exotic",
                 "uniforms": "uniform",
-                "uniform": "uniform"
+                "uniform": "uniform",
+                "research_subjects": "research_subject",
+                "research_subject": "research_subject"
             }
 
             # Special handling for arrays and objects
@@ -1581,40 +1583,10 @@ class EntityToolGUI(QMainWindow):
                                         layout.addWidget(label)
                                         continue
                                         
-                                    # Check if this item is a reference based on the parent property name
-                                    if key in manifest_type_map:
-                                        expected_type = manifest_type_map[key]
-                                        logging.debug(f"Checking for {sub_item} in manifest type {expected_type}")
-                                        # Only check the expected type based on property name
-                                        is_reference = (
-                                            sub_item in self.manifest_data['mod'].get(expected_type, {}) or
-                                            sub_item in self.manifest_data['base_game'].get(expected_type, {})
-                                        )
-                                        if is_reference:
-                                            btn = QPushButton(str(sub_item))
-                                            btn.setStyleSheet("text-align: left; padding: 2px;")
-                                            # Create a closure to properly capture the values
-                                            def create_click_handler(entity_id=str(sub_item), entity_type=expected_type):
-                                                def handler(checked):
-                                                    self.load_referenced_entity(entity_id, entity_type)
-                                                return handler
-                                            btn.clicked.connect(create_click_handler())
-                                            if is_base_game:
-                                                btn.setStyleSheet(btn.styleSheet() + "; color: #666666; font-style: italic;")
-                                            layout.addWidget(btn)
-                                        else:
-                                            # If not found in the expected type, log a warning
-                                            logging.warning(f"Referenced {expected_type} not found: {sub_item}")
-                                            label = QLabel(str(sub_item))
-                                            layout.addWidget(label)
-                                    else:
-                                        # For values without a mapped type
-                                        label = QLabel(str(sub_item))
-                                        layout.addWidget(label)
-                            else:
-                                # For simple values in objects
-                                label = QLabel(f"{key}: {str(val)}")
-                                layout.addWidget(label)
+                                    # Create a schema for this item with the key as the property name
+                                    item_schema = {"type": "string", "property_name": key}
+                                    widget = self.create_widget_for_value(sub_item, item_schema, is_base_game, path)
+                                    layout.addWidget(widget)
                     else:
                         # For simple values in arrays
                         label = QLabel(str(item))
@@ -1628,12 +1600,10 @@ class EntityToolGUI(QMainWindow):
                 expected_type = manifest_type_map[property_name]
                 logging.debug(f"Checking for {value_str} in manifest type {expected_type}")
                 # Only check the expected type based on property name
-                if value_str in self.manifest_data['mod'].get(expected_type, {}):
-                    logging.debug(f"Found {value_str} in mod manifest {expected_type}")
+                if (value_str in self.manifest_data['mod'].get(expected_type, {}) or 
+                    value_str in self.manifest_data['base_game'].get(expected_type, {})):
                     entity_type = expected_type
-                elif value_str in self.manifest_data['base_game'].get(expected_type, {}):
-                    logging.debug(f"Found {value_str} in base game manifest {expected_type}")
-                    entity_type = expected_type
+                    logging.debug(f"Found {value_str} in manifest {expected_type}")
                 else:
                     # If not found in the expected type, log a warning
                     logging.warning(f"Referenced {expected_type} not found: {value_str}")
@@ -1999,6 +1969,14 @@ class EntityToolGUI(QMainWindow):
                 self.weapon_details_layout.addWidget(schema_view)
                 self.weapon_file = entity_file  # Store file path
                 logging.info(f"Created weapon schema view for {entity_file}")
+
+            elif entity_type == "research_subject":
+                # Switch to Research tab
+                research_tab = next((i for i in range(self.tab_widget.count()) if self.tab_widget.tabText(i) == "Research"), 0)
+                self.tab_widget.setCurrentIndex(research_tab)
+                
+                # Load the research subject
+                self.load_research_subject(entity_id)
                 
             elif entity_type == "unit_skin":
                 # Unit skins are shown in the Units tab
@@ -2197,6 +2175,34 @@ class EntityToolGUI(QMainWindow):
                 
                 schema_view = self.create_schema_view("uniform", entity_data, is_base_game, entity_file)
                 self.uniform_details_layout.addWidget(schema_view)
+                
+            elif entity_type == "unit":
+                # Switch to Units tab
+                units_tab = next((i for i in range(self.tab_widget.count()) if self.tab_widget.tabText(i) == "Units"), 0)
+                self.tab_widget.setCurrentIndex(units_tab)
+                
+                # Select the unit in the list if it exists
+                for i in range(self.units_list.count()):
+                    if self.units_list.item(i).text() == entity_id:
+                        self.units_list.setCurrentRow(i)
+                        break
+                
+                # Only clear and update the unit panel content
+                while self.unit_details_layout.count():
+                    item = self.unit_details_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+                
+                schema_view = self.create_schema_view("unit", entity_data, is_base_game, entity_file)
+                self.unit_details_layout.addWidget(schema_view)
+                
+            elif entity_type == "research_subject":
+                # Switch to Research tab
+                research_tab = next((i for i in range(self.tab_widget.count()) if self.tab_widget.tabText(i) == "Research"), 0)
+                self.tab_widget.setCurrentIndex(research_tab)
+                
+                # Load the research subject
+                self.load_research_subject(entity_id)
                 
             else:
                 QMessageBox.warning(self, "Error", f"Unknown entity type: {entity_type}")
