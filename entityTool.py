@@ -275,38 +275,34 @@ class EntityToolGUI(QMainWindow):
         # Top row of details (Unit Details and Unit Skin)
         top_row = QSplitter(Qt.Orientation.Horizontal)
         
-        # Unit Details panel
+        # Unit Details panel - now full height on left
         unit_details_group = QGroupBox("Unit Details")
         self.unit_details_layout = QVBoxLayout(unit_details_group)
         top_row.addWidget(unit_details_group)
         
+        # Right side vertical split for skin and weapon
+        right_side = QWidget()
+        right_layout = QVBoxLayout(right_side)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        
         # Unit Skin panel
         skin_details_group = QGroupBox("Unit Skin")
         self.skin_details_layout = QVBoxLayout(skin_details_group)
-        top_row.addWidget(skin_details_group)
+        right_layout.addWidget(skin_details_group)
         
-        # Set sizes for top row (1:1 ratio)
-        top_row.setSizes([100, 100])
-        
-        # Bottom row of details (Weapon and Ability)
-        bottom_row = QSplitter(Qt.Orientation.Horizontal)
-        
-        # Weapon panel
+        # Weapon panel - now below skin on right
         weapon_details_group = QGroupBox("Weapon")
         self.weapon_details_layout = QVBoxLayout(weapon_details_group)
-        bottom_row.addWidget(weapon_details_group)
+        right_layout.addWidget(weapon_details_group)
         
-        # Ability panel
-        ability_details_group = QGroupBox("Ability")
-        self.ability_details_layout = QVBoxLayout(ability_details_group)
-        bottom_row.addWidget(ability_details_group)
+        # Add right side to top row
+        top_row.addWidget(right_side)
         
-        # Set sizes for bottom row (1:1 ratio)
-        bottom_row.setSizes([100, 100])
+        # Set sizes for top row (2:1 ratio for unit details to right side)
+        top_row.setSizes([200, 100])
         
-        # Add rows to details layout with equal stretch factors
-        details_layout.addWidget(top_row, stretch=1)
-        details_layout.addWidget(bottom_row, stretch=1)
+        # Add top row to details layout
+        details_layout.addWidget(top_row)
         
         # Add details widget to splitter
         units_split.addWidget(details_widget)
