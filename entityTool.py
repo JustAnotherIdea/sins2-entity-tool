@@ -256,6 +256,15 @@ class EntityToolGUI(QMainWindow):
         strikecraft_list_group.setLayout(strikecraft_list_layout)
         lists_layout.addWidget(strikecraft_list_group)
         
+        # All Units
+        all_units_group = QGroupBox("All Units")
+        all_units_layout = QVBoxLayout()
+        self.all_units_list = QListWidget()
+        self.all_units_list.itemClicked.connect(self.on_unit_selected)
+        all_units_layout.addWidget(self.all_units_list)
+        all_units_group.setLayout(all_units_layout)
+        lists_layout.addWidget(all_units_group)
+        
         units_split.addWidget(lists_widget)
         
         # Right side - Details panels
@@ -648,6 +657,7 @@ class EntityToolGUI(QMainWindow):
         # Clear the lists
         self.units_list.clear()
         self.strikecraft_list.clear()
+        # Don't clear all_units_list as it's populated from folder load
             
         # Add buildable units
         if "buildable_units" in self.current_data:
@@ -795,6 +805,12 @@ class EntityToolGUI(QMainWindow):
                     list_widget.addItem(item)
 
             if entities_folder.exists():
+                # Load all units first
+                self.all_units_list.clear()
+                add_items_to_list(self.all_units_list, "*.unit", entities_folder)
+                if base_entities_folder:
+                    add_items_to_list(self.all_units_list, "*.unit", base_entities_folder, True)
+                
                 # Load unit items
                 add_items_to_list(self.items_list, "*.unit_item", entities_folder)
                 if base_entities_folder:
@@ -2117,7 +2133,7 @@ class EntityToolGUI(QMainWindow):
                 units_tab = next((i for i in range(self.tab_widget.count()) if self.tab_widget.tabText(i) == "Units"), 0)
                 self.tab_widget.setCurrentIndex(units_tab)
                 
-                # Select the unit in the list if it exists
+                # Select the unit in the buildable list if it exists
                 found = False
                 for i in range(self.units_list.count()):
                     if self.units_list.item(i).text() == entity_id:
@@ -2130,6 +2146,15 @@ class EntityToolGUI(QMainWindow):
                     for i in range(self.strikecraft_list.count()):
                         if self.strikecraft_list.item(i).text() == entity_id:
                             self.strikecraft_list.setCurrentRow(i)
+                            found = True
+                            break
+                        
+                # Finally check all units list
+                if not found:
+                    for i in range(self.all_units_list.count()):
+                        if self.all_units_list.item(i).text() == entity_id:
+                            self.all_units_list.setCurrentRow(i)
+                            found = True
                             break
                 
                 # Only clear and update the unit panel content
