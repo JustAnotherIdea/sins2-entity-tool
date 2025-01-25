@@ -2162,6 +2162,37 @@ class EntityToolGUI(QMainWindow):
         player_file = self.current_folder / "entities" / f"{player_name}.player"
         self.load_player_file(player_file) 
 
+    def create_generic_schema(self, data: dict) -> dict:
+        """Create a generic schema that matches any JSON structure"""
+        if isinstance(data, dict):
+            properties = {}
+            for key, value in data.items():
+                properties[key] = self.create_generic_schema(value)
+            return {
+                "type": "object",
+                "properties": properties
+            }
+        elif isinstance(data, list):
+            # If list is empty or has mixed types, use any type
+            if not data or not all(isinstance(x, type(data[0])) for x in data):
+                return {
+                    "type": "array",
+                    "items": {"type": "string"}  # Default to string for empty/mixed arrays
+                }
+            # Otherwise use the type of the first item for all items
+            return {
+                "type": "array",
+                "items": self.create_generic_schema(data[0])
+            }
+        elif isinstance(data, bool):
+            return {"type": "boolean"}
+        elif isinstance(data, int):
+            return {"type": "integer"}
+        elif isinstance(data, float):
+            return {"type": "number"}
+        else:
+            return {"type": "string"}  # Default to string for all other types
+
     def create_schema_view(self, file_type: str, file_data: dict, is_base_game: bool = False, file_path: Path = None) -> QWidget:
         """Create a reusable schema view for any file type.
         
@@ -2186,14 +2217,35 @@ class EntityToolGUI(QMainWindow):
         # Get the schema name
         schema_name = f"{file_type}-schema"
         if schema_name not in self.schemas:
-            logging.error(f"Schema not found: {schema_name}")
-            error_widget = QWidget()
-            error_layout = QVBoxLayout(error_widget)
-            error_layout.addWidget(QLabel(f"Schema not found: {schema_name}"))
-            return error_widget
-        
-        logging.debug(f"Found schema: {schema_name}")
-        self.current_schema = self.schemas[schema_name]
+            logging.info(f"Schema not found for {schema_name}, using generic schema")
+            # Create a generic schema based on the data structure
+            generic_schema = {
+                "type": "object",
+                "properties": {}
+            }
+            for key, value in file_data.items():
+                if isinstance(value, bool):
+                    generic_schema["properties"][key] = {"type": "boolean"}
+                elif isinstance(value, int):
+                    generic_schema["properties"][key] = {"type": "integer"}
+                elif isinstance(value, float):
+                    generic_schema["properties"][key] = {"type": "number"}
+                elif isinstance(value, list):
+                    generic_schema["properties"][key] = {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    }
+                elif isinstance(value, dict):
+                    generic_schema["properties"][key] = {
+                        "type": "object",
+                        "properties": {}
+                    }
+                else:
+                    generic_schema["properties"][key] = {"type": "string"}
+            self.current_schema = generic_schema
+        else:
+            logging.debug(f"Found schema: {schema_name}")
+            self.current_schema = self.schemas[schema_name]
         
         # Create scrollable area for the content
         scroll = QScrollArea()
