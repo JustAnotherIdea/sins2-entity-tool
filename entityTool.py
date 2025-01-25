@@ -1,10 +1,10 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
                             QLineEdit, QListWidget, QComboBox, QTabWidget, QScrollArea, QGroupBox, QDialog, QSplitter, QToolButton,
-                            QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox)
+                            QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QPixmap, QIcon, QKeySequence,
-                        QShortcut)
+                        QColor, QShortcut)
 import json
 import logging
 from pathlib import Path
@@ -743,44 +743,68 @@ class EntityToolGUI(QMainWindow):
             
             # Process all files recursively
             entities_folder = self.current_folder / "entities"
+            base_entities_folder = None if not self.base_game_folder else self.base_game_folder / "entities"
+            
+            def add_items_to_list(list_widget, pattern, folder, is_base_game=False):
+                """Add items to a list widget with optional base game styling"""
+                if not folder or not folder.exists():
+                    return
+                for file in folder.glob(pattern):
+                    item = QListWidgetItem(file.stem)
+                    if is_base_game:
+                        item.setForeground(QColor(150, 150, 150))
+                        font = item.font()
+                        font.setItalic(True)
+                        item.setFont(font)
+                    list_widget.addItem(item)
+
             if entities_folder.exists():
                 # Load unit items
-                for item_file in entities_folder.glob("*.unit_item"):
-                    self.items_list.addItem(item_file.stem)
+                add_items_to_list(self.items_list, "*.unit_item", entities_folder)
+                if base_entities_folder:
+                    add_items_to_list(self.items_list, "*.unit_item", base_entities_folder, True)
                 
                 # Load abilities
-                for ability_file in entities_folder.glob("*.ability"):
-                    self.ability_list.addItem(ability_file.stem)
+                add_items_to_list(self.ability_list, "*.ability", entities_folder)
+                if base_entities_folder:
+                    add_items_to_list(self.ability_list, "*.ability", base_entities_folder, True)
                 
                 # Load action data sources
-                for action_file in entities_folder.glob("*.action_data_source"):
-                    self.action_list.addItem(action_file.stem)
+                add_items_to_list(self.action_list, "*.action_data_source", entities_folder)
+                if base_entities_folder:
+                    add_items_to_list(self.action_list, "*.action_data_source", base_entities_folder, True)
                 
                 # Load buffs
-                for buff_file in entities_folder.glob("*.buff"):
-                    self.buff_list.addItem(buff_file.stem)
+                add_items_to_list(self.buff_list, "*.buff", entities_folder)
+                if base_entities_folder:
+                    add_items_to_list(self.buff_list, "*.buff", base_entities_folder, True)
                 
                 # Load formations
-                for formation_file in entities_folder.glob("*.formation"):
-                    self.formations_list.addItem(formation_file.stem)
+                add_items_to_list(self.formations_list, "*.formation", entities_folder)
+                if base_entities_folder:
+                    add_items_to_list(self.formations_list, "*.formation", base_entities_folder, True)
                 
                 # Load flight patterns
-                for pattern_file in entities_folder.glob("*.flight_pattern"):
-                    self.patterns_list.addItem(pattern_file.stem)
+                add_items_to_list(self.patterns_list, "*.flight_pattern", entities_folder)
+                if base_entities_folder:
+                    add_items_to_list(self.patterns_list, "*.flight_pattern", base_entities_folder, True)
                 
                 # Load NPC rewards
-                for reward_file in entities_folder.glob("*.npc_reward"):
-                    self.rewards_list.addItem(reward_file.stem)
+                add_items_to_list(self.rewards_list, "*.npc_reward", entities_folder)
+                if base_entities_folder:
+                    add_items_to_list(self.rewards_list, "*.npc_reward", base_entities_folder, True)
                 
                 # Load exotics
-                for exotic_file in entities_folder.glob("*.exotic"):
-                    self.exotics_list.addItem(exotic_file.stem)
+                add_items_to_list(self.exotics_list, "*.exotic", entities_folder)
+                if base_entities_folder:
+                    add_items_to_list(self.exotics_list, "*.exotic", base_entities_folder, True)
 
             # Load uniforms from uniforms folder
             uniforms_folder = self.current_folder / "uniforms"
-            if uniforms_folder.exists():
-                for uniform_file in uniforms_folder.glob("*.uniforms"):
-                    self.uniforms_list.addItem(uniform_file.stem)
+            base_uniforms_folder = None if not self.base_game_folder else self.base_game_folder / "uniforms"
+            add_items_to_list(self.uniforms_list, "*.uniforms", uniforms_folder)
+            if base_uniforms_folder and base_uniforms_folder.exists():
+                add_items_to_list(self.uniforms_list, "*.uniforms", base_uniforms_folder, True)
             
             # Load mod meta data if exists
             meta_file = self.current_folder / ".mod_meta_data"
