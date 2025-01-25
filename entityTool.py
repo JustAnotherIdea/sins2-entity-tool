@@ -222,23 +222,41 @@ class EntityToolGUI(QMainWindow):
         player_widget.setWidget(player_content)
         self.tab_widget.addTab(player_widget, "Player")
         
-        # Units Tab (existing)
+        # Units Tab
         units_widget = QScrollArea()
         units_widget.setWidgetResizable(True)
         units_content = QWidget()
         self.units_layout = QVBoxLayout(units_content)  # Store reference to units layout
 
         # Create split layout for units tab
+        units_layout = QVBoxLayout(units_widget)
         units_split = QSplitter(Qt.Orientation.Horizontal)
+        units_layout.addWidget(units_split)
         
-        # Left side - Unit list
+        # Left side - Lists
+        lists_widget = QWidget()
+        lists_layout = QVBoxLayout(lists_widget)
+        lists_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # Buildable Units
         units_list_group = QGroupBox("Buildable Units")
         units_list_layout = QVBoxLayout()
         self.units_list = QListWidget()
         self.units_list.itemClicked.connect(self.on_unit_selected)
         units_list_layout.addWidget(self.units_list)
         units_list_group.setLayout(units_list_layout)
-        units_split.addWidget(units_list_group)
+        lists_layout.addWidget(units_list_group)
+        
+        # Strikecraft
+        strikecraft_list_group = QGroupBox("Buildable Strikecraft")
+        strikecraft_list_layout = QVBoxLayout()
+        self.strikecraft_list = QListWidget()
+        self.strikecraft_list.itemClicked.connect(self.on_unit_selected)
+        strikecraft_list_layout.addWidget(self.strikecraft_list)
+        strikecraft_list_group.setLayout(strikecraft_list_layout)
+        lists_layout.addWidget(strikecraft_list_group)
+        
+        units_split.addWidget(lists_widget)
         
         # Right side - Details panels
         details_widget = QWidget()
@@ -627,13 +645,31 @@ class EntityToolGUI(QMainWindow):
         self.player_layout.addWidget(schema_view)
         
         # Units Tab
-        if "buildable_units" in self.current_data:
-            # Clear the units list
-            self.units_list.clear()
+        # Clear the lists
+        self.units_list.clear()
+        self.strikecraft_list.clear()
             
-            # Add units to list
+        # Add buildable units
+        if "buildable_units" in self.current_data:
             for unit_id in sorted(self.current_data["buildable_units"]):
-                self.units_list.addItem(unit_id)
+                item = QListWidgetItem(unit_id)
+                self.units_list.addItem(item)
+        
+        # Add faction buildable units with different styling
+        if "faction_buildable_units" in self.current_data:
+            for unit_id in sorted(self.current_data["faction_buildable_units"]):
+                item = QListWidgetItem(unit_id)
+                item.setForeground(QColor(0, 150, 200))  # Blue color for faction units
+                font = item.font()
+                font.setBold(True)
+                item.setFont(font)
+                self.units_list.addItem(item)
+        
+        # Add buildable strikecraft
+        if "buildable_strikecraft" in self.current_data:
+            for unit_id in sorted(self.current_data["buildable_strikecraft"]):
+                item = QListWidgetItem(unit_id)
+                self.strikecraft_list.addItem(item)
             
             # Clear all detail panels
             self.clear_layout(self.unit_details_layout)
@@ -2082,10 +2118,19 @@ class EntityToolGUI(QMainWindow):
                 self.tab_widget.setCurrentIndex(units_tab)
                 
                 # Select the unit in the list if it exists
+                found = False
                 for i in range(self.units_list.count()):
                     if self.units_list.item(i).text() == entity_id:
                         self.units_list.setCurrentRow(i)
+                        found = True
                         break
+                
+                # Check strikecraft list if not found in units list
+                if not found:
+                    for i in range(self.strikecraft_list.count()):
+                        if self.strikecraft_list.item(i).text() == entity_id:
+                            self.strikecraft_list.setCurrentRow(i)
+                            break
                 
                 # Only clear and update the unit panel content
                 while self.unit_details_layout.count():
