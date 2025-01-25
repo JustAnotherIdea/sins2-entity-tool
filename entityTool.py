@@ -2781,177 +2781,236 @@ class EntityToolGUI(QMainWindow):
                 logging.debug(f"Example {manifest_type} entries: {list(self.manifest_data['mod'][manifest_type].keys())[:3]}")
 
     def on_item_selected(self, item):
-        """Handle unit item selection"""
+        """Handle unit item selection from the list"""
         if not self.current_folder:
             return
             
         item_id = item.text()
-        item_file = self.current_folder / "entities" / f"{item_id}.unit_item"
+        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
+        item_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{item_id}.unit_item"
         
         try:
-            # Check if we have data in the command stack first
-            item_data = self.command_stack.get_file_data(item_file)
-            is_base_game = False
-            
-            if item_data is None:
-                # Load from file if not in command stack
-                item_data, is_base_game = self.load_file(item_file)
-                if not item_data:
-                    logging.error(f"Item file not found: {item_file}")
-                    return
-                    
-                # Store initial data in command stack
-                self.command_stack.update_file_data(item_file, item_data)
-            
+            # Load from file
+            item_data, _ = self.load_file(item_file, try_base_game=False)  # Don't try base game again
+            if not item_data:
+                logging.error(f"Item file not found: {item_file}")
+                return
+                
             # Clear existing details
             self.clear_layout(self.item_details_layout)
             
-            # Create and add the schema view
+            # Create and add the schema view for item details
             schema_view = self.create_schema_view("unit-item", item_data, is_base_game, item_file)
             self.item_details_layout.addWidget(schema_view)
             
         except Exception as e:
             logging.error(f"Error loading item {item_id}: {str(e)}")
+            error_label = QLabel(f"Error loading item: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.item_details_layout.addWidget(error_label)
 
     def on_ability_selected(self, item):
-        """Handle ability selection"""
+        """Handle ability selection from the list"""
         if not self.current_folder:
             return
             
         ability_id = item.text()
-        ability_file = self.current_folder / "entities" / f"{ability_id}.ability"
+        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
+        ability_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{ability_id}.ability"
         
         try:
-            ability_data, is_base_game = self.load_file(ability_file)
+            # Load from file
+            ability_data, _ = self.load_file(ability_file, try_base_game=False)  # Don't try base game again
             if not ability_data:
+                logging.error(f"Ability file not found: {ability_file}")
                 return
                 
+            # Clear existing details
             self.clear_layout(self.ability_details_layout)
+            
+            # Create and add the schema view for ability details
             schema_view = self.create_schema_view("ability", ability_data, is_base_game, ability_file)
             self.ability_details_layout.addWidget(schema_view)
             
         except Exception as e:
             logging.error(f"Error loading ability {ability_id}: {str(e)}")
+            error_label = QLabel(f"Error loading ability: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.ability_details_layout.addWidget(error_label)
 
     def on_action_selected(self, item):
-        """Handle action data source selection"""
+        """Handle action data source selection from the list"""
         if not self.current_folder:
             return
             
         action_id = item.text()
-        action_file = self.current_folder / "entities" / f"{action_id}.action_data_source"
+        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
+        action_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{action_id}.action_data_source"
         
         try:
-            action_data, is_base_game = self.load_file(action_file)
+            # Load from file
+            action_data, _ = self.load_file(action_file, try_base_game=False)  # Don't try base game again
             if not action_data:
+                logging.error(f"Action data source file not found: {action_file}")
                 return
                 
+            # Clear existing details
             self.clear_layout(self.action_details_layout)
+            
+            # Create and add the schema view for action details
             schema_view = self.create_schema_view("action-data-source", action_data, is_base_game, action_file)
             self.action_details_layout.addWidget(schema_view)
             
         except Exception as e:
-            logging.error(f"Error loading action {action_id}: {str(e)}")
+            logging.error(f"Error loading action data source {action_id}: {str(e)}")
+            error_label = QLabel(f"Error loading action data source: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.action_details_layout.addWidget(error_label)
 
     def on_buff_selected(self, item):
-        """Handle buff selection"""
+        """Handle buff selection from the list"""
         if not self.current_folder:
             return
             
         buff_id = item.text()
-        buff_file = self.current_folder / "entities" / f"{buff_id}.buff"
+        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
+        buff_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{buff_id}.buff"
         
         try:
-            buff_data, is_base_game = self.load_file(buff_file)
+            # Load from file
+            buff_data, _ = self.load_file(buff_file, try_base_game=False)  # Don't try base game again
             if not buff_data:
+                logging.error(f"Buff file not found: {buff_file}")
                 return
                 
+            # Clear existing details
             self.clear_layout(self.buff_details_layout)
+            
+            # Create and add the schema view for buff details
             schema_view = self.create_schema_view("buff", buff_data, is_base_game, buff_file)
             self.buff_details_layout.addWidget(schema_view)
             
         except Exception as e:
             logging.error(f"Error loading buff {buff_id}: {str(e)}")
+            error_label = QLabel(f"Error loading buff: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.buff_details_layout.addWidget(error_label)
 
     def on_formation_selected(self, item):
-        """Handle formation selection"""
+        """Handle formation selection from the list"""
         if not self.current_folder:
             return
             
         formation_id = item.text()
-        formation_file = self.current_folder / "entities" / f"{formation_id}.formation"
+        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
+        formation_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{formation_id}.formation"
         
         try:
-            formation_data, is_base_game = self.load_file(formation_file)
+            # Load from file
+            formation_data, _ = self.load_file(formation_file, try_base_game=False)  # Don't try base game again
             if not formation_data:
+                logging.error(f"Formation file not found: {formation_file}")
                 return
                 
+            # Clear existing details
             self.clear_layout(self.formation_details_layout)
+            
+            # Create and add the schema view for formation details
             schema_view = self.create_schema_view("formation", formation_data, is_base_game, formation_file)
             self.formation_details_layout.addWidget(schema_view)
             
         except Exception as e:
             logging.error(f"Error loading formation {formation_id}: {str(e)}")
+            error_label = QLabel(f"Error loading formation: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.formation_details_layout.addWidget(error_label)
 
     def on_pattern_selected(self, item):
-        """Handle flight pattern selection"""
+        """Handle flight pattern selection from the list"""
         if not self.current_folder:
             return
             
         pattern_id = item.text()
-        pattern_file = self.current_folder / "entities" / f"{pattern_id}.flight_pattern"
+        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
+        pattern_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{pattern_id}.flight_pattern"
         
         try:
-            pattern_data, is_base_game = self.load_file(pattern_file)
+            # Load from file
+            pattern_data, _ = self.load_file(pattern_file, try_base_game=False)  # Don't try base game again
             if not pattern_data:
+                logging.error(f"Flight pattern file not found: {pattern_file}")
                 return
                 
+            # Clear existing details
             self.clear_layout(self.pattern_details_layout)
+            
+            # Create and add the schema view for pattern details
             schema_view = self.create_schema_view("flight-pattern", pattern_data, is_base_game, pattern_file)
             self.pattern_details_layout.addWidget(schema_view)
             
         except Exception as e:
-            logging.error(f"Error loading pattern {pattern_id}: {str(e)}")
+            logging.error(f"Error loading flight pattern {pattern_id}: {str(e)}")
+            error_label = QLabel(f"Error loading flight pattern: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.pattern_details_layout.addWidget(error_label)
 
     def on_reward_selected(self, item):
-        """Handle NPC reward selection"""
+        """Handle NPC reward selection from the list"""
         if not self.current_folder:
             return
             
         reward_id = item.text()
-        reward_file = self.current_folder / "entities" / f"{reward_id}.npc_reward"
+        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
+        reward_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{reward_id}.npc_reward"
         
         try:
-            reward_data, is_base_game = self.load_file(reward_file)
+            # Load from file
+            reward_data, _ = self.load_file(reward_file, try_base_game=False)  # Don't try base game again
             if not reward_data:
+                logging.error(f"NPC reward file not found: {reward_file}")
                 return
                 
+            # Clear existing details
             self.clear_layout(self.reward_details_layout)
+            
+            # Create and add the schema view for reward details
             schema_view = self.create_schema_view("npc-reward", reward_data, is_base_game, reward_file)
             self.reward_details_layout.addWidget(schema_view)
             
         except Exception as e:
-            logging.error(f"Error loading reward {reward_id}: {str(e)}")
+            logging.error(f"Error loading NPC reward {reward_id}: {str(e)}")
+            error_label = QLabel(f"Error loading NPC reward: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.reward_details_layout.addWidget(error_label)
 
     def on_exotic_selected(self, item):
-        """Handle exotic selection"""
+        """Handle exotic selection from the list"""
         if not self.current_folder:
             return
             
         exotic_id = item.text()
-        exotic_file = self.current_folder / "entities" / f"{exotic_id}.exotic"
+        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
+        exotic_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{exotic_id}.exotic"
         
         try:
-            exotic_data, is_base_game = self.load_file(exotic_file)
+            # Load from file
+            exotic_data, _ = self.load_file(exotic_file, try_base_game=False)  # Don't try base game again
             if not exotic_data:
+                logging.error(f"Exotic file not found: {exotic_file}")
                 return
                 
+            # Clear existing details
             self.clear_layout(self.exotic_details_layout)
+            
+            # Create and add the schema view for exotic details
             schema_view = self.create_schema_view("exotic", exotic_data, is_base_game, exotic_file)
             self.exotic_details_layout.addWidget(schema_view)
             
         except Exception as e:
             logging.error(f"Error loading exotic {exotic_id}: {str(e)}")
+            error_label = QLabel(f"Error loading exotic: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.exotic_details_layout.addWidget(error_label)
 
     def on_uniform_selected(self, item):
         """Handle uniform selection from the list"""
@@ -2959,10 +3018,12 @@ class EntityToolGUI(QMainWindow):
             return
             
         uniform_id = item.text()
-        uniform_file = self.current_folder / "uniforms" / f"{uniform_id}.uniforms"
+        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
+        uniform_file = (self.base_game_folder if is_base_game else self.current_folder) / "uniforms" / f"{uniform_id}.uniforms"
         
         try:
-            uniform_data, is_base_game = self.load_file(uniform_file)
+            # Load from file
+            uniform_data, _ = self.load_file(uniform_file, try_base_game=False)  # Don't try base game again
             if not uniform_data:
                 logging.error(f"Uniform file not found: {uniform_file}")
                 return
