@@ -674,24 +674,6 @@ class EntityToolGUI(QMainWindow):
                     item.setFont(font)
                 self.units_list.addItem(item)
         
-        # Add faction buildable units with different styling
-        if "faction_buildable_units" in self.current_data:
-            for unit_id in sorted(self.current_data["faction_buildable_units"]):
-                item = QListWidgetItem(unit_id)
-                # Style faction units in blue and bold
-                item.setForeground(QColor(0, 150, 200))
-                font = item.font()
-                font.setBold(True)
-                # Check if unit exists in mod folder first
-                mod_file = self.current_folder / "entities" / f"{unit_id}.unit"
-                # Only style as base game if it doesn't exist in mod folder
-                if (not mod_file.exists() and self.base_game_folder and 
-                    unit_id in self.manifest_data['base_game'].get('unit', {})):
-                    item.setForeground(QColor(100, 150, 175))  # Blend of blue and gray
-                    font.setItalic(True)
-                item.setFont(font)
-                self.units_list.addItem(item)
-        
         # Add buildable strikecraft
         if "buildable_strikecraft" in self.current_data:
             for unit_id in sorted(self.current_data["buildable_strikecraft"]):
