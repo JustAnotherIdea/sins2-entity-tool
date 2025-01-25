@@ -775,9 +775,11 @@ class EntityToolGUI(QMainWindow):
                 # Load exotics
                 for exotic_file in entities_folder.glob("*.exotic"):
                     self.exotics_list.addItem(exotic_file.stem)
-                
-                # Load uniforms
-                for uniform_file in entities_folder.glob("*.uniforms"):
+
+            # Load uniforms from uniforms folder
+            uniforms_folder = self.current_folder / "uniforms"
+            if uniforms_folder.exists():
+                for uniform_file in uniforms_folder.glob("*.uniforms"):
                     self.uniforms_list.addItem(uniform_file.stem)
             
             # Load mod meta data if exists
@@ -2219,30 +2221,37 @@ class EntityToolGUI(QMainWindow):
         if schema_name not in self.schemas:
             logging.info(f"Schema not found for {schema_name}, using generic schema")
             # Create a generic schema based on the data structure
-            generic_schema = {
-                "type": "object",
-                "properties": {}
-            }
-            for key, value in file_data.items():
-                if isinstance(value, bool):
-                    generic_schema["properties"][key] = {"type": "boolean"}
-                elif isinstance(value, int):
-                    generic_schema["properties"][key] = {"type": "integer"}
-                elif isinstance(value, float):
-                    generic_schema["properties"][key] = {"type": "number"}
-                elif isinstance(value, list):
-                    generic_schema["properties"][key] = {
-                        "type": "array",
-                        "items": {"type": "string"}
-                    }
-                elif isinstance(value, dict):
-                    generic_schema["properties"][key] = {
+            def create_schema_for_value(value):
+                if isinstance(value, dict):
+                    properties = {}
+                    for key, val in value.items():
+                        properties[key] = create_schema_for_value(val)
+                    return {
                         "type": "object",
-                        "properties": {}
+                        "properties": properties
                     }
+                elif isinstance(value, list):
+                    if not value:  # Empty list
+                        return {
+                            "type": "array",
+                            "items": {"type": "string"}  # Default to string for empty arrays
+                        }
+                    # Use the type of the first item for all items
+                    return {
+                        "type": "array",
+                        "items": create_schema_for_value(value[0])
+                    }
+                elif isinstance(value, bool):
+                    return {"type": "boolean"}
+                elif isinstance(value, int):
+                    return {"type": "integer"}
+                elif isinstance(value, float):
+                    return {"type": "number"}
                 else:
-                    generic_schema["properties"][key] = {"type": "string"}
-            self.current_schema = generic_schema
+                    return {"type": "string"}
+
+            # Create the root schema
+            self.current_schema = create_schema_for_value(file_data)
         else:
             logging.debug(f"Found schema: {schema_name}")
             self.current_schema = self.schemas[schema_name]
@@ -2915,21 +2924,28 @@ class EntityToolGUI(QMainWindow):
             logging.error(f"Error loading exotic {exotic_id}: {str(e)}")
 
     def on_uniform_selected(self, item):
-        """Handle uniform selection"""
+        """Handle uniform selection from the list"""
         if not self.current_folder:
             return
             
         uniform_id = item.text()
-        uniform_file = self.current_folder / "entities" / f"{uniform_id}.uniform"
+        uniform_file = self.current_folder / "uniforms" / f"{uniform_id}.uniforms"
         
         try:
             uniform_data, is_base_game = self.load_file(uniform_file)
             if not uniform_data:
+                logging.error(f"Uniform file not found: {uniform_file}")
                 return
                 
+            # Clear existing details
             self.clear_layout(self.uniform_details_layout)
+            
+            # Create and add the schema view for uniform details
             schema_view = self.create_schema_view("uniform", uniform_data, is_base_game, uniform_file)
             self.uniform_details_layout.addWidget(schema_view)
             
         except Exception as e:
             logging.error(f"Error loading uniform {uniform_id}: {str(e)}")
+            error_label = QLabel(f"Error loading uniform: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.uniform_details_layout.addWidget(error_label)
