@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
                             QLineEdit, QListWidget, QComboBox, QTabWidget, QScrollArea, QGroupBox, QDialog, QSplitter, QToolButton,
-                            QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem)
+                            QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem, QMenu)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QPixmap, QIcon, QKeySequence,
                         QColor, QShortcut)
@@ -1587,7 +1587,13 @@ class EntityToolGUI(QMainWindow):
                 logging.debug(f"Creating button for {value_str} of type {entity_type}")
                 btn = QPushButton(value_str)
                 btn.setStyleSheet("text-align: left; padding: 2px;")
-                
+
+                # Add context menu
+                btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                btn.customContextMenuRequested.connect(
+                    lambda pos, w=btn, v=value_str: self.show_context_menu(w, pos, v)
+                )
+
                 # Create a closure to properly capture the values
                 def create_click_handler(entity_id=str(value_str), entity_type=entity_type):
                     def handler(checked):
@@ -1674,6 +1680,12 @@ class EntityToolGUI(QMainWindow):
                     edit.setProperty("data_path", path)
                     edit.setProperty("original_value", value)
                     layout.addWidget(edit)
+
+                     # Add context menu
+                    edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                    edit.customContextMenuRequested.connect(
+                        lambda pos, w=edit, v=value_str: self.show_context_menu(w, pos, v)
+                    )
                 
                 container.setProperty("data_path", path)
                 container.setProperty("original_value", value)
@@ -3117,3 +3129,221 @@ class EntityToolGUI(QMainWindow):
             error_label = QLabel(f"Error loading uniform: {str(e)}")
             error_label.setStyleSheet("color: red;")
             self.uniform_details_layout.addWidget(error_label)
+
+    def create_context_menu(self, widget, current_value):
+        """Create a context menu for text fields and buttons"""
+        menu = QMenu(self)
+        select_menu = menu.addMenu("Select from...")
+        
+        # File selection action
+        file_action = select_menu.addAction("File...")
+        file_action.triggered.connect(lambda: self.show_file_selector(widget))
+        
+        # Uniforms selection action
+        uniforms_action = select_menu.addAction("Uniforms...")
+        uniforms_action.triggered.connect(lambda: self.show_uniforms_selector(widget))
+        
+        # Localized text selection action
+        text_action = select_menu.addAction("Localized Text...")
+        text_action.triggered.connect(lambda: self.show_localized_text_selector(widget))
+        
+        return menu
+    
+    def show_context_menu(self, widget, position, current_value):
+        """Show the context menu at the given position"""
+        menu = self.create_context_menu(widget, current_value)
+        menu.exec(widget.mapToGlobal(position))
+
+    def show_file_selector(self, target_widget):
+        """Show a dialog to select a file from mod or base game"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select File")
+        layout = QVBoxLayout(dialog)
+        
+        # File type selector
+        type_layout = QHBoxLayout()
+        type_label = QLabel("File Type:")
+        type_combo = QComboBox()
+        type_combo.addItems(sorted(set(self.manifest_data['mod'].keys()) | 
+                                 set(self.manifest_data['base_game'].keys())))
+        type_layout.addWidget(type_label)
+        type_layout.addWidget(type_combo)
+        layout.addLayout(type_layout)
+        
+        # File list
+        file_list = QListWidget()
+        layout.addWidget(file_list)
+        
+        def update_file_list():
+            file_list.clear()
+            file_type = type_combo.currentText()
+            # Add mod files first
+            for file_id in sorted(self.manifest_data['mod'].get(file_type, {})):
+                item = QListWidgetItem(file_id)
+                file_list.addItem(item)
+            # Then add base game files (grayed out)
+            for file_id in sorted(self.manifest_data['base_game'].get(file_type, {})):
+                if file_id not in self.manifest_data['mod'].get(file_type, {}):
+                    item = QListWidgetItem(file_id)
+                    item.setForeground(QColor(150, 150, 150))
+                    font = item.font()
+                    font.setItalic(True)
+                    item.setFont(font)
+                    file_list.addItem(item)
+        
+        type_combo.currentTextChanged.connect(update_file_list)
+        update_file_list()  # Initial population
+        
+        # Buttons
+        button_box = QHBoxLayout()
+        select_btn = QPushButton("Select")
+        cancel_btn = QPushButton("Cancel")
+        button_box.addWidget(select_btn)
+        button_box.addWidget(cancel_btn)
+        layout.addLayout(button_box)
+        
+        def on_select():
+            if file_list.currentItem():
+                if isinstance(target_widget, QLineEdit):
+                    target_widget.setText(file_list.currentItem().text())
+                else:
+                    target_widget.setText(file_list.currentItem().text())
+                dialog.accept()
+        
+        select_btn.clicked.connect(on_select)
+        cancel_btn.clicked.connect(dialog.reject)
+        file_list.itemDoubleClicked.connect(on_select)
+        
+        dialog.exec()
+    
+    def show_uniforms_selector(self, target_widget):
+        """Show a dialog to select a uniform key"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Uniform")
+        layout = QVBoxLayout(dialog)
+        
+        # Uniforms file selector
+        file_layout = QHBoxLayout()
+        file_label = QLabel("Uniforms File:")
+        file_combo = QComboBox()
+        # Add mod files first
+        for item in self.uniforms_list.findItems("*", Qt.MatchFlag.MatchWildcard):
+            file_combo.addItem(item.text())
+        file_layout.addWidget(file_label)
+        file_layout.addWidget(file_combo)
+        layout.addLayout(file_layout)
+        
+        # Keys list
+        keys_list = QListWidget()
+        layout.addWidget(keys_list)
+        
+        def update_keys_list():
+            keys_list.clear()
+            file_id = file_combo.currentText()
+            if not file_id:
+                return
+                
+            try:
+                # Try to load the uniforms file
+                file_path = self.current_folder / "uniforms" / f"{file_id}.uniforms"
+                if not file_path.exists() and self.base_game_folder:
+                    file_path = self.base_game_folder / "uniforms" / f"{file_id}.uniforms"
+                
+                if file_path.exists():
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        for key in sorted(data.keys()):
+                            keys_list.addItem(key)
+            except Exception as e:
+                logging.error(f"Error loading uniforms file: {str(e)}")
+        
+        file_combo.currentTextChanged.connect(update_keys_list)
+        update_keys_list()  # Initial population
+        
+        # Buttons
+        button_box = QHBoxLayout()
+        select_btn = QPushButton("Select")
+        cancel_btn = QPushButton("Cancel")
+        button_box.addWidget(select_btn)
+        button_box.addWidget(cancel_btn)
+        layout.addLayout(button_box)
+        
+        def on_select():
+            if keys_list.currentItem():
+                if isinstance(target_widget, QLineEdit):
+                    target_widget.setText(keys_list.currentItem().text())
+                else:
+                    target_widget.setText(keys_list.currentItem().text())
+                dialog.accept()
+        
+        select_btn.clicked.connect(on_select)
+        cancel_btn.clicked.connect(dialog.reject)
+        keys_list.itemDoubleClicked.connect(on_select)
+        
+        dialog.exec()
+    
+    def show_localized_text_selector(self, target_widget):
+        """Show a dialog to select localized text"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Localized Text")
+        layout = QVBoxLayout(dialog)
+        
+        # Search box
+        search_box = QLineEdit()
+        search_box.setPlaceholderText("Search...")
+        layout.addWidget(search_box)
+        
+        # Text list
+        text_list = QListWidget()
+        layout.addWidget(text_list)
+        
+        def update_text_list(search=""):
+            text_list.clear()
+            search = search.lower()
+            
+            # Helper to add items with proper styling
+            def add_items(items, is_base_game=False):
+                for key in sorted(items.keys()):
+                    if search in key.lower() or search in str(items[key]).lower():
+                        item = QListWidgetItem(f"{key}: {items[key]}")
+                        item.setData(Qt.ItemDataRole.UserRole, key)  # Store just the key
+                        if is_base_game:
+                            item.setForeground(QColor(150, 150, 150))
+                            font = item.font()
+                            font.setItalic(True)
+                            item.setFont(font)
+                        text_list.addItem(item)
+            
+            # Add mod texts first
+            if hasattr(self, 'localized_strings') and 'mod' in self.localized_strings:
+                add_items(self.localized_strings['mod'])
+            
+            # Then add base game texts
+            if hasattr(self, 'localized_strings') and 'base_game' in self.localized_strings:
+                add_items(self.localized_strings['base_game'], True)
+        
+        search_box.textChanged.connect(update_text_list)
+        update_text_list()  # Initial population
+        
+        # Buttons
+        button_box = QHBoxLayout()
+        select_btn = QPushButton("Select")
+        cancel_btn = QPushButton("Cancel")
+        button_box.addWidget(select_btn)
+        button_box.addWidget(cancel_btn)
+        layout.addLayout(button_box)
+        
+        def on_select():
+            if text_list.currentItem():
+                key = text_list.currentItem().data(Qt.ItemDataRole.UserRole)
+                if isinstance(target_widget, QLineEdit):
+                    target_widget.setText(key)
+                else:
+                    target_widget.setText(key)
+                dialog.accept()
+        
+        select_btn.clicked.connect(on_select)
+        cancel_btn.clicked.connect(dialog.reject)
+        text_list.itemDoubleClicked.connect(on_select)
+        
+        dialog.exec()
