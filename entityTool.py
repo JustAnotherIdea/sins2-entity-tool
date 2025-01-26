@@ -3537,7 +3537,7 @@ class EntityToolGUI(QMainWindow):
                 [key],  # The path is just the key since it's a flat dictionary
                 old_value,
                 text,
-                lambda value: edit.setText(value),
+                lambda value: self.update_text_preserve_cursor(edit, value),
                 lambda path, value: self.update_localized_text_in_memory(text_file, path[0], value)
             )
             command.source_widget = edit
@@ -3548,6 +3548,12 @@ class EntityToolGUI(QMainWindow):
             if language not in self.all_localized_strings['mod']:
                 self.all_localized_strings['mod'][language] = {}
             self.all_localized_strings['mod'][language][key] = text
+
+    def update_text_preserve_cursor(self, edit: QLineEdit, value: str):
+        """Update text in QLineEdit while preserving cursor position"""
+        cursor_pos = edit.cursorPosition()
+        edit.setText(value)
+        edit.setCursorPosition(cursor_pos)
 
     def update_localized_text_in_memory(self, file_path: Path, key: str, value: str):
         """Update a value in memory only, actual file write happens during save"""
@@ -3563,7 +3569,7 @@ class EntityToolGUI(QMainWindow):
                     data = {}
                 self.command_stack.update_file_data(file_path, data)
             
-            # Update the value in memory
+            # Update the value in memory only
             data[key] = value
             self.command_stack.update_file_data(file_path, data)
             
@@ -3571,3 +3577,4 @@ class EntityToolGUI(QMainWindow):
             logging.debug(f"New value: {value}")
         except Exception as e:
             logging.error(f"Error updating localized text in memory: {str(e)}")
+
