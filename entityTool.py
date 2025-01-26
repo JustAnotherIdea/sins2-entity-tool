@@ -13,6 +13,62 @@ import os
 from command_stack import CommandStack, EditValueCommand
 from typing import List, Any
 
+class TransformWidgetCommand:
+    """Command for transforming a widget from one type to another"""
+    def __init__(self, gui, widget, old_type, new_type, value):
+        self.gui = gui
+        self.widget = widget
+        self.old_type = old_type
+        self.new_type = new_type
+        self.value = value
+        
+    def execute(self):
+        if self.new_type == "file":
+            return self.gui.transform_widget_to_file_button(self.widget, self.value)
+        elif self.new_type == "uniform":
+            return self.gui.transform_widget_to_line_edit(self.widget, self.value)
+        elif self.new_type == "localized_text":
+            return self.gui.transform_widget_to_localized_text(self.widget, self.value)
+        
+    def undo(self):
+        if self.old_type == "file":
+            return self.gui.transform_widget_to_file_button(self.widget, self.value)
+        elif self.old_type == "uniform":
+            return self.gui.transform_widget_to_line_edit(self.widget, self.value)
+        elif self.old_type == "localized_text":
+            return self.gui.transform_widget_to_localized_text(self.widget, self.value)
+
+class CompositeCommand:
+    """Command that combines multiple commands into one atomic operation"""
+    def __init__(self, commands):
+        self.commands = commands
+        # For logging purposes, use the first command's attributes
+        if commands and hasattr(commands[0], 'file_path'):
+            self.file_path = commands[0].file_path
+            self.data_path = commands[0].data_path
+            self.old_value = commands[0].old_value
+            self.new_value = commands[0].new_value
+            self.source_widget = commands[0].source_widget if hasattr(commands[0], 'source_widget') else None
+        
+    def redo(self):
+        """Execute the command (called by command stack)"""
+        results = []
+        for cmd in self.commands:
+            result = cmd.redo() if hasattr(cmd, 'redo') else cmd.execute()
+            if result:  # Store widget reference for undo if returned
+                results.append(result)
+        if results:
+            self.widget = results[-1]  # Store last widget for undo
+        
+    def undo(self):
+        """Undo the command"""
+        if hasattr(self, 'widget'):
+            for cmd in reversed(self.commands):
+                cmd.widget = self.widget  # Update widget reference
+                result = cmd.undo()
+                if result:
+                    self.widget = result  # Update widget reference if changed
+
 class GUILogHandler(logging.Handler):
     def __init__(self, log_widget):
         super().__init__()
@@ -3644,17 +3700,24 @@ class EntityToolGUI(QMainWindow):
         file_path = self.get_schema_view_file_path(target_widget)
         
         if data_path is not None and old_value != new_value and file_path:
-            # Create a command to update the value
-            command = EditValueCommand(
+            # Create value update command
+            value_cmd = EditValueCommand(
                 file_path,
                 data_path,
                 old_value,
                 new_value,
-                lambda value: self.transform_widget_to_file_button(target_widget, value),
+                lambda v: None,  # No-op since transformation is handled separately
                 self.update_data_value
             )
-            command.source_widget = target_widget
-            self.command_stack.push(command)
+            value_cmd.source_widget = target_widget
+            
+            # Create transform command
+            old_type = self.get_widget_type(target_widget)
+            transform_cmd = TransformWidgetCommand(self, target_widget, old_type, "file", new_value)
+            
+            # Combine commands
+            composite_cmd = CompositeCommand([value_cmd, transform_cmd])
+            self.command_stack.push(composite_cmd)
             target_widget.setProperty("original_value", new_value)
             self.update_save_button()
 
@@ -3665,17 +3728,24 @@ class EntityToolGUI(QMainWindow):
         file_path = self.get_schema_view_file_path(target_widget)
         
         if data_path is not None and old_value != new_value and file_path:
-            # Create a command to update the value
-            command = EditValueCommand(
+            # Create value update command
+            value_cmd = EditValueCommand(
                 file_path,
                 data_path,
                 old_value,
                 new_value,
-                lambda value: self.transform_widget_to_line_edit(target_widget, value),
+                lambda v: None,  # No-op since transformation is handled separately
                 self.update_data_value
             )
-            command.source_widget = target_widget
-            self.command_stack.push(command)
+            value_cmd.source_widget = target_widget
+            
+            # Create transform command
+            old_type = self.get_widget_type(target_widget)
+            transform_cmd = TransformWidgetCommand(self, target_widget, old_type, "uniform", new_value)
+            
+            # Combine commands
+            composite_cmd = CompositeCommand([value_cmd, transform_cmd])
+            self.command_stack.push(composite_cmd)
             target_widget.setProperty("original_value", new_value)
             self.update_save_button()
 
@@ -3686,17 +3756,24 @@ class EntityToolGUI(QMainWindow):
         file_path = self.get_schema_view_file_path(target_widget)
         
         if data_path is not None and old_value != new_value and file_path:
-            # Create a command to update the value
-            command = EditValueCommand(
+            # Create value update command
+            value_cmd = EditValueCommand(
                 file_path,
                 data_path,
                 old_value,
                 new_value,
-                lambda value: self.transform_widget_to_localized_text(target_widget, value),
+                lambda v: None,  # No-op since transformation is handled separately
                 self.update_data_value
             )
-            command.source_widget = target_widget
-            self.command_stack.push(command)
+            value_cmd.source_widget = target_widget
+            
+            # Create transform command
+            old_type = self.get_widget_type(target_widget)
+            transform_cmd = TransformWidgetCommand(self, target_widget, old_type, "localized_text", new_value)
+            
+            # Combine commands
+            composite_cmd = CompositeCommand([value_cmd, transform_cmd])
+            self.command_stack.push(composite_cmd)
             target_widget.setProperty("original_value", new_value)
             self.update_save_button()
 
@@ -3893,4 +3970,16 @@ class EntityToolGUI(QMainWindow):
                     return entity_type
         
         return None
+    
+    def get_widget_type(self, widget) -> str:
+        """Determine the type of a widget"""
+        if isinstance(widget, QPushButton):
+            return "file"
+        elif isinstance(widget, QLineEdit):
+            return "uniform"
+        elif isinstance(widget, QWidget) and widget.findChild(QPlainTextEdit):
+            return "localized_text"
+        else:
+            # Default to uniform since it's the most basic type
+            return "uniform"
 
