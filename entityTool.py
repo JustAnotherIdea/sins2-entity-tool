@@ -1,8 +1,8 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
                             QLineEdit, QListWidget, QComboBox, QTabWidget, QScrollArea, QGroupBox, QDialog, QSplitter, QToolButton,
-                            QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem, QMenu, QTreeWidget, QTreeWidgetItem, QTextEdit)
-from PyQt6.QtCore import Qt
+                            QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem, QMenu, QTreeWidget, QTreeWidgetItem, QPlainTextEdit)
+from PyQt6.QtCore import (Qt, QTimer)
 from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QPixmap, QIcon, QKeySequence,
                         QColor, QShortcut, QFont)
 import json
@@ -50,6 +50,11 @@ class EntityToolGUI(QMainWindow):
             'base_game': {}
         }
         self.command_stack = CommandStack()
+        self.text_edit_timer = QTimer()
+        self.text_edit_timer.setInterval(300)
+        self.text_edit_timer.setSingleShot(True)
+        self.text_edit_timer.timeout.connect(self.on_text_edit_timer_timeout)
+        self.current_text_edit = None
         
         # Load config
         try:
@@ -1741,12 +1746,26 @@ class EntityToolGUI(QMainWindow):
                     current_text = self.command_stack.get_file_data(text_file).get(value_str, localized_text)
                 
                 # Add editable field for the text
-                text_edit = QLineEdit(current_text)
+                text_edit = QPlainTextEdit()
+                text_edit.setPlainText(current_text)
                 text_edit.setPlaceholderText("Enter translation...")
-                text_edit.textChanged.connect(lambda text: self.on_localized_text_changed(text_edit, text))
                 text_edit.setProperty("localized_key", value_str)
                 text_edit.setProperty("language", self.current_language)
-                text_edit.setProperty("original_value", current_text)  # Store the current text as original value
+                text_edit.setProperty("original_value", current_text)
+                text_edit.setProperty("is_updating", False)
+                
+                def on_text_changed():
+                    if not text_edit.property("is_updating"):
+                        self.current_text_edit = text_edit
+                        self.text_edit_timer.start()
+                
+                text_edit.textChanged.connect(on_text_changed)
+                
+                # Set a fixed height of 3 lines to make it compact but still show multiple lines
+                font_metrics = text_edit.fontMetrics()
+                line_spacing = font_metrics.lineSpacing()
+                text_edit.setFixedHeight(line_spacing * 3 + 10)  # 3 lines + some padding
+                
                 layout.addWidget(text_edit)
 
                 # Make text non-editable if base game
@@ -1765,10 +1784,7 @@ class EntityToolGUI(QMainWindow):
                         if source_widget != text_edit:  # Only update if change came from another widget
                             current_key = text_edit.property("localized_key")
                             if current_key in new_data:
-                                cursor_pos = text_edit.cursorPosition()
-                                text_edit.setText(new_data[current_key])
-                                text_edit.setCursorPosition(cursor_pos)
-                                text_edit.setProperty("original_value", new_data[current_key])
+                                self.update_text_preserve_cursor(text_edit, new_data[current_key])
                     
                     self.command_stack.register_data_change_callback(text_file, update_text)
                     container.destroyed.connect(
@@ -3583,7 +3599,7 @@ class EntityToolGUI(QMainWindow):
         
         dialog.exec()
 
-    def on_localized_text_changed(self, edit: QLineEdit, text: str):
+    def on_localized_text_changed(self, edit: QPlainTextEdit, text: str):
         """Handle changes to localized text values"""
         if not self.current_folder:
             return
@@ -3628,11 +3644,25 @@ class EntityToolGUI(QMainWindow):
                 self.all_localized_strings['mod'][language] = {}
             self.all_localized_strings['mod'][language][key] = text
 
-    def update_text_preserve_cursor(self, edit: QLineEdit, value: str):
-        """Update text in QLineEdit while preserving cursor position"""
-        cursor_pos = edit.cursorPosition()
-        edit.setText(value)
-        edit.setCursorPosition(cursor_pos)
+    def update_text_preserve_cursor(self, edit: QPlainTextEdit, value: str):
+        """Update text in QPlainTextEdit while preserving cursor position and selection"""
+        edit.setProperty("is_updating", True)  # Set flag before update
+        cursor = edit.textCursor()
+        position = cursor.position()
+        anchor = cursor.anchor()
+        
+        # Block signals to prevent recursive updates
+        edit.blockSignals(True)
+        edit.setPlainText(value)
+        edit.blockSignals(False)
+        
+        # Restore cursor and selection
+        cursor = edit.textCursor()
+        cursor.setPosition(anchor)
+        if anchor != position:
+            cursor.setPosition(position, cursor.MoveMode.KeepAnchor)
+        edit.setTextCursor(cursor)
+        edit.setProperty("is_updating", False)  # Clear flag after update
 
     def update_localized_text_in_memory(self, file_path: Path, key: str, value: str):
         """Update a value in memory only, actual file write happens during save"""
@@ -3656,4 +3686,8 @@ class EntityToolGUI(QMainWindow):
             logging.debug(f"New value: {value}")
         except Exception as e:
             logging.error(f"Error updating localized text in memory: {str(e)}")
+
+    def on_text_edit_timer_timeout(self):
+        if self.current_text_edit and not self.current_text_edit.property("is_updating"):
+            self.on_localized_text_changed(self.current_text_edit, self.current_text_edit.toPlainText())
 
