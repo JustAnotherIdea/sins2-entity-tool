@@ -1450,6 +1450,43 @@ class EntityToolGUI(QMainWindow):
         # Handle simple values
         return self.create_widget_for_value(value, schema, is_base_game, path)
     
+    def get_current_value_from_command_stack(self, file_path: Path, path: list, default_value: any) -> any:
+        """Get the current value from command stack if available, otherwise return default"""
+        if not file_path or not path:
+            return default_value
+            
+        data = self.command_stack.get_file_data(file_path)
+        if not data:
+            return default_value
+            
+        # Navigate through the path to get the value
+        current = data
+        try:
+            for key in path[:-1]:
+                if isinstance(current, dict):
+                    current = current.get(key, {})
+                elif isinstance(current, list) and isinstance(key, int) and key < len(current):
+                    current = current[key]
+                else:
+                    return default_value
+                    
+            if isinstance(current, dict):
+                return current.get(path[-1], default_value)
+            elif isinstance(current, list) and isinstance(path[-1], int) and path[-1] < len(current):
+                return current[path[-1]]
+            return default_value
+        except Exception:
+            return default_value
+
+    def find_parent_schema_view(self, widget: QWidget) -> QWidget:
+        """Find the parent schema view widget that contains the file path"""
+        current = widget
+        while current:
+            if hasattr(current, 'file_path'):
+                return current
+            current = current.parent()
+        return None
+
     def create_widget_for_value(self, value: any, schema: dict, is_base_game: bool, path: list = None) -> QWidget:
         """Create an editable widget for a value based on its schema type"""
         if path is None:
@@ -1460,12 +1497,21 @@ class EntityToolGUI(QMainWindow):
         logging.debug(f"  schema: {schema}")
         logging.debug(f"  path: {path}")
         
+        # Get the current file path from the parent schema view
+        file_path = None
+        parent_view = self.find_parent_schema_view(self)
+        if parent_view:
+            file_path = getattr(parent_view, 'file_path', None)
+        
+        # Get current value from command stack if available
+        current_value = self.get_current_value_from_command_stack(file_path, path, value)
+        
         # Handle different schema types
         schema_type = schema.get("type")
         
         if schema_type == "string":
             # Convert value to string if it's not already
-            value_str = str(value) if value is not None else "ERROR: No value"
+            value_str = str(current_value) if current_value is not None else "ERROR: No value"
 
             # Get property name from the path - use the last string in the path
             property_name = next((p for p in reversed(path) if isinstance(p, str)), "").lower()
@@ -1766,7 +1812,7 @@ class EntityToolGUI(QMainWindow):
                 
         elif schema_type == "integer":
             spin = QSpinBox()
-            spin.setValue(int(value) if value is not None else 0)
+            spin.setValue(int(current_value) if current_value is not None else 0)
             
             # Set minimum and maximum if specified
             if "minimum" in schema:
@@ -1789,7 +1835,7 @@ class EntityToolGUI(QMainWindow):
             
             # Store path and original value
             spin.setProperty("data_path", path)
-            spin.setProperty("original_value", value)
+            spin.setProperty("original_value", current_value)
             return spin
             
         elif schema_type == "number":
@@ -1797,7 +1843,7 @@ class EntityToolGUI(QMainWindow):
             
             # Convert value to float, handling scientific notation
             try:
-                float_value = float(value) if value is not None else 0.0
+                float_value = float(current_value) if current_value is not None else 0.0
             except (ValueError, TypeError):
                 float_value = 0.0
             
@@ -1824,12 +1870,12 @@ class EntityToolGUI(QMainWindow):
             
             # Store path and original value
             spin.setProperty("data_path", path)
-            spin.setProperty("original_value", value)
+            spin.setProperty("original_value", current_value)
             return spin
             
         elif schema_type == "boolean":
             checkbox = QCheckBox()
-            checkbox.setChecked(bool(value))
+            checkbox.setChecked(bool(current_value))
             if is_base_game:
                 checkbox.setStyleSheet("color: #666666; font-style: italic;")
                 checkbox.setEnabled(False)  # Disable checkbox for base game content
@@ -1839,14 +1885,14 @@ class EntityToolGUI(QMainWindow):
             
             # Store path and original value
             checkbox.setProperty("data_path", path)
-            checkbox.setProperty("original_value", value)
+            checkbox.setProperty("original_value", current_value)
             return checkbox
             
         elif schema_type == "object":
             # For objects, create a widget that shows the object's structure
             group = QGroupBox()
             layout = QVBoxLayout()
-            for key, val in value.items():
+            for key, val in current_value.items():
                 if isinstance(val, dict):
                     # Recursively handle nested objects
                     nested_widget = self.create_widget_for_value(val, {"type": "object"}, is_base_game, path + [key])
@@ -1864,7 +1910,7 @@ class EntityToolGUI(QMainWindow):
             
             # Store path and original value
             group.setProperty("data_path", path)
-            group.setProperty("original_value", value)
+            group.setProperty("original_value", current_value)
             return group
             
         else:
@@ -2338,10 +2384,13 @@ class EntityToolGUI(QMainWindow):
         logging.debug(f"Is base game: {is_base_game}")
         logging.debug(f"File path: {file_path}")
         
-        # Store file data in command stack if file path is provided
-        if file_path is not None:
+        # Only initialize command stack data if it doesn't exist
+        if file_path is not None and not self.command_stack.get_file_data(file_path):
             self.command_stack.update_file_data(file_path, file_data)
-            logging.debug(f"Stored file data for {file_path} in command stack")
+            logging.info(f"Initialized command stack data for {file_path}")
+        
+        # Get the current data from command stack if available
+        display_data = self.command_stack.get_file_data(file_path) if file_path else file_data
         
         # Get the schema name
         if file_type == "uniform":
@@ -2384,7 +2433,7 @@ class EntityToolGUI(QMainWindow):
                     return {"type": "string"}
 
             # Create the root schema
-            self.current_schema = create_schema_for_value(file_data)
+            self.current_schema = create_schema_for_value(display_data)
         else:
             logging.debug(f"Found schema: {schema_name}")
             self.current_schema = self.schemas[schema_name]
@@ -2393,8 +2442,6 @@ class EntityToolGUI(QMainWindow):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        
-        # Store file path and type in the scroll area
         scroll.setProperty("file_path", str(file_path) if file_path else None)
         scroll.setProperty("file_type", file_type)
         
@@ -2495,14 +2542,13 @@ class EntityToolGUI(QMainWindow):
                     # Update original value property
                     target_widget.setProperty("original_value", value)
         
-        # Initial content update
-        update_content(file_data)
+        # Initial content update with command stack data
+        update_content(display_data)
         
         # Register for data changes if file path is provided
         if file_path is not None:
             self.command_stack.register_data_change_callback(file_path, update_content)
             
-            # Clean up callback when widget is destroyed
             def cleanup():
                 self.command_stack.unregister_data_change_callback(file_path, update_content)
             scroll.destroyed.connect(cleanup)
