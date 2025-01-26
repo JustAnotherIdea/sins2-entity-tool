@@ -1742,9 +1742,11 @@ class EntityToolGUI(QMainWindow):
                 
                 # Add editable field for the text
                 text_edit = QLineEdit(current_text)
+                text_edit.setPlaceholderText("Enter translation...")
                 text_edit.textChanged.connect(lambda text: self.on_localized_text_changed(text_edit, text))
                 text_edit.setProperty("localized_key", value_str)
                 text_edit.setProperty("language", self.current_language)
+                text_edit.setProperty("original_value", current_text)  # Store the current text as original value
                 layout.addWidget(text_edit)
 
                 # Make text non-editable if base game
@@ -1752,8 +1754,27 @@ class EntityToolGUI(QMainWindow):
                     text_edit.setStyleSheet("color: #666666")
                     text_edit.setReadOnly(True)
                 
+                # Store the text file path in the container for updates
+                container.setProperty("text_file_path", str(text_file))
                 container.setProperty("data_path", path)
                 container.setProperty("original_value", value)
+                
+                # Register for command stack updates
+                if not is_base and text_file is not None:
+                    def update_text(new_data: dict, data_path: List[str] = None, value: Any = None, source_widget = None):
+                        if source_widget != text_edit:  # Only update if change came from another widget
+                            current_key = text_edit.property("localized_key")
+                            if current_key in new_data:
+                                cursor_pos = text_edit.cursorPosition()
+                                text_edit.setText(new_data[current_key])
+                                text_edit.setCursorPosition(cursor_pos)
+                                text_edit.setProperty("original_value", new_data[current_key])
+                    
+                    self.command_stack.register_data_change_callback(text_file, update_text)
+                    container.destroyed.connect(
+                        lambda: self.command_stack.unregister_data_change_callback(text_file, update_text)
+                    )
+                
                 return container
                 
             # Check if the string value is a texture file name
