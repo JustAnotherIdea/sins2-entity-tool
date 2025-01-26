@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                             QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem, QMenu, QTreeWidget, QTreeWidgetItem)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QPixmap, QIcon, QKeySequence,
-                        QColor, QShortcut)
+                        QColor, QShortcut, QFont)
 import json
 import logging
 from pathlib import Path
@@ -3228,8 +3228,29 @@ class EntityToolGUI(QMainWindow):
         file_label = QLabel("Uniforms File:")
         file_combo = QComboBox()
         # Add mod files first
+        mod_files = []
+        base_files = []
         for item in self.uniforms_list.findItems("*", Qt.MatchFlag.MatchWildcard):
-            file_combo.addItem(item.text())
+            # Check if file exists in mod folder
+            mod_path = self.current_folder / "uniforms" / f"{item.text()}.uniforms"
+            if mod_path.exists():
+                mod_files.append(item.text())
+            else:
+                base_files.append(item.text())
+        
+        # Add mod files first
+        for file_id in sorted(mod_files):
+            file_combo.addItem(file_id)
+        # Then add base game files
+        for file_id in sorted(base_files):
+            file_combo.addItem(file_id)
+            # Style base game items
+            index = file_combo.count() - 1
+            file_combo.setItemData(index, QColor(150, 150, 150), Qt.ItemDataRole.ForegroundRole)
+            font = file_combo.itemData(index, Qt.ItemDataRole.FontRole) or QFont()
+            font.setItalic(True)
+            file_combo.setItemData(index, font, Qt.ItemDataRole.FontRole)
+            
         file_layout.addWidget(file_label)
         file_layout.addWidget(file_combo)
         layout.addLayout(file_layout)
@@ -3285,7 +3306,11 @@ class EntityToolGUI(QMainWindow):
             except Exception as e:
                 logging.error(f"Error loading uniforms file: {str(e)}")
         
-        def on_item_double_clicked(item, column):
+        def on_item_selected():
+            item = tree.currentItem()
+            if not item:
+                return
+                
             data = item.data(0, Qt.ItemDataRole.UserRole)
             if data:  # Only leaf nodes have data
                 path, value = data
@@ -3303,17 +3328,29 @@ class EntityToolGUI(QMainWindow):
                         target_widget.setText(str(value))
                 dialog.accept()
         
+        def on_item_double_clicked(item, column):
+            on_item_selected()
+        
         file_combo.currentTextChanged.connect(update_tree)
         tree.itemDoubleClicked.connect(on_item_double_clicked)
         update_tree()  # Initial population
         
         # Buttons
         button_box = QHBoxLayout()
+        select_btn = QPushButton("Select")
+        select_btn.setEnabled(False)  # Disabled until an item is selected
         cancel_btn = QPushButton("Cancel")
         button_box.addStretch()
+        button_box.addWidget(select_btn)
         button_box.addWidget(cancel_btn)
         layout.addLayout(button_box)
         
+        # Enable select button when an item is selected
+        def on_current_item_changed(current, previous):
+            select_btn.setEnabled(current is not None and current.data(0, Qt.ItemDataRole.UserRole) is not None)
+        
+        tree.currentItemChanged.connect(on_current_item_changed)
+        select_btn.clicked.connect(on_item_selected)
         cancel_btn.clicked.connect(dialog.reject)
         
         dialog.exec()
