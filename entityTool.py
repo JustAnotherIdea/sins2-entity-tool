@@ -1670,14 +1670,7 @@ class EntityToolGUI(QMainWindow):
                 layout.setContentsMargins(0, 0, 0, 0)
                 layout.setSpacing(4)
                 
-                # Add localized text preview
-                # preview = QLabel(f"{localized_text} [{value_str}]")  # Show both text and key
-                # preview.setWordWrap(True)
-                # if is_base:
-                #     preview.setStyleSheet("color: #666666; font-style: italic;")
-                # layout.addWidget(preview)
-                
-                # Add editable field for the key if not from base game file
+                # Add editable field for the key if not base game
                 if not is_base_game:
                     key_edit = QLineEdit(value_str)
                     key_edit.textChanged.connect(lambda text: self.on_text_changed(key_edit, text))
@@ -1691,6 +1684,7 @@ class EntityToolGUI(QMainWindow):
                     key_edit.customContextMenuRequested.connect(
                         lambda pos, w=key_edit, v=value_str: self.show_context_menu(w, pos, v)
                     )
+                
                 # Add editable field for the text if not base game text
                 if not is_base:
                     text_edit = QLineEdit(localized_text)
@@ -1698,9 +1692,10 @@ class EntityToolGUI(QMainWindow):
                     text_edit.textChanged.connect(lambda text: self.on_localized_text_changed(text_edit, text))
                     text_edit.setProperty("localized_key", value_str)
                     text_edit.setProperty("language", self.current_language)
-                    text_edit.setProperty("text_edit", text_edit)
                     layout.addWidget(text_edit)
-
+                
+                container.setProperty("data_path", path)
+                container.setProperty("original_value", value)
                 return container
                 
             # Check if the string value is a texture file name
@@ -3523,19 +3518,16 @@ class EntityToolGUI(QMainWindow):
         # Get the localized text file path
         text_file = self.current_folder / "localized_text" / f"{language}.localized_text"
         
-        # Create the file and parent directory if they don't exist
-        if not text_file.parent.exists():
-            text_file.parent.mkdir(parents=True)
-        if not text_file.exists():
-            with open(text_file, 'w', encoding='utf-8') as f:
-                json.dump({}, f, indent=4)
-        
         # Get the current data from the file
         try:
             with open(text_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
         except Exception:
             data = {}
+            
+        # Initialize command stack data if needed
+        if not self.command_stack.get_file_data(text_file):
+            self.command_stack.update_file_data(text_file, data)
         
         # Create a command to update the text
         old_value = data.get(key, "")
@@ -3551,11 +3543,6 @@ class EntityToolGUI(QMainWindow):
             command.source_widget = edit
             self.command_stack.push(command)
             self.update_save_button()
-            
-            # Update the text input
-            text_edit = edit.property("text_edit")
-            if text_edit:
-                text_edit.setText(f"{text} [{key}]")
             
             # Update the in-memory strings
             if language not in self.all_localized_strings['mod']:
