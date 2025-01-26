@@ -3359,7 +3359,30 @@ class EntityToolGUI(QMainWindow):
         """Show a dialog to select localized text"""
         dialog = QDialog(self)
         dialog.setWindowTitle("Select Localized Text")
+        dialog.resize(800, 600)  # Make the dialog larger
         layout = QVBoxLayout(dialog)
+        
+        # Language selector
+        lang_layout = QHBoxLayout()
+        lang_label = QLabel("Language:")
+        lang_combo = QComboBox()
+        
+        # Get all available languages
+        all_languages = set()
+        for source in ['mod', 'base_game']:
+            all_languages.update(self.all_localized_strings[source].keys())
+        
+        lang_combo.addItems(sorted(all_languages))
+        # Set current language if available, otherwise default to English
+        current_index = lang_combo.findText(self.current_language)
+        if current_index >= 0:
+            lang_combo.setCurrentIndex(current_index)
+        elif lang_combo.findText("en") >= 0:
+            lang_combo.setCurrentIndex(lang_combo.findText("en"))
+            
+        lang_layout.addWidget(lang_label)
+        lang_layout.addWidget(lang_combo)
+        layout.addLayout(lang_layout)
         
         # Search box
         search_box = QLineEdit()
@@ -3373,12 +3396,13 @@ class EntityToolGUI(QMainWindow):
         def update_text_list(search=""):
             text_list.clear()
             search = search.lower()
+            current_lang = lang_combo.currentText()
             
             # Helper to add items with proper styling
             def add_items(items, is_base_game=False):
-                for key in sorted(items.keys()):
-                    if search in key.lower() or search in str(items[key]).lower():
-                        item = QListWidgetItem(f"{key}: {items[key]}")
+                for key, value in sorted(items.items()):
+                    if search in key.lower() or search in str(value).lower():
+                        item = QListWidgetItem(f"{key}: {value}")
                         item.setData(Qt.ItemDataRole.UserRole, key)  # Store just the key
                         if is_base_game:
                             item.setForeground(QColor(150, 150, 150))
@@ -3388,35 +3412,47 @@ class EntityToolGUI(QMainWindow):
                         text_list.addItem(item)
             
             # Add mod texts first
-            if hasattr(self, 'localized_strings') and 'mod' in self.localized_strings:
-                add_items(self.localized_strings['mod'])
+            if current_lang in self.all_localized_strings['mod']:
+                add_items(self.all_localized_strings['mod'][current_lang])
             
             # Then add base game texts
-            if hasattr(self, 'localized_strings') and 'base_game' in self.localized_strings:
-                add_items(self.localized_strings['base_game'], True)
+            if current_lang in self.all_localized_strings['base_game']:
+                add_items(self.all_localized_strings['base_game'][current_lang], True)
         
         search_box.textChanged.connect(update_text_list)
+        lang_combo.currentTextChanged.connect(lambda: update_text_list(search_box.text()))
         update_text_list()  # Initial population
         
         # Buttons
         button_box = QHBoxLayout()
         select_btn = QPushButton("Select")
+        select_btn.setEnabled(False)  # Disabled until an item is selected
         cancel_btn = QPushButton("Cancel")
+        button_box.addStretch()
         button_box.addWidget(select_btn)
         button_box.addWidget(cancel_btn)
         layout.addLayout(button_box)
         
-        def on_select():
-            if text_list.currentItem():
-                key = text_list.currentItem().data(Qt.ItemDataRole.UserRole)
+        def on_item_selected():
+            item = text_list.currentItem()
+            if item:
+                key = item.data(Qt.ItemDataRole.UserRole)
                 if isinstance(target_widget, QLineEdit):
                     target_widget.setText(key)
                 else:
                     target_widget.setText(key)
                 dialog.accept()
         
-        select_btn.clicked.connect(on_select)
+        def on_item_double_clicked(item):
+            on_item_selected()
+        
+        # Enable select button when an item is selected
+        def on_current_item_changed(current, previous):
+            select_btn.setEnabled(current is not None)
+        
+        text_list.currentItemChanged.connect(on_current_item_changed)
+        text_list.itemDoubleClicked.connect(on_item_double_clicked)
+        select_btn.clicked.connect(on_item_selected)
         cancel_btn.clicked.connect(dialog.reject)
-        text_list.itemDoubleClicked.connect(on_select)
         
         dialog.exec()
