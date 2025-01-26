@@ -1687,7 +1687,13 @@ class EntityToolGUI(QMainWindow):
                 
                 # Add editable field for the text if not base game text
                 if not is_base:
-                    text_edit = QLineEdit(localized_text)
+                    # Get the current value from command stack if available
+                    text_file = self.current_folder / "localized_text" / f"{self.current_language}.localized_text"
+                    current_text = localized_text
+                    if self.command_stack.get_file_data(text_file):
+                        current_text = self.command_stack.get_file_data(text_file).get(value_str, localized_text)
+                    
+                    text_edit = QLineEdit(current_text)
                     text_edit.setPlaceholderText("Enter translation...")
                     text_edit.textChanged.connect(lambda text: self.on_localized_text_changed(text_edit, text))
                     text_edit.setProperty("localized_key", value_str)
