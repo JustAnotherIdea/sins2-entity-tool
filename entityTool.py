@@ -3538,7 +3538,7 @@ class EntityToolGUI(QMainWindow):
                 old_value,
                 text,
                 lambda value: edit.setText(value),
-                lambda path, value: self.update_localized_text(text_file, path[0], value)
+                lambda path, value: self.update_localized_text_in_memory(text_file, path[0], value)
             )
             command.source_widget = edit
             self.command_stack.push(command)
@@ -3549,21 +3549,25 @@ class EntityToolGUI(QMainWindow):
                 self.all_localized_strings['mod'][language] = {}
             self.all_localized_strings['mod'][language][key] = text
 
-    def update_localized_text(self, file_path: Path, key: str, value: str):
-        """Update a value in a localized text file"""
+    def update_localized_text_in_memory(self, file_path: Path, key: str, value: str):
+        """Update a value in memory only, actual file write happens during save"""
         try:
-            # Read current data
-            with open(file_path, 'r', encoding='utf-8') as f:
-                data = json.load(f)
+            # Get current data from command stack
+            data = self.command_stack.get_file_data(file_path)
+            if not data:
+                # If no data in command stack, read from file
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                except Exception:
+                    data = {}
+                self.command_stack.update_file_data(file_path, data)
             
-            # Update the value
+            # Update the value in memory
             data[key] = value
+            self.command_stack.update_file_data(file_path, data)
             
-            # Write back to file
-            with open(file_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f, indent=4)
-                
-            logging.info(f"Updated localized text {key} in {file_path}")
+            logging.info(f"Updated localized text {key} in memory")
             logging.debug(f"New value: {value}")
         except Exception as e:
-            logging.error(f"Error updating localized text file {file_path}: {str(e)}")
+            logging.error(f"Error updating localized text in memory: {str(e)}")
