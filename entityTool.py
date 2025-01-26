@@ -1554,6 +1554,8 @@ class EntityToolGUI(QMainWindow):
             # Check if property name indicates a specific entity type
             entity_type = None
             logging.debug(f"Checking for {value_str} in manifest type {property_name}")
+            
+            # Check if the property name maps to a known entity type
             if property_name in manifest_type_map:
                 logging.debug(f"Found manifest type mapping: {property_name} -> {manifest_type_map[property_name]}")
                 expected_type = manifest_type_map[property_name]
@@ -1621,9 +1623,11 @@ class EntityToolGUI(QMainWindow):
                     return handler
                 
                 btn.clicked.connect(create_click_handler())
+
+                btn.setStyleSheet("font-style: italic;")
                 
                 if is_base_game:
-                    btn.setStyleSheet(btn.styleSheet() + "; color: #666666; font-style: italic;")
+                    btn.setStyleSheet(btn.styleSheet() + "; color: #666666;")
                 
                 # Store path and original value
                 btn.setProperty("data_path", path)
@@ -1660,37 +1664,45 @@ class EntityToolGUI(QMainWindow):
             
             if is_localized_key:
                 logging.debug(f"Creating localized text widget for key: {value_str}")
-                # Create a container with both localized text and editable field
+                # Create a container with both localized text and editable fields
                 container = QWidget()
                 layout = QVBoxLayout(container)
                 layout.setContentsMargins(0, 0, 0, 0)
                 layout.setSpacing(4)
                 
                 # Add localized text preview
-                preview = QLabel(f"{localized_text} [{value_str}]")  # Show both text and key
-                preview.setWordWrap(True)
-                if is_base:
-                    preview.setStyleSheet("color: #666666; font-style: italic;")
-                layout.addWidget(preview)
+                # preview = QLabel(f"{localized_text} [{value_str}]")  # Show both text and key
+                # preview.setWordWrap(True)
+                # if is_base:
+                #     preview.setStyleSheet("color: #666666; font-style: italic;")
+                # layout.addWidget(preview)
                 
-                # Add editable field if not base game
+                # Add editable field for the key if not from base game file
                 if not is_base_game:
-                    edit = QLineEdit(value_str)
-                    edit.textChanged.connect(lambda text: self.on_text_changed(edit, text))
-                    edit.setProperty("data_path", path)
-                    edit.setProperty("original_value", value)
-                    layout.addWidget(edit)
+                    key_edit = QLineEdit(value_str)
+                    key_edit.textChanged.connect(lambda text: self.on_text_changed(key_edit, text))
+                    key_edit.setProperty("data_path", path)
+                    key_edit.setProperty("original_value", value)
+                    key_edit.setStyleSheet("font-style: italic;")
+                    layout.addWidget(key_edit)
 
-                     # Add context menu
-                    edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-                    edit.customContextMenuRequested.connect(
-                        lambda pos, w=edit, v=value_str: self.show_context_menu(w, pos, v)
+                    # Add context menu
+                    key_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                    key_edit.customContextMenuRequested.connect(
+                        lambda pos, w=key_edit, v=value_str: self.show_context_menu(w, pos, v)
                     )
-                
-                container.setProperty("data_path", path)
-                container.setProperty("original_value", value)
+                # Add editable field for the text if not base game text
+                if not is_base:
+                    text_edit = QLineEdit(localized_text)
+                    text_edit.setPlaceholderText("Enter translation...")
+                    text_edit.textChanged.connect(lambda text: self.on_localized_text_changed(text_edit, text))
+                    text_edit.setProperty("localized_key", value_str)
+                    text_edit.setProperty("language", self.current_language)
+                    text_edit.setProperty("text_edit", text_edit)
+                    layout.addWidget(text_edit)
+
                 return container
-            
+                
             # Check if the string value is a texture file name
             elif value_str in self.all_texture_files['mod'] or value_str in self.all_texture_files['base_game']:
                 # Handle texture references - create a container with both texture and editable field
@@ -1709,6 +1721,7 @@ class EntityToolGUI(QMainWindow):
                     edit.textChanged.connect(lambda text: self.on_text_changed(edit, text))
                     edit.setProperty("data_path", path)
                     edit.setProperty("original_value", value)
+                    edit.setStyleSheet("font-style: italic;")
                     layout.addWidget(edit)
                 
                 container.setProperty("data_path", path)
@@ -3204,10 +3217,26 @@ class EntityToolGUI(QMainWindow):
         
         def on_select():
             if file_list.currentItem():
-                if isinstance(target_widget, QLineEdit):
-                    target_widget.setText(file_list.currentItem().text())
-                else:
-                    target_widget.setText(file_list.currentItem().text())
+                new_value = file_list.currentItem().text()
+                data_path = target_widget.property("data_path")
+                old_value = target_widget.property("original_value")
+                
+                if data_path is not None and old_value != new_value:
+                    # Get file path from parent schema view
+                    file_path = self.get_schema_view_file_path(target_widget)
+                    if file_path:
+                        command = EditValueCommand(
+                            file_path,
+                            data_path,
+                            old_value,
+                            new_value,
+                            lambda value: target_widget.setText(value),
+                            self.update_data_value
+                        )
+                        command.source_widget = target_widget  # Track which widget initiated the change
+                        self.command_stack.push(command)
+                        target_widget.setProperty("original_value", new_value)
+                        self.update_save_button()  # Update save button state
                 dialog.accept()
         
         select_btn.clicked.connect(on_select)
@@ -3215,7 +3244,7 @@ class EntityToolGUI(QMainWindow):
         file_list.itemDoubleClicked.connect(on_select)
         
         dialog.exec()
-    
+
     def show_uniforms_selector(self, target_widget):
         """Show a dialog to select a uniform value"""
         dialog = QDialog(self)
@@ -3250,7 +3279,7 @@ class EntityToolGUI(QMainWindow):
             font = file_combo.itemData(index, Qt.ItemDataRole.FontRole) or QFont()
             font.setItalic(True)
             file_combo.setItemData(index, font, Qt.ItemDataRole.FontRole)
-            
+        
         file_layout.addWidget(file_label)
         file_layout.addWidget(file_combo)
         layout.addLayout(file_layout)
@@ -3314,18 +3343,26 @@ class EntityToolGUI(QMainWindow):
             data = item.data(0, Qt.ItemDataRole.UserRole)
             if data:  # Only leaf nodes have data
                 path, value = data
-                # For arrays and objects, insert the path
-                if isinstance(value, (dict, list)):
-                    if isinstance(target_widget, QLineEdit):
-                        target_widget.setText(path)
-                    else:
-                        target_widget.setText(path)
-                # For simple values, insert the value
-                else:
-                    if isinstance(target_widget, QLineEdit):
-                        target_widget.setText(str(value))
-                    else:
-                        target_widget.setText(str(value))
+                new_value = str(value) if not isinstance(value, (dict, list)) else path
+                data_path = target_widget.property("data_path")
+                old_value = target_widget.property("original_value")
+                
+                if data_path is not None and old_value != new_value:
+                    # Get file path from parent schema view
+                    file_path = self.get_schema_view_file_path(target_widget)
+                    if file_path:
+                        command = EditValueCommand(
+                            file_path,
+                            data_path,
+                            old_value,
+                            new_value,
+                            lambda value: target_widget.setText(value),
+                            self.update_data_value
+                        )
+                        command.source_widget = target_widget  # Track which widget initiated the change
+                        self.command_stack.push(command)
+                        target_widget.setProperty("original_value", new_value)
+                        self.update_save_button()  # Update save button state
                 dialog.accept()
         
         def on_item_double_clicked(item, column):
@@ -3354,7 +3391,7 @@ class EntityToolGUI(QMainWindow):
         cancel_btn.clicked.connect(dialog.reject)
         
         dialog.exec()
-    
+
     def show_localized_text_selector(self, target_widget):
         """Show a dialog to select localized text"""
         dialog = QDialog(self)
@@ -3436,11 +3473,26 @@ class EntityToolGUI(QMainWindow):
         def on_item_selected():
             item = text_list.currentItem()
             if item:
-                key = item.data(Qt.ItemDataRole.UserRole)
-                if isinstance(target_widget, QLineEdit):
-                    target_widget.setText(key)
-                else:
-                    target_widget.setText(key)
+                new_value = item.data(Qt.ItemDataRole.UserRole)
+                data_path = target_widget.property("data_path")
+                old_value = target_widget.property("original_value")
+                
+                if data_path is not None and old_value != new_value:
+                    # Get file path from parent schema view
+                    file_path = self.get_schema_view_file_path(target_widget)
+                    if file_path:
+                        command = EditValueCommand(
+                            file_path,
+                            data_path,
+                            old_value,
+                            new_value,
+                            lambda value: target_widget.setText(value),
+                            self.update_data_value
+                        )
+                        command.source_widget = target_widget  # Track which widget initiated the change
+                        self.command_stack.push(command)
+                        target_widget.setProperty("original_value", new_value)
+                        self.update_save_button()  # Update save button state
                 dialog.accept()
         
         def on_item_double_clicked(item):
@@ -3456,3 +3508,75 @@ class EntityToolGUI(QMainWindow):
         cancel_btn.clicked.connect(dialog.reject)
         
         dialog.exec()
+
+    def on_localized_text_changed(self, edit: QLineEdit, text: str):
+        """Handle changes to localized text values"""
+        if not self.current_folder:
+            return
+            
+        # Get the key and language from the widget's properties
+        key = edit.property("localized_key")
+        language = edit.property("language")
+        if not key or not language:
+            return
+            
+        # Get the localized text file path
+        text_file = self.current_folder / "localized_text" / f"{language}.localized_text"
+        
+        # Create the file and parent directory if they don't exist
+        if not text_file.parent.exists():
+            text_file.parent.mkdir(parents=True)
+        if not text_file.exists():
+            with open(text_file, 'w', encoding='utf-8') as f:
+                json.dump({}, f, indent=4)
+        
+        # Get the current data from the file
+        try:
+            with open(text_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+        
+        # Create a command to update the text
+        old_value = data.get(key, "")
+        if old_value != text:
+            command = EditValueCommand(
+                text_file,
+                [key],  # The path is just the key since it's a flat dictionary
+                old_value,
+                text,
+                lambda value: edit.setText(value),
+                lambda path, value: self.update_localized_text(text_file, path[0], value)
+            )
+            command.source_widget = edit
+            self.command_stack.push(command)
+            self.update_save_button()
+            
+            # Update the text input
+            text_edit = edit.property("text_edit")
+            if text_edit:
+                text_edit.setText(f"{text} [{key}]")
+            
+            # Update the in-memory strings
+            if language not in self.all_localized_strings['mod']:
+                self.all_localized_strings['mod'][language] = {}
+            self.all_localized_strings['mod'][language][key] = text
+
+    def update_localized_text(self, file_path: Path, key: str, value: str):
+        """Update a value in a localized text file"""
+        try:
+            # Read current data
+            with open(file_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # Update the value
+            data[key] = value
+            
+            # Write back to file
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4)
+                
+            logging.info(f"Updated localized text {key} in {file_path}")
+            logging.debug(f"New value: {value}")
+        except Exception as e:
+            logging.error(f"Error updating localized text file {file_path}: {str(e)}")
