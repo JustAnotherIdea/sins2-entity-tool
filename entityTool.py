@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
                             QLineEdit, QListWidget, QComboBox, QTabWidget, QScrollArea, QGroupBox, QDialog, QSplitter, QToolButton,
-                            QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem, QMenu, QTreeWidget, QTreeWidgetItem)
+                            QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem, QMenu, QTreeWidget, QTreeWidgetItem, QTextEdit)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QPixmap, QIcon, QKeySequence,
                         QColor, QShortcut, QFont)
@@ -1716,35 +1716,41 @@ class EntityToolGUI(QMainWindow):
                 layout.setContentsMargins(0, 0, 0, 0)
                 layout.setSpacing(4)
                 
-                # Add editable field for the key if not base game
-                if not is_base_game:
-                    key_edit = QLineEdit(value_str)
-                    key_edit.textChanged.connect(lambda text: self.on_text_changed(key_edit, text))
-                    key_edit.setProperty("data_path", path)
-                    key_edit.setProperty("original_value", value)
-                    key_edit.setStyleSheet("font-style: italic;")
-                    layout.addWidget(key_edit)
+                # Add editable field for the key
+                key_edit = QLineEdit(value_str)
+                key_edit.textChanged.connect(lambda text: self.on_text_changed(key_edit, text))
+                key_edit.setProperty("data_path", path)
+                key_edit.setProperty("original_value", value)
+                key_edit.setStyleSheet("font-style: italic;")
+                layout.addWidget(key_edit)
 
-                    # Add context menu
-                    key_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-                    key_edit.customContextMenuRequested.connect(
-                        lambda pos, w=key_edit, v=value_str: self.show_context_menu(w, pos, v)
-                    )
+                # Add context menu
+                key_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                key_edit.customContextMenuRequested.connect(
+                    lambda pos, w=key_edit, v=value_str: self.show_context_menu(w, pos, v)
+                )
+                # Make key non-editable if base game
+                if is_base:
+                    key_edit.setStyleSheet("color: #666666")
+                    key_edit.setReadOnly(True)
                 
-                # Add editable field for the text if not base game text
-                if not is_base:
-                    # Get the current value from command stack if available
-                    text_file = self.current_folder / "localized_text" / f"{self.current_language}.localized_text"
-                    current_text = localized_text
-                    if self.command_stack.get_file_data(text_file):
-                        current_text = self.command_stack.get_file_data(text_file).get(value_str, localized_text)
-                    
-                    text_edit = QLineEdit(current_text)
-                    text_edit.setPlaceholderText("Enter translation...")
-                    text_edit.textChanged.connect(lambda text: self.on_localized_text_changed(text_edit, text))
-                    text_edit.setProperty("localized_key", value_str)
-                    text_edit.setProperty("language", self.current_language)
-                    layout.addWidget(text_edit)
+                # Get the current value from command stack if available
+                text_file = self.current_folder / "localized_text" / f"{self.current_language}.localized_text"
+                current_text = localized_text
+                if self.command_stack.get_file_data(text_file):
+                    current_text = self.command_stack.get_file_data(text_file).get(value_str, localized_text)
+                
+                # Add editable field for the text
+                text_edit = QLineEdit(current_text)
+                text_edit.textChanged.connect(lambda text: self.on_localized_text_changed(text_edit, text))
+                text_edit.setProperty("localized_key", value_str)
+                text_edit.setProperty("language", self.current_language)
+                layout.addWidget(text_edit)
+
+                # Make text non-editable if base game
+                if is_base:
+                    text_edit.setStyleSheet("color: #666666")
+                    text_edit.setReadOnly(True)
                 
                 container.setProperty("data_path", path)
                 container.setProperty("original_value", value)
