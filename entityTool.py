@@ -3308,25 +3308,7 @@ class EntityToolGUI(QMainWindow):
         def on_select():
             if file_list.currentItem():
                 new_value = file_list.currentItem().text()
-                data_path = target_widget.property("data_path")
-                old_value = target_widget.property("original_value")
-                
-                if data_path is not None and old_value != new_value:
-                    # Get file path from parent schema view
-                    file_path = self.get_schema_view_file_path(target_widget)
-                    if file_path:
-                        command = EditValueCommand(
-                            file_path,
-                            data_path,
-                            old_value,
-                            new_value,
-                            lambda value: target_widget.setText(value),
-                            self.update_data_value
-                        )
-                        command.source_widget = target_widget  # Track which widget initiated the change
-                        self.command_stack.push(command)
-                        target_widget.setProperty("original_value", new_value)
-                        self.update_save_button()  # Update save button state
+                self.on_select_from_file(target_widget, new_value)
                 dialog.accept()
         
         select_btn.clicked.connect(on_select)
@@ -3434,25 +3416,7 @@ class EntityToolGUI(QMainWindow):
             if data:  # Only leaf nodes have data
                 path, value = data
                 new_value = str(value) if not isinstance(value, (dict, list)) else path
-                data_path = target_widget.property("data_path")
-                old_value = target_widget.property("original_value")
-                
-                if data_path is not None and old_value != new_value:
-                    # Get file path from parent schema view
-                    file_path = self.get_schema_view_file_path(target_widget)
-                    if file_path:
-                        command = EditValueCommand(
-                            file_path,
-                            data_path,
-                            old_value,
-                            new_value,
-                            lambda value: target_widget.setText(value),
-                            self.update_data_value
-                        )
-                        command.source_widget = target_widget  # Track which widget initiated the change
-                        self.command_stack.push(command)
-                        target_widget.setProperty("original_value", new_value)
-                        self.update_save_button()  # Update save button state
+                self.on_select_from_uniforms(target_widget, new_value)
                 dialog.accept()
         
         def on_item_double_clicked(item, column):
@@ -3564,25 +3528,7 @@ class EntityToolGUI(QMainWindow):
             item = text_list.currentItem()
             if item:
                 new_value = item.data(Qt.ItemDataRole.UserRole)
-                data_path = target_widget.property("data_path")
-                old_value = target_widget.property("original_value")
-                
-                if data_path is not None and old_value != new_value:
-                    # Get file path from parent schema view
-                    file_path = self.get_schema_view_file_path(target_widget)
-                    if file_path:
-                        command = EditValueCommand(
-                            file_path,
-                            data_path,
-                            old_value,
-                            new_value,
-                            lambda value: target_widget.setText(value),
-                            self.update_data_value
-                        )
-                        command.source_widget = target_widget  # Track which widget initiated the change
-                        self.command_stack.push(command)
-                        target_widget.setProperty("original_value", new_value)
-                        self.update_save_button()  # Update save button state
+                self.on_select_from_localized_text(target_widget, new_value)
                 dialog.accept()
         
         def on_item_double_clicked(item):
@@ -3690,4 +3636,261 @@ class EntityToolGUI(QMainWindow):
     def on_text_edit_timer_timeout(self):
         if self.current_text_edit and not self.current_text_edit.property("is_updating"):
             self.on_localized_text_changed(self.current_text_edit, self.current_text_edit.toPlainText())
+
+    def on_select_from_file(self, target_widget, new_value):
+        """Handle selection from file selector"""
+        data_path = target_widget.property("data_path")
+        old_value = target_widget.property("original_value")
+        file_path = self.get_schema_view_file_path(target_widget)
+        
+        if data_path is not None and old_value != new_value and file_path:
+            # Create a command to update the value
+            command = EditValueCommand(
+                file_path,
+                data_path,
+                old_value,
+                new_value,
+                lambda value: self.transform_widget_to_file_button(target_widget, value),
+                self.update_data_value
+            )
+            command.source_widget = target_widget
+            self.command_stack.push(command)
+            target_widget.setProperty("original_value", new_value)
+            self.update_save_button()
+
+    def on_select_from_uniforms(self, target_widget, new_value):
+        """Handle selection from uniforms selector"""
+        data_path = target_widget.property("data_path")
+        old_value = target_widget.property("original_value")
+        file_path = self.get_schema_view_file_path(target_widget)
+        
+        if data_path is not None and old_value != new_value and file_path:
+            # Create a command to update the value
+            command = EditValueCommand(
+                file_path,
+                data_path,
+                old_value,
+                new_value,
+                lambda value: self.transform_widget_to_line_edit(target_widget, value),
+                self.update_data_value
+            )
+            command.source_widget = target_widget
+            self.command_stack.push(command)
+            target_widget.setProperty("original_value", new_value)
+            self.update_save_button()
+
+    def on_select_from_localized_text(self, target_widget, new_value):
+        """Handle selection from localized text selector"""
+        data_path = target_widget.property("data_path")
+        old_value = target_widget.property("original_value")
+        file_path = self.get_schema_view_file_path(target_widget)
+        
+        if data_path is not None and old_value != new_value and file_path:
+            # Create a command to update the value
+            command = EditValueCommand(
+                file_path,
+                data_path,
+                old_value,
+                new_value,
+                lambda value: self.transform_widget_to_localized_text(target_widget, value),
+                self.update_data_value
+            )
+            command.source_widget = target_widget
+            self.command_stack.push(command)
+            target_widget.setProperty("original_value", new_value)
+            self.update_save_button()
+
+    def transform_widget_to_file_button(self, widget, value):
+        """Transform a widget into a file button"""
+        # Get the parent layout
+        parent = widget.parent()
+        layout = parent.layout()
+        if not layout:
+            layout = QVBoxLayout(parent)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(4)
+        
+        # Get widget properties
+        data_path = widget.property("data_path")
+        is_base_game = widget.property("is_base_game") or False
+        
+        # Create new button
+        btn = QPushButton(value)
+        btn.setStyleSheet("text-align: left; padding: 2px;")
+        
+        # Add context menu
+        btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        btn.customContextMenuRequested.connect(
+            lambda pos, w=btn, v=value: self.show_context_menu(w, pos, v)
+        )
+        
+        # Determine entity type from the value
+        entity_type = self.get_entity_type_from_value(value)
+        if entity_type:
+            btn.clicked.connect(lambda: self.load_referenced_entity(value, entity_type))
+        
+        if is_base_game:
+            btn.setStyleSheet(btn.styleSheet() + "; color: #666666;")
+        
+        # Store properties
+        btn.setProperty("data_path", data_path)
+        btn.setProperty("original_value", value)
+        btn.setProperty("is_base_game", is_base_game)
+        
+        # Replace old widget
+        layout.replaceWidget(widget, btn)
+        widget.deleteLater()
+        return btn
+
+    def transform_widget_to_line_edit(self, widget, value):
+        """Transform a widget into a line edit"""
+        # Get the parent layout
+        parent = widget.parent()
+        layout = parent.layout()
+        if not layout:
+            layout = QVBoxLayout(parent)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(4)
+        
+        # Get widget properties
+        data_path = widget.property("data_path")
+        is_base_game = widget.property("is_base_game") or False
+        
+        # Create new line edit
+        edit = QLineEdit(value)
+        edit.textChanged.connect(lambda text: self.on_text_changed(edit, text))
+        edit.setProperty("data_path", data_path)
+        edit.setProperty("original_value", value)
+        edit.setProperty("is_base_game", is_base_game)
+        edit.setStyleSheet("font-style: italic;")
+        
+        # Add context menu
+        edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        edit.customContextMenuRequested.connect(
+            lambda pos, w=edit, v=value: self.show_context_menu(w, pos, v)
+        )
+        
+        if is_base_game:
+            edit.setStyleSheet(edit.styleSheet() + "; color: #666666;")
+            edit.setReadOnly(True)
+        
+        # Replace old widget
+        layout.replaceWidget(widget, edit)
+        widget.deleteLater()
+        return edit
+
+    def transform_widget_to_localized_text(self, widget, value):
+        """Transform a widget into a localized text widget"""
+        # Get the parent layout
+        parent = widget.parent()
+        layout = parent.layout()
+        if not layout:
+            layout = QVBoxLayout(parent)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(4)
+        
+        # Get widget properties
+        data_path = widget.property("data_path")
+        is_base_game = widget.property("is_base_game") or False
+        
+        # Create container for localized text
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(4)
+        
+        # Add key edit
+        key_edit = QLineEdit(value)
+        key_edit.textChanged.connect(lambda text: self.on_text_changed(key_edit, text))
+        key_edit.setProperty("data_path", data_path)
+        key_edit.setProperty("original_value", value)
+        key_edit.setStyleSheet("font-style: italic;")
+        container_layout.addWidget(key_edit)
+        
+        # Add context menu to key edit
+        key_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        key_edit.customContextMenuRequested.connect(
+            lambda pos, w=key_edit, v=value: self.show_context_menu(w, pos, v)
+        )
+        
+        # Get localized text and base game status
+        localized_text, is_from_base = self.get_localized_text(value)
+        text_file = self.current_folder / "localized_text" / f"{self.current_language}.localized_text"
+        current_text = localized_text
+        if self.command_stack.get_file_data(text_file):
+            current_text = self.command_stack.get_file_data(text_file).get(value, localized_text)
+        
+        # Add text edit
+        text_edit = QPlainTextEdit()
+        text_edit.setPlainText(current_text)
+        text_edit.setPlaceholderText("Enter translation...")
+        text_edit.setProperty("localized_key", value)
+        text_edit.setProperty("language", self.current_language)
+        text_edit.setProperty("original_value", current_text)
+        text_edit.setProperty("is_updating", False)
+        
+        def on_text_changed():
+            if not text_edit.property("is_updating"):
+                self.current_text_edit = text_edit
+                self.text_edit_timer.start()
+        
+        text_edit.textChanged.connect(on_text_changed)
+        
+        # Set fixed height
+        font_metrics = text_edit.fontMetrics()
+        line_spacing = font_metrics.lineSpacing()
+        text_edit.setFixedHeight(line_spacing * 3 + 10)
+        
+        container_layout.addWidget(text_edit)
+        
+        # Make fields read-only if base game content
+        if is_base_game or is_from_base:
+            key_edit.setStyleSheet("color: #666666")
+            key_edit.setReadOnly(True)
+            text_edit.setStyleSheet("color: #666666")
+            text_edit.setReadOnly(True)
+        
+        # Store properties
+        container.setProperty("data_path", data_path)
+        container.setProperty("original_value", value)
+        container.setProperty("is_base_game", is_base_game or is_from_base)
+        container.setProperty("text_file_path", str(text_file))
+        
+        # Register for command stack updates
+        if not is_base_game and not is_from_base and text_file is not None:
+            def update_text(new_data: dict, data_path: List[str] = None, value: Any = None, source_widget = None):
+                if source_widget != text_edit:  # Only update if change came from another widget
+                    current_key = text_edit.property("localized_key")
+                    if current_key in new_data:
+                        self.update_text_preserve_cursor(text_edit, new_data[current_key])
+        
+            self.command_stack.register_data_change_callback(text_file, update_text)
+            container.destroyed.connect(
+                lambda: self.command_stack.unregister_data_change_callback(text_file, update_text)
+            )
+        
+        # Replace old widget
+        layout.replaceWidget(widget, container)
+        widget.deleteLater()
+        return container
+
+    def get_entity_type_from_value(self, value: str) -> str:
+        """Determine entity type from a value by checking file existence"""
+        if not self.current_folder:
+            return None
+            
+        # Check each entity type
+        for entity_type in self.schema_extensions:
+            # Check mod folder
+            mod_file = self.current_folder / "entities" / f"{value}.{entity_type}"
+            if mod_file.exists():
+                return entity_type
+                
+            # Check base game folder if available
+            if self.base_game_folder:
+                base_file = self.base_game_folder / "entities" / f"{value}.{entity_type}"
+                if base_file.exists():
+                    return entity_type
+        
+        return None
 
