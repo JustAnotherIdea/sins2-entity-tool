@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
                             QLineEdit, QListWidget, QComboBox, QTabWidget, QScrollArea, QGroupBox, QDialog, QSplitter, QToolButton,
-                            QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem, QMenu)
+                            QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem, QMenu, QTreeWidget, QTreeWidgetItem)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QPixmap, QIcon, QKeySequence,
                         QColor, QShortcut)
@@ -3217,9 +3217,10 @@ class EntityToolGUI(QMainWindow):
         dialog.exec()
     
     def show_uniforms_selector(self, target_widget):
-        """Show a dialog to select a uniform key"""
+        """Show a dialog to select a uniform value"""
         dialog = QDialog(self)
-        dialog.setWindowTitle("Select Uniform")
+        dialog.setWindowTitle("Select Uniform Value")
+        dialog.resize(800, 600)
         layout = QVBoxLayout(dialog)
         
         # Uniforms file selector
@@ -3233,12 +3234,37 @@ class EntityToolGUI(QMainWindow):
         file_layout.addWidget(file_combo)
         layout.addLayout(file_layout)
         
-        # Keys list
-        keys_list = QListWidget()
-        layout.addWidget(keys_list)
+        # Tree widget for nested data
+        tree = QTreeWidget()
+        tree.setHeaderLabels(["Key", "Value"])
+        tree.setColumnWidth(0, 300)  # Give more space to the key column
+        layout.addWidget(tree)
         
-        def update_keys_list():
-            keys_list.clear()
+        def add_item(parent, key, value, full_path=""):
+            """Recursively add items to the tree"""
+            if full_path:
+                new_path = f"{full_path}.{key}" if isinstance(key, str) else f"{full_path}[{key}]"
+            else:
+                new_path = str(key)
+                
+            item = QTreeWidgetItem(parent)
+            item.setText(0, str(key))
+            
+            if isinstance(value, dict):
+                item.setText(1, "{...}")
+                for k, v in sorted(value.items()):
+                    add_item(item, k, v, new_path)
+            elif isinstance(value, list):
+                item.setText(1, f"[{len(value)} items]")
+                for i, v in enumerate(value):
+                    add_item(item, i, v, new_path)
+            else:
+                item.setText(1, str(value))
+                # Store the full path and value for selection
+                item.setData(0, Qt.ItemDataRole.UserRole, (new_path, value))
+        
+        def update_tree():
+            tree.clear()
             file_id = file_combo.currentText()
             if not file_id:
                 return
@@ -3252,33 +3278,43 @@ class EntityToolGUI(QMainWindow):
                 if file_path.exists():
                     with open(file_path, 'r', encoding='utf-8') as f:
                         data = json.load(f)
-                        for key in sorted(data.keys()):
-                            keys_list.addItem(key)
+                        for key, value in sorted(data.items()):
+                            add_item(tree, key, value)
+                            
+                    tree.expandToDepth(0)  # Expand first level by default
             except Exception as e:
                 logging.error(f"Error loading uniforms file: {str(e)}")
         
-        file_combo.currentTextChanged.connect(update_keys_list)
-        update_keys_list()  # Initial population
+        def on_item_double_clicked(item, column):
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if data:  # Only leaf nodes have data
+                path, value = data
+                # For arrays and objects, insert the path
+                if isinstance(value, (dict, list)):
+                    if isinstance(target_widget, QLineEdit):
+                        target_widget.setText(path)
+                    else:
+                        target_widget.setText(path)
+                # For simple values, insert the value
+                else:
+                    if isinstance(target_widget, QLineEdit):
+                        target_widget.setText(str(value))
+                    else:
+                        target_widget.setText(str(value))
+                dialog.accept()
+        
+        file_combo.currentTextChanged.connect(update_tree)
+        tree.itemDoubleClicked.connect(on_item_double_clicked)
+        update_tree()  # Initial population
         
         # Buttons
         button_box = QHBoxLayout()
-        select_btn = QPushButton("Select")
         cancel_btn = QPushButton("Cancel")
-        button_box.addWidget(select_btn)
+        button_box.addStretch()
         button_box.addWidget(cancel_btn)
         layout.addLayout(button_box)
         
-        def on_select():
-            if keys_list.currentItem():
-                if isinstance(target_widget, QLineEdit):
-                    target_widget.setText(keys_list.currentItem().text())
-                else:
-                    target_widget.setText(keys_list.currentItem().text())
-                dialog.accept()
-        
-        select_btn.clicked.connect(on_select)
         cancel_btn.clicked.connect(dialog.reject)
-        keys_list.itemDoubleClicked.connect(on_select)
         
         dialog.exec()
     
