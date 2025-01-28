@@ -2,9 +2,11 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
                             QLineEdit, QListWidget, QComboBox, QTabWidget, QScrollArea, QGroupBox, QDialog, QSplitter, QToolButton,
                             QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem, QMenu, QTreeWidget, QTreeWidgetItem, QPlainTextEdit, QProgressBar, QApplication)
-from PyQt6.QtCore import (Qt, QTimer)
+from PyQt6.QtCore import (Qt, QTimer, QUrl)
 from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QPixmap, QIcon, QKeySequence,
                         QColor, QShortcut, QFont)
+from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput, QSoundEffect
+from playsound import playsound
 import json
 import logging
 from pathlib import Path
@@ -12,6 +14,10 @@ from research_view import ResearchTreeView
 import os
 from command_stack import CommandStack, EditValueCommand
 from typing import List, Any
+import sounddevice as sd
+import soundfile as sf
+import threading
+import pygame.mixer
 
 class TransformWidgetCommand:
     """Command for transforming a widget from one type to another"""
@@ -3468,6 +3474,10 @@ class EntityToolGUI(QMainWindow):
         texture_action = select_menu.addAction("Texture...")
         texture_action.triggered.connect(lambda: self.show_texture_selector(widget))
         
+        # Sound selection action
+        sound_action = select_menu.addAction("Sounds...")
+        sound_action.triggered.connect(lambda: self.show_sound_selector(widget))
+        
         return menu
     
     def show_context_menu(self, widget, position, current_value):
@@ -3981,6 +3991,190 @@ class EntityToolGUI(QMainWindow):
         # Initial population
         update_texture_list()
         dialog.exec()
+
+    def show_sound_selector(self, target_widget):
+        """Show a dialog to select a sound file"""
+        # Initialize pygame mixer
+        if not pygame.mixer.get_init():
+            pygame.mixer.init()
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Sound")
+        dialog.resize(800, 500)
+        layout = QVBoxLayout(dialog)
+        
+        # Search box
+        search_box = QLineEdit()
+        search_box.setPlaceholderText("Search sounds...")
+        layout.addWidget(search_box)
+        
+        # Sound list
+        sound_list = QListWidget()
+        layout.addWidget(sound_list)
+        
+        # Playback controls
+        controls_layout = QHBoxLayout()
+        play_button = QPushButton("Play")
+        stop_button = QPushButton("Stop")
+        stop_button.setEnabled(False)
+        controls_layout.addWidget(play_button)
+        controls_layout.addWidget(stop_button)
+        layout.addLayout(controls_layout)
+        
+        # Audio playback state
+        audio_state = {
+            'playing': False,
+            'sound': None
+        }
+        
+        def get_sound_files():
+            """Get all .ogg files from mod and base game"""
+            sound_files = {'mod': set(), 'base_game': set()}
+            
+            # Get mod sounds
+            if self.current_folder:
+                sound_dir = self.current_folder / "sounds"
+                if sound_dir.exists():
+                    for file_path in sound_dir.rglob("*.ogg"):
+                        rel_path = file_path.relative_to(sound_dir)
+                        sound_files['mod'].add(str(rel_path).replace('\\', '/'))
+            
+            # Get base game sounds
+            if self.base_game_folder:
+                sound_dir = self.base_game_folder / "sounds"
+                if sound_dir.exists():
+                    for file_path in sound_dir.rglob("*.ogg"):
+                        rel_path = file_path.relative_to(sound_dir)
+                        rel_path_str = str(rel_path).replace('\\', '/')
+                        if rel_path_str not in sound_files['mod']:
+                            sound_files['base_game'].add(rel_path_str)
+            
+            return sound_files
+            
+        def update_sound_list(search=""):
+            sound_list.clear()
+            search = search.lower()
+            sound_files = get_sound_files()
+            
+            # Add mod sounds first
+            for sound in sorted(sound_files['mod']):
+                if search in sound.lower():
+                    # Strip .ogg extension for display
+                    display_name = str(Path(sound).with_suffix(''))
+                    item = QListWidgetItem(display_name)
+                    # Store full path with extension as data
+                    item.setData(Qt.ItemDataRole.UserRole, sound)
+                    sound_list.addItem(item)
+            
+            # Then add base game sounds
+            for sound in sorted(sound_files['base_game']):
+                if search in sound.lower():
+                    # Strip .ogg extension for display
+                    display_name = str(Path(sound).with_suffix(''))
+                    item = QListWidgetItem(display_name)
+                    # Store full path with extension as data
+                    item.setData(Qt.ItemDataRole.UserRole, sound)
+                    item.setForeground(QColor(150, 150, 150))
+                    font = item.font()
+                    font.setItalic(True)
+                    item.setFont(font)
+                    sound_list.addItem(item)
+        
+        def play_sound():
+            if not sound_list.currentItem():
+                return
+                
+            # Get full path with extension from item data
+            sound_path = sound_list.currentItem().data(Qt.ItemDataRole.UserRole)
+            is_base_game = sound_list.currentItem().foreground().color().getRgb()[:3] == (150, 150, 150)
+            
+            # Get full path
+            base_dir = self.base_game_folder if is_base_game else self.current_folder
+            full_path = base_dir / "sounds" / sound_path
+            
+            if full_path.exists():
+                try:
+                    # Stop any existing playback
+                    stop_sound()
+                    
+                    # Load and play the sound
+                    audio_state['sound'] = pygame.mixer.Sound(str(full_path))
+                    audio_state['sound'].play()
+                    audio_state['playing'] = True
+                    
+                    play_button.setEnabled(False)
+                    stop_button.setEnabled(True)
+                    
+                    # Start a timer to check when playback is done
+                    def check_playback():
+                        while audio_state['playing'] and pygame.mixer.get_busy():
+                            pygame.time.wait(100)
+                        if audio_state['playing']:  # If not stopped manually
+                            audio_state['playing'] = False
+                            play_button.setEnabled(True)
+                            stop_button.setEnabled(False)
+                    
+                    threading.Thread(target=check_playback, daemon=True).start()
+                    
+                except Exception as e:
+                    logging.error(f"Error playing sound: {str(e)}")
+                    audio_state['playing'] = False
+                    play_button.setEnabled(True)
+                    stop_button.setEnabled(False)
+        
+        def stop_sound():
+            if audio_state['sound']:
+                audio_state['sound'].stop()
+            audio_state['playing'] = False
+            audio_state['sound'] = None
+            play_button.setEnabled(True)
+            stop_button.setEnabled(False)
+        
+        # Connect signals
+        search_box.textChanged.connect(update_sound_list)
+        play_button.clicked.connect(play_sound)
+        stop_button.clicked.connect(stop_sound)
+        
+        # Selection buttons
+        button_box = QHBoxLayout()
+        select_btn = QPushButton("Select")
+        select_btn.setEnabled(False)
+        cancel_btn = QPushButton("Cancel")
+        button_box.addStretch()
+        button_box.addWidget(select_btn)
+        button_box.addWidget(cancel_btn)
+        layout.addLayout(button_box)
+        
+        def on_item_selected():
+            if sound_list.currentItem():
+                stop_sound()  # Stop any playing sound
+                # Use display name (without extension) for selection
+                new_value = sound_list.currentItem().text()
+                self.on_select_value(target_widget, new_value)
+                dialog.accept()
+        
+        def on_item_double_clicked(item):
+            on_item_selected()
+        
+        def on_current_item_changed(current, previous):
+            select_btn.setEnabled(current is not None)
+            play_button.setEnabled(current is not None)
+        
+        # Connect selection signals
+        sound_list.currentItemChanged.connect(on_current_item_changed)
+        sound_list.itemDoubleClicked.connect(on_item_double_clicked)
+        select_btn.clicked.connect(on_item_selected)
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        # Clean up on close
+        dialog.finished.connect(stop_sound)
+        
+        # Initial population
+        update_sound_list()
+        dialog.exec()
+        
+        # Clean up pygame mixer
+        pygame.mixer.quit()
 
     def closeEvent(self, event):
         """Handle window close event"""
