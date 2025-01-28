@@ -1496,11 +1496,6 @@ class EntityToolGUI(QMainWindow):
                     
                     # Check if this is a simple value or array of simple values
                     is_simple_value = isinstance(value, (str, int, float, bool))
-                    is_simple_array = (
-                        isinstance(value, list) and
-                        value and  # Check if array is not empty
-                        all(isinstance(x, (str, int, float, bool)) for x in value)
-                    )
                     # Update path for this property
                     prop_path = path + [prop_name]
                     
@@ -1509,8 +1504,8 @@ class EntityToolGUI(QMainWindow):
                         prop_name, value, prop_schema, is_base_game, prop_path
                     )
                     if widget:
-                        if is_simple_value or is_simple_array:
-                            # Create simple label and value layout for primitive types and simple arrays
+                        if is_simple_value:
+                            # Create simple label and value layout for primitive types
                             row_widget = QWidget()
                             row_layout = QHBoxLayout(row_widget)
                             row_layout.setContentsMargins(0, 2, 0, 2)  # Add small vertical spacing
@@ -1521,6 +1516,9 @@ class EntityToolGUI(QMainWindow):
                             row_layout.addStretch()
                             
                             container_layout.addWidget(row_widget)
+                        elif isinstance(value, list):
+                            # For arrays, just add the widget directly (it will create its own header)
+                            container_layout.addWidget(widget)
                         else:
                             # Create collapsible section for complex types
                             group_widget = QWidget()
@@ -1951,10 +1949,9 @@ class EntityToolGUI(QMainWindow):
                 key_edit.customContextMenuRequested.connect(
                     lambda pos, w=key_edit, v=value_str: self.show_context_menu(w, pos, v)
                 )
-                # Make key non-editable if base game
-                if is_base:
-                    key_edit.setStyleSheet("color: #666666")
-                    key_edit.setReadOnly(True)
+                # Style key if from base game
+                if is_base_game:
+                    key_edit.setStyleSheet("font-style: italic;")
                 
                 # Get the current value from command stack if available
                 text_file = self.current_folder / "localized_text" / f"{self.current_language}.localized_text"
