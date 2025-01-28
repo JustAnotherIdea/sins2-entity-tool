@@ -1380,6 +1380,10 @@ class EntityToolGUI(QMainWindow):
                         pixmap, _ = self.load_texture(subject_data["tooltip_picture"])
                         if not pixmap.isNull():
                             icon = pixmap
+                    elif "hud_icon" in subject_data:
+                        pixmap, _ = self.load_texture(subject_data["hud_icon"])
+                        if not pixmap.isNull():
+                            icon = pixmap
                     
                     field = subject_data.get("field", "")
                     field_coord = subject_data.get("field_coord")
