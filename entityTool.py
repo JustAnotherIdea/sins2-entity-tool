@@ -15,11 +15,12 @@ from typing import List, Any
 
 class TransformWidgetCommand:
     """Command for transforming a widget from one type to another"""
-    def __init__(self, gui, widget, old_type, new_type, value):
+    def __init__(self, gui, widget, old_type, new_type, old_value, new_value):
         self.gui = gui
         self.old_type = old_type
         self.new_type = new_type
-        self.value = value
+        self.old_value = old_value
+        self.new_value = new_value
         # Store widget properties and references before deletion
         self.parent = widget.parent()
         self.parent_layout = self.parent.layout()
@@ -63,11 +64,11 @@ class TransformWidgetCommand:
             
         old_widget = self.widget
         if self.new_type == "file":
-            new_widget = self.gui.transform_widget_to_file_button(temp, self.value)
+            new_widget = self.gui.transform_widget_to_file_button(temp, self.new_value)
         elif self.new_type == "uniform":
-            new_widget = self.gui.transform_widget_to_line_edit(temp, self.value)
+            new_widget = self.gui.transform_widget_to_line_edit(temp, self.new_value)
         elif self.new_type == "localized_text":
-            new_widget = self.gui.transform_widget_to_localized_text(temp, self.value)
+            new_widget = self.gui.transform_widget_to_localized_text(temp, self.new_value)
             
         self.widget = self.replace_widget(old_widget if old_widget else temp, new_widget)
         return self.widget
@@ -80,11 +81,11 @@ class TransformWidgetCommand:
             
         old_widget = self.widget
         if self.old_type == "file":
-            new_widget = self.gui.transform_widget_to_file_button(temp, self.value)
+            new_widget = self.gui.transform_widget_to_file_button(temp, self.old_value)
         elif self.old_type == "uniform":
-            new_widget = self.gui.transform_widget_to_line_edit(temp, self.value)
+            new_widget = self.gui.transform_widget_to_line_edit(temp, self.old_value)
         elif self.old_type == "localized_text":
-            new_widget = self.gui.transform_widget_to_localized_text(temp, self.value)
+            new_widget = self.gui.transform_widget_to_localized_text(temp, self.old_value)
             
         self.widget = self.replace_widget(old_widget if old_widget else temp, new_widget)
         return self.widget
@@ -3768,7 +3769,7 @@ class EntityToolGUI(QMainWindow):
             
             # Create transform command
             old_type = self.get_widget_type(target_widget)
-            transform_cmd = TransformWidgetCommand(self, target_widget, old_type, "file", new_value)
+            transform_cmd = TransformWidgetCommand(self, target_widget, old_type, "file", old_value, new_value)
             
             # Combine commands
             composite_cmd = CompositeCommand([value_cmd, transform_cmd])
@@ -3798,7 +3799,7 @@ class EntityToolGUI(QMainWindow):
             
             # Create transform command
             old_type = self.get_widget_type(target_widget)
-            transform_cmd = TransformWidgetCommand(self, target_widget, old_type, "uniform", new_value)
+            transform_cmd = TransformWidgetCommand(self, target_widget, old_type, "uniform", old_value, new_value)
             
             # Combine commands
             composite_cmd = CompositeCommand([value_cmd, transform_cmd])
@@ -3828,7 +3829,7 @@ class EntityToolGUI(QMainWindow):
             
             # Create transform command
             old_type = self.get_widget_type(target_widget)
-            transform_cmd = TransformWidgetCommand(self, target_widget, old_type, "localized_text", new_value)
+            transform_cmd = TransformWidgetCommand(self, target_widget, old_type, "localized_text", old_value, new_value)
             
             # Combine commands
             composite_cmd = CompositeCommand([value_cmd, transform_cmd])
