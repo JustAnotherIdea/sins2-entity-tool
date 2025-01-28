@@ -3773,7 +3773,9 @@ class EntityToolGUI(QMainWindow):
             # Combine commands
             composite_cmd = CompositeCommand([value_cmd, transform_cmd])
             self.command_stack.push(composite_cmd)
-            target_widget.setProperty("original_value", new_value)
+            
+            # Delete the original widget after transformation
+            target_widget.deleteLater()
             self.update_save_button()
 
     def on_select_from_uniforms(self, target_widget, new_value):
@@ -3801,7 +3803,9 @@ class EntityToolGUI(QMainWindow):
             # Combine commands
             composite_cmd = CompositeCommand([value_cmd, transform_cmd])
             self.command_stack.push(composite_cmd)
-            target_widget.setProperty("original_value", new_value)
+            
+            # Delete the original widget after transformation
+            target_widget.deleteLater()
             self.update_save_button()
 
     def on_select_from_localized_text(self, target_widget, new_value):
@@ -3829,7 +3833,9 @@ class EntityToolGUI(QMainWindow):
             # Combine commands
             composite_cmd = CompositeCommand([value_cmd, transform_cmd])
             self.command_stack.push(composite_cmd)
-            target_widget.setProperty("original_value", new_value)
+            
+            # Delete the original widget after transformation
+            target_widget.deleteLater()
             self.update_save_button()
 
     def transform_widget_to_file_button(self, widget, value):
