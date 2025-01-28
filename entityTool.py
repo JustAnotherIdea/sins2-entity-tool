@@ -19,69 +19,56 @@ class TransformWidgetCommand:
         self.gui = gui
         self.old_value = old_value
         self.new_value = new_value
-        # Store widget properties and references before deletion
+        
+        # Store widget properties and references
         self.parent = widget.parent()
         self.parent_layout = self.parent.layout()
         if not self.parent_layout:
             self.parent_layout = QVBoxLayout(self.parent)
             self.parent_layout.setContentsMargins(0, 0, 0, 0)
             self.parent_layout.setSpacing(4)
+            
+        # Create a container widget to hold our transformed widgets
+        self.container = QWidget(self.parent)
+        self.container_layout = QVBoxLayout(self.container)
+        self.container_layout.setContentsMargins(0, 0, 0, 0)
+        self.container_layout.setSpacing(0)
+        
+        # Store original widget index and properties
         self.widget_index = self.parent_layout.indexOf(widget)
         self.data_path = widget.property("data_path")
         self.is_base_game = widget.property("is_base_game") or False
-        self.current_widget = None  # Current widget reference
+        
+        # Move the original widget into our container
+        widget.setParent(self.container)
+        self.container_layout.addWidget(widget)
+        
+        # Add container to parent layout
+        self.parent_layout.insertWidget(self.widget_index, self.container)
         
     def replace_widget(self, new_widget):
-        """Replace current widget with new widget"""
-        if not self.parent_layout or not new_widget:
+        """Replace all widgets in container with new widget"""
+        if not self.container_layout or not new_widget:
             return None
             
-        # Remove current widget if it exists and is valid
-        if self.current_widget:
-            try:
-                # Check if widget is still valid and in layout
-                if not self.current_widget.isWidgetType():
-                    self.current_widget = None
-                else:
-                    old_index = self.parent_layout.indexOf(self.current_widget)
-                    if old_index >= 0:
-                        self.parent_layout.removeWidget(self.current_widget)
-                        self.current_widget.hide()  # Hide before deletion to prevent visual glitches
-                        self.current_widget.deleteLater()
-                        self.current_widget = None
-            except RuntimeError:
-                # Widget was already deleted
-                self.current_widget = None
-        
-        # Add the new widget at the original index
-        self.parent_layout.insertWidget(self.widget_index, new_widget)
-        self.current_widget = new_widget
+        # Clear all widgets from container
+        while self.container_layout.count():
+            item = self.container_layout.takeAt(0)
+            if item.widget():
+                item.widget().hide()
+                item.widget().deleteLater()
+                
+        # Add new widget to container
+        self.container_layout.addWidget(new_widget)
         return new_widget
-        
-    def create_temp_widget(self):
-        """Create a temporary widget with stored properties"""
-        if not self.parent:
-            return None
-        temp = QWidget(self.parent)
-        temp.setProperty("data_path", self.data_path)
-        temp.setProperty("is_base_game", self.is_base_game)
-        return temp
         
     def execute(self):
         """Execute the transformation"""
-        temp = self.create_temp_widget()
-        if not temp:
-            return None
-            
         new_widget = self.gui.create_widget_for_value(self.new_value, {"type": "string"}, self.is_base_game, self.data_path)
         return self.replace_widget(new_widget)
         
     def undo(self):
         """Undo the transformation"""
-        temp = self.create_temp_widget()
-        if not temp:
-            return None
-            
         new_widget = self.gui.create_widget_for_value(self.old_value, {"type": "string"}, self.is_base_game, self.data_path)
         return self.replace_widget(new_widget)
         
@@ -103,22 +90,17 @@ class CompositeCommand:
         
     def redo(self):
         """Execute the command (called by command stack)"""
-        results = []
-        for cmd in self.commands:
-            result = cmd.redo() if hasattr(cmd, 'redo') else cmd.execute()
-            if result:  # Store widget reference for undo if returned
-                results.append(result)
-        if results:
-            self.widget = results[-1]  # Store last widget for undo
+        # Execute transform command first to create new widget
+        self.commands[1].execute()
+        # Then update the value
+        self.commands[0].redo()
         
     def undo(self):
         """Undo the command"""
-        if hasattr(self, 'widget'):
-            for cmd in reversed(self.commands):
-                cmd.widget = self.widget  # Update widget reference
-                result = cmd.undo()
-                if result:
-                    self.widget = result  # Update widget reference if changed
+        # Undo value command first
+        self.commands[0].undo()
+        # Then undo transform command to restore widget
+        self.commands[1].undo()
 
 class GUILogHandler(logging.Handler):
     def __init__(self, log_widget):
@@ -3773,8 +3755,7 @@ class EntityToolGUI(QMainWindow):
             composite_cmd = CompositeCommand([value_cmd, transform_cmd])
             self.command_stack.push(composite_cmd)
             
-            # Delete the original widget after transformation
-            target_widget.deleteLater()
+            # Widget cleanup is handled by TransformWidgetCommand
             self.update_save_button()
 
     def show_texture_selector(self, target_widget):
