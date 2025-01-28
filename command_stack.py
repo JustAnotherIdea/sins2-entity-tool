@@ -82,6 +82,7 @@ class CommandStack:
                 try:
                     if data_path is not None:
                         # Partial update with path and value
+                        print("calling data change callback")
                         callback(self.get_file_data(file_path), data_path, value, source_widget)
                     else:
                         # Full update with just data
@@ -98,10 +99,10 @@ class CommandStack:
     def get_file_data(self, file_path: Path) -> dict:
         """Get the current data for a file"""
         if file_path not in self.file_data:
-            logging.error(f"No data found for file: {file_path}")
+            print(f"No data found for file: {file_path}")
             return None
-        logging.info(f"Retrieving stored data for file: {file_path}")
-        logging.debug(f"Current data: {self.file_data[file_path]}")
+        print(f"Retrieving stored data for file: {file_path}")
+        print(f"Current data: {self.file_data[file_path]}")
         return self.file_data[file_path].copy()  # Return a copy to prevent reference issues
         
     def push(self, command: Command) -> None:
@@ -110,7 +111,7 @@ class CommandStack:
             logging.debug("Skipping command push - already executing")
             return
         
-        logging.info(f"Pushing command for file: {command.file_path}, path: {command.data_path}, old value: {command.old_value}, new value: {command.new_value}")
+        print(f"Pushing command for file: {command.file_path}, path: {command.data_path}, old value: {command.old_value}, new value: {command.new_value}")
         
         # Get current data for the file
         data = self.get_file_data(command.file_path)
@@ -119,11 +120,13 @@ class CommandStack:
             return
             
         # Execute the command
+        print("executing command")
         self.is_executing = True
         command.redo()  # Execute the command immediately
         self.is_executing = False
         
         # Update the stored data
+        print("updating stored data")
         current = data
         for i, key in enumerate(command.data_path[:-1]):
             if isinstance(current, dict):
@@ -135,6 +138,7 @@ class CommandStack:
                     current.append({} if isinstance(command.data_path[i + 1], str) else [])
                 current = current[key]
         
+        print("updating stored data")
         if command.data_path:
             if isinstance(current, dict):
                 current[command.data_path[-1]] = command.new_value
@@ -144,13 +148,18 @@ class CommandStack:
                 current[command.data_path[-1]] = command.new_value
                 
         # Store updated data and notify listeners
+        print("storing updated data")
         self.update_file_data(command.file_path, data)
+        print("notifying data change")
         self.notify_data_change(command.file_path, command.data_path, command.new_value, command.source_widget)
         
+        print("appending command to undo stack")
         self.undo_stack.append(command)
+        print("clearing redo stack")
         self.redo_stack.clear()  # Clear redo stack when new command is added
+        print("adding file path to modified files")
         self.modified_files.add(command.file_path)  # Track modified file
-        logging.debug(f"Modified files after push: {self.modified_files}")
+        print(f"Modified files after push: {self.modified_files}")
         
     def undo(self) -> None:
         """Undo the last command"""

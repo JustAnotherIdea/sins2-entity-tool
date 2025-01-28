@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
                             QLineEdit, QListWidget, QComboBox, QTabWidget, QScrollArea, QGroupBox, QDialog, QSplitter, QToolButton,
-                            QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem, QMenu, QTreeWidget, QTreeWidgetItem, QPlainTextEdit, QProgressBar, QApplication)
+                            QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem, QMenu, QTreeWidget, QTreeWidgetItem, QPlainTextEdit, QProgressBar, QApplication, QFormLayout)
 from PyQt6.QtCore import (Qt, QTimer, QUrl)
 from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QPixmap, QIcon, QKeySequence,
                         QColor, QShortcut, QFont)
@@ -18,6 +18,9 @@ import sounddevice as sd
 import soundfile as sf
 import threading
 import pygame.mixer
+
+# add debug logging
+logging.basicConfig(level=logging.DEBUG)
 
 class TransformWidgetCommand:
     """Command for transforming a widget from one type to another"""
@@ -1784,6 +1787,9 @@ class EntityToolGUI(QMainWindow):
         """Create an editable widget for a value based on its schema type"""
         if path is None:
             path = []
+        elif not isinstance(path, (list, tuple)):
+            path = [path]
+        path = list(path)  # Convert to list if it's a tuple
             
         logging.debug(f"create_widget_for_value called with:")
         logging.debug(f"  value: {value}")
@@ -3107,11 +3113,21 @@ class EntityToolGUI(QMainWindow):
                                 self.all_localized_strings['mod'][language] = {}
                             # Add strings for this language
                             self.all_localized_strings['mod'][language].update(json_data)
+                            # Initialize command stack with this data
+                            self.command_stack.update_file_data(text_file, json_data)
                             logging.debug(f"Loaded {len(json_data)} strings for language {language} from {text_file}")
                     except Exception as e:
                         logging.error(f"Error loading localized text file {text_file}: {str(e)}")
+                        # Initialize with empty data on error
+                        self.command_stack.update_file_data(text_file, {})
             else:
                 logging.debug("No mod localized_text folder found")
+                # Create the folder
+                localized_text_folder.mkdir(parents=True, exist_ok=True)
+                # Initialize empty files for current language and English
+                for lang in [self.current_language, "en"]:
+                    text_file = localized_text_folder / f"{lang}.localized_text"
+                    self.command_stack.update_file_data(text_file, {})
         
         # Load base game strings
         if self.base_game_folder:
@@ -3552,16 +3568,7 @@ class EntityToolGUI(QMainWindow):
             add_menu = menu.addMenu("Add..." if isinstance(current_value, dict) else "Add Item")
             
             if isinstance(current_value, dict):
-                # Resolve schema reference if it exists
-                if "$ref" in schema:
-                    ref_path = schema["$ref"].split("/")[1:]
-                    current = self.current_schema
-                    for part in ref_path:
-                        if part in current:
-                            current = current[part]
-                        else:
-                            return menu
-                    schema = current
+                schema = self.resolve_schema_references(schema)
                 
                 # Get available properties from schema
                 properties = schema.get("properties", {})
@@ -3685,13 +3692,31 @@ class EntityToolGUI(QMainWindow):
             old_value = obj.copy()
             new_value = obj.copy()
             new_value[prop_name] = default_value
+
+            def update_ui(value):
+                if isinstance(widget, QWidget):
+                    container = widget.parent()
+                    if container and isinstance(container, QWidget):
+                        # Create widget just for the new property
+                        property_widget = self.create_widget_for_property(
+                            prop_name, 
+                            default_value,
+                            prop_schema,
+                            False,  # is_base_game
+                            data_path + [prop_name]
+                        )
+                        # Add it to the container
+                        if isinstance(container.layout(), QFormLayout):
+                            container.layout().addRow(prop_name, property_widget)
+                        else:
+                            container.layout().addWidget(property_widget)
             
             command = EditValueCommand(
                 file_path,
                 data_path,
                 old_value,
                 new_value,
-                lambda v: self.refresh_schema_view(file_path),
+                lambda v: update_ui(v),
                 self.update_data_value
             )
             self.command_stack.push(command)
@@ -3699,10 +3724,18 @@ class EntityToolGUI(QMainWindow):
 
     def add_array_item(self, widget: QWidget, item_schema: dict):
         """Add a new item to an array"""
+        logging.info("adding array item")
         data_path = widget.property("data_path")
         file_path = self.get_schema_view_file_path(widget)
         
         if data_path is not None and file_path:
+            # Ensure data_path is a list
+            if isinstance(data_path, bool):
+                logging.error(f"Invalid data_path type: {type(data_path)}")
+                return
+            data_path = list(data_path) if isinstance(data_path, (list, tuple)) else [data_path]
+            logging.debug(f"Data path after conversion: {data_path}")
+            
             # Get current data
             current_data = self.command_stack.get_file_data(file_path)
             if not current_data:
@@ -3719,43 +3752,66 @@ class EntityToolGUI(QMainWindow):
             if not isinstance(array, list):
                 return
             
-            # Create default value for the new item, resolving any references
-            def resolve_schema(schema):
-                if "$ref" in schema:
-                    ref_path = schema["$ref"].split("/")[1:]
-                    current = self.current_schema
-                    for part in ref_path:
-                        if part in current:
-                            current = current[part]
-                        else:
-                            return schema
-                    return current
-                return schema
+            print(array)
             
-            resolved_schema = resolve_schema(item_schema)
+            # Create default value for the new item
+            resolved_schema = self.resolve_schema_references(item_schema)
             default_value = self.get_default_value(resolved_schema)
             
             # Ensure required properties are present with proper default values
             if isinstance(default_value, dict):
                 for prop_name, prop_schema in resolved_schema.get("properties", {}).items():
                     if prop_name in resolved_schema.get("required", []) and prop_name not in default_value:
-                        default_value[prop_name] = self.get_default_value(resolve_schema(prop_schema))
+                        default_value[prop_name] = self.get_default_value(self.resolve_schema_references(prop_schema))
             
             # Create command to add the item
             old_value = array.copy()
             new_value = array.copy()
             new_value.append(default_value)
+            new_index = len(old_value)  # Index where new item will be added
+            
+            # Instead of refreshing the entire view, create and add just the new item widget
+            def update_ui(value):
+                if isinstance(widget, QWidget):
+                    container = widget.parent()
+                    if container and isinstance(container, QWidget):
+                        # Create widget just for the new item
+                        item_path = list(data_path) + [new_index]  # Ensure we create a new list
+                        logging.debug(f"Creating widget with path: {item_path}")
+                        item_widget = self.create_widget_for_value(
+                    default_value,
+                            resolved_schema,
+                            item_path,
+                            False  # is_base_game
+                            )
+                        # Add it to the container
+                        container.layout().addWidget(item_widget)
             
             command = EditValueCommand(
                 file_path,
                 data_path,
                 old_value,
                 new_value,
-                lambda v: self.refresh_schema_view(file_path),
+                lambda v: update_ui(v),
                 self.update_data_value
             )
+            print("pushing command")
             self.command_stack.push(command)
             self.update_save_button()
+
+    def resolve_schema_references(self, schema: dict) -> dict:
+        """Resolve any $ref in the schema to get the actual schema"""
+        if isinstance(schema, dict):
+            if "$ref" in schema:
+                ref_path = schema["$ref"].split("/")[1:]
+                current = self.current_schema
+                for part in ref_path:
+                    if part in current:
+                        current = current[part]
+                    else:
+                        return schema
+                return current
+        return schema
 
     def refresh_schema_view(self, file_path: Path):
         """Refresh the schema view for a file"""
