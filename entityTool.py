@@ -15,10 +15,8 @@ from typing import List, Any
 
 class TransformWidgetCommand:
     """Command for transforming a widget from one type to another"""
-    def __init__(self, gui, widget, old_type, new_type, old_value, new_value):
+    def __init__(self, gui, widget, old_value, new_value):
         self.gui = gui
-        self.old_type = old_type
-        self.new_type = new_type
         self.old_value = old_value
         self.new_value = new_value
         # Store widget properties and references before deletion
@@ -63,15 +61,7 @@ class TransformWidgetCommand:
             return None
             
         old_widget = self.widget
-        if self.new_type == "file":
-            new_widget = self.gui.transform_widget_to_file_button(temp, self.new_value)
-        elif self.new_type == "uniform":
-            new_widget = self.gui.transform_widget_to_line_edit(temp, self.new_value)
-        elif self.new_type == "localized_text":
-            new_widget = self.gui.transform_widget_to_localized_text(temp, self.new_value)
-        elif self.new_type == "texture":
-            new_widget = self.gui.transform_widget_to_texture(temp, self.new_value)
-            
+        new_widget = self.gui.create_widget_for_value(self.new_value, {"type": "string"}, self.is_base_game, self.data_path)
         self.widget = self.replace_widget(old_widget if old_widget else temp, new_widget)
         return self.widget
         
@@ -82,15 +72,7 @@ class TransformWidgetCommand:
             return None
             
         old_widget = self.widget
-        if self.old_type == "file":
-            new_widget = self.gui.transform_widget_to_file_button(temp, self.old_value)
-        elif self.old_type == "uniform":
-            new_widget = self.gui.transform_widget_to_line_edit(temp, self.old_value)
-        elif self.old_type == "localized_text":
-            new_widget = self.gui.transform_widget_to_localized_text(temp, self.old_value)
-        elif self.old_type == "texture":
-            new_widget = self.gui.transform_widget_to_texture(temp, self.old_value)
-            
+        new_widget = self.gui.create_widget_for_value(self.old_value, {"type": "string"}, self.is_base_game, self.data_path)
         self.widget = self.replace_widget(old_widget if old_widget else temp, new_widget)
         return self.widget
         
@@ -3428,7 +3410,7 @@ class EntityToolGUI(QMainWindow):
         def on_select():
             if file_list.currentItem():
                 new_value = file_list.currentItem().text()
-                self.on_select_from_file(target_widget, new_value)
+                self.on_select_value(target_widget, new_value)
                 dialog.accept()
         
         select_btn.clicked.connect(on_select)
@@ -3536,7 +3518,7 @@ class EntityToolGUI(QMainWindow):
             if data:  # Only leaf nodes have data
                 path, value = data
                 new_value = str(value) if not isinstance(value, (dict, list)) else path
-                self.on_select_from_uniforms(target_widget, new_value)
+                self.on_select_value(target_widget, new_value)
                 dialog.accept()
         
         def on_item_double_clicked(item, column):
@@ -3648,7 +3630,7 @@ class EntityToolGUI(QMainWindow):
             item = text_list.currentItem()
             if item:
                 new_value = item.data(Qt.ItemDataRole.UserRole)
-                self.on_select_from_localized_text(target_widget, new_value)
+                self.on_select_value(target_widget, new_value)
                 dialog.accept()
         
         def on_item_double_clicked(item):
@@ -3757,8 +3739,8 @@ class EntityToolGUI(QMainWindow):
         if self.current_text_edit and not self.current_text_edit.property("is_updating"):
             self.on_localized_text_changed(self.current_text_edit, self.current_text_edit.toPlainText())
 
-    def on_select_from_file(self, target_widget, new_value):
-        """Handle selection from file selector"""
+    def on_select_value(self, target_widget, new_value):
+        """Handle selection from any selector dialog"""
         data_path = target_widget.property("data_path")
         old_value = target_widget.property("original_value")
         file_path = self.get_schema_view_file_path(target_widget)
@@ -3776,8 +3758,7 @@ class EntityToolGUI(QMainWindow):
             value_cmd.source_widget = target_widget
             
             # Create transform command
-            old_type = self.get_widget_type(target_widget)
-            transform_cmd = TransformWidgetCommand(self, target_widget, old_type, "file", old_value, new_value)
+            transform_cmd = TransformWidgetCommand(self, target_widget, old_value, new_value)
             
             # Combine commands
             composite_cmd = CompositeCommand([value_cmd, transform_cmd])
@@ -3786,167 +3767,6 @@ class EntityToolGUI(QMainWindow):
             # Delete the original widget after transformation
             target_widget.deleteLater()
             self.update_save_button()
-
-    def on_select_from_uniforms(self, target_widget, new_value):
-        """Handle selection from uniforms selector"""
-        data_path = target_widget.property("data_path")
-        old_value = target_widget.property("original_value")
-        file_path = self.get_schema_view_file_path(target_widget)
-        
-        if data_path is not None and old_value != new_value and file_path:
-            # Create value update command
-            value_cmd = EditValueCommand(
-                file_path,
-                data_path,
-                old_value,
-                new_value,
-                lambda v: None,  # No-op since transformation is handled separately
-                self.update_data_value
-            )
-            value_cmd.source_widget = target_widget
-            
-            # Create transform command
-            old_type = self.get_widget_type(target_widget)
-            transform_cmd = TransformWidgetCommand(self, target_widget, old_type, "uniform", old_value, new_value)
-            
-            # Combine commands
-            composite_cmd = CompositeCommand([value_cmd, transform_cmd])
-            self.command_stack.push(composite_cmd)
-            
-            # Delete the original widget after transformation
-            target_widget.deleteLater()
-            self.update_save_button()
-
-    def on_select_from_localized_text(self, target_widget, new_value):
-        """Handle selection from localized text selector"""
-        data_path = target_widget.property("data_path")
-        old_value = target_widget.property("original_value")
-        file_path = self.get_schema_view_file_path(target_widget)
-        
-        if data_path is not None and old_value != new_value and file_path:
-            # Create value update command
-            value_cmd = EditValueCommand(
-                file_path,
-                data_path,
-                old_value,
-                new_value,
-                lambda v: None,  # No-op since transformation is handled separately
-                self.update_data_value
-            )
-            value_cmd.source_widget = target_widget
-            
-            # Create transform command
-            old_type = self.get_widget_type(target_widget)
-            transform_cmd = TransformWidgetCommand(self, target_widget, old_type, "localized_text", old_value, new_value)
-            
-            # Combine commands
-            composite_cmd = CompositeCommand([value_cmd, transform_cmd])
-            self.command_stack.push(composite_cmd)
-            
-            # Delete the original widget after transformation
-            target_widget.deleteLater()
-            self.update_save_button()
-
-    def transform_widget_to_file_button(self, widget, value):
-        """Transform a widget into a file button"""
-        # Get widget properties
-        data_path = widget.property("data_path")
-        is_base_game = widget.property("is_base_game") or False
-        
-        # Create new widget using existing method
-        new_widget = self.create_widget_for_value(value, {"type": "string"}, is_base_game, data_path)
-        
-        # Get the parent layout
-        parent = widget.parent()
-        layout = parent.layout()
-        if not layout:
-            layout = QVBoxLayout(parent)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(4)
-        
-        # Replace old widget
-        layout.replaceWidget(widget, new_widget)
-        widget.deleteLater()
-        return new_widget
-
-    def transform_widget_to_line_edit(self, widget, value):
-        """Transform a widget into a line edit"""
-        # Get widget properties
-        data_path = widget.property("data_path")
-        is_base_game = widget.property("is_base_game") or False
-        
-        # Create new widget using existing method
-        new_widget = self.create_widget_for_value(value, {"type": "string"}, is_base_game, data_path)
-        
-        # Get the parent layout
-        parent = widget.parent()
-        layout = parent.layout()
-        if not layout:
-            layout = QVBoxLayout(parent)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(4)
-        
-        # Replace old widget
-        layout.replaceWidget(widget, new_widget)
-        widget.deleteLater()
-        return new_widget
-
-    def transform_widget_to_localized_text(self, widget, value):
-        """Transform a widget into a localized text widget"""
-        # Get widget properties
-        data_path = widget.property("data_path")
-        is_base_game = widget.property("is_base_game") or False
-        
-        # Create new widget using existing method
-        new_widget = self.create_widget_for_value(value, {"type": "string"}, is_base_game, data_path)
-        
-        # Get the parent layout
-        parent = widget.parent()
-        layout = parent.layout()
-        if not layout:
-            layout = QVBoxLayout(parent)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(4)
-        
-        # Replace old widget
-        layout.replaceWidget(widget, new_widget)
-        widget.deleteLater()
-        return new_widget
-
-    def get_entity_type_from_value(self, value: str) -> str:
-        """Determine entity type from a value by checking file existence"""
-        if not self.current_folder:
-            return None
-            
-        # Check each entity type
-        for entity_type in self.schema_extensions:
-            # Check mod folder
-            mod_file = self.current_folder / "entities" / f"{value}.{entity_type}"
-            if mod_file.exists():
-                return entity_type
-                
-            # Check base game folder if available
-            if self.base_game_folder:
-                base_file = self.base_game_folder / "entities" / f"{value}.{entity_type}"
-                if base_file.exists():
-                    return entity_type
-        
-        return None
-    
-    def get_widget_type(self, widget) -> str:
-        """Determine the type of a widget"""
-        if isinstance(widget, QPushButton):
-            return "file"
-        elif isinstance(widget, QLineEdit):
-            return "uniform"
-        elif isinstance(widget, QWidget) and widget.findChild(QPlainTextEdit):
-            return "localized_text"
-        elif isinstance(widget, QWidget) and widget.findChild(QLabel) and widget.findChild(QLineEdit):
-            # Texture widgets have both a QLabel (for preview) and QLineEdit
-            return "texture"
-        else:
-            # Default to uniform since it's the most basic type
-            return "uniform"
 
     def show_texture_selector(self, target_widget):
         """Show a dialog to select a texture"""
@@ -4017,7 +3837,7 @@ class EntityToolGUI(QMainWindow):
         def on_item_selected():
             if texture_list.currentItem():
                 new_value = texture_list.currentItem().text()
-                self.on_select_from_texture(target_widget, new_value)
+                self.on_select_value(target_widget, new_value)
                 dialog.accept()
         
         def on_item_double_clicked(item):
@@ -4046,56 +3866,4 @@ class EntityToolGUI(QMainWindow):
         # Initial population
         update_texture_list()
         dialog.exec()
-
-    def on_select_from_texture(self, target_widget, new_value):
-        """Handle selection from texture selector"""
-        data_path = target_widget.property("data_path")
-        old_value = target_widget.property("original_value")
-        file_path = self.get_schema_view_file_path(target_widget)
-        
-        if data_path is not None and old_value != new_value and file_path:
-            # Create value update command
-            value_cmd = EditValueCommand(
-                file_path,
-                data_path,
-                old_value,
-                new_value,
-                lambda v: None,  # No-op since transformation is handled separately
-                self.update_data_value
-            )
-            value_cmd.source_widget = target_widget
-            
-            # Create transform command
-            old_type = self.get_widget_type(target_widget)
-            transform_cmd = TransformWidgetCommand(self, target_widget, old_type, "texture", old_value, new_value)
-            
-            # Combine commands
-            composite_cmd = CompositeCommand([value_cmd, transform_cmd])
-            self.command_stack.push(composite_cmd)
-            
-            # Delete the original widget after transformation
-            target_widget.deleteLater()
-            self.update_save_button()
-
-    def transform_widget_to_texture(self, widget, value):
-        """Transform a widget into a texture widget"""
-        # Get widget properties
-        data_path = widget.property("data_path")
-        is_base_game = widget.property("is_base_game") or False
-        
-        # Create new widget using existing method
-        new_widget = self.create_widget_for_value(value, {"type": "string"}, is_base_game, data_path)
-        
-        # Get the parent layout
-        parent = widget.parent()
-        layout = parent.layout()
-        if not layout:
-            layout = QVBoxLayout(parent)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(4)
-        
-        # Replace old widget
-        layout.replaceWidget(widget, new_widget)
-        widget.deleteLater()
-        return new_widget
 
