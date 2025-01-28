@@ -17,26 +17,81 @@ class TransformWidgetCommand:
     """Command for transforming a widget from one type to another"""
     def __init__(self, gui, widget, old_type, new_type, value):
         self.gui = gui
-        self.widget = widget
         self.old_type = old_type
         self.new_type = new_type
         self.value = value
+        # Store widget properties and references before deletion
+        self.parent = widget.parent()
+        self.parent_layout = self.parent.layout()
+        if not self.parent_layout:
+            self.parent_layout = QVBoxLayout(self.parent)
+            self.parent_layout.setContentsMargins(0, 0, 0, 0)
+            self.parent_layout.setSpacing(4)
+        self.widget_index = self.parent_layout.indexOf(widget)
+        self.data_path = widget.property("data_path")
+        self.is_base_game = widget.property("is_base_game") or False
+        self.widget = None  # Current widget reference
+        
+    def replace_widget(self, old_widget, new_widget):
+        """Replace a widget in the layout"""
+        if self.parent_layout and old_widget and new_widget:
+            # If the old widget is still in the layout, remove it
+            old_index = self.parent_layout.indexOf(old_widget)
+            if old_index >= 0:
+                self.parent_layout.removeWidget(old_widget)
+                old_widget.deleteLater()
+            
+            # Add the new widget at the original index
+            self.parent_layout.insertWidget(self.widget_index, new_widget)
+            return new_widget
+        return None
+        
+    def create_temp_widget(self):
+        """Create a temporary widget with stored properties"""
+        if not self.parent:
+            return None
+        temp = QWidget(self.parent)
+        temp.setProperty("data_path", self.data_path)
+        temp.setProperty("is_base_game", self.is_base_game)
+        return temp
         
     def execute(self):
+        """Execute the transformation"""
+        temp = self.create_temp_widget()
+        if not temp:
+            return None
+            
+        old_widget = self.widget
         if self.new_type == "file":
-            return self.gui.transform_widget_to_file_button(self.widget, self.value)
+            new_widget = self.gui.transform_widget_to_file_button(temp, self.value)
         elif self.new_type == "uniform":
-            return self.gui.transform_widget_to_line_edit(self.widget, self.value)
+            new_widget = self.gui.transform_widget_to_line_edit(temp, self.value)
         elif self.new_type == "localized_text":
-            return self.gui.transform_widget_to_localized_text(self.widget, self.value)
+            new_widget = self.gui.transform_widget_to_localized_text(temp, self.value)
+            
+        self.widget = self.replace_widget(old_widget if old_widget else temp, new_widget)
+        return self.widget
         
     def undo(self):
+        """Undo the transformation"""
+        temp = self.create_temp_widget()
+        if not temp:
+            return None
+            
+        old_widget = self.widget
         if self.old_type == "file":
-            return self.gui.transform_widget_to_file_button(self.widget, self.value)
+            new_widget = self.gui.transform_widget_to_file_button(temp, self.value)
         elif self.old_type == "uniform":
-            return self.gui.transform_widget_to_line_edit(self.widget, self.value)
+            new_widget = self.gui.transform_widget_to_line_edit(temp, self.value)
         elif self.old_type == "localized_text":
-            return self.gui.transform_widget_to_localized_text(self.widget, self.value)
+            new_widget = self.gui.transform_widget_to_localized_text(temp, self.value)
+            
+        self.widget = self.replace_widget(old_widget if old_widget else temp, new_widget)
+        return self.widget
+        
+    def redo(self):
+        """Redo the transformation (same as execute)"""
+        return self.execute()
 
 class CompositeCommand:
     """Command that combines multiple commands into one atomic operation"""
