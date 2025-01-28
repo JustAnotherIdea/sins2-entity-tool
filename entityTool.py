@@ -1544,6 +1544,16 @@ class EntityToolGUI(QMainWindow):
                             toggle_btn.setText(prop_name.replace("_", " ").title())
                             toggle_btn.setCheckable(True)
                             
+                            # Store object data and path for context menu
+                            toggle_btn.setProperty("data_path", prop_path)
+                            toggle_btn.setProperty("original_value", value)
+                            
+                            # Add context menu to the button
+                            toggle_btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                            toggle_btn.customContextMenuRequested.connect(
+                                lambda pos, w=toggle_btn: self.show_context_menu(w, pos, value)
+                            )
+                            
                             # Create content widget
                             content = QWidget()
                             content_layout = QVBoxLayout(content)
@@ -3511,8 +3521,10 @@ class EntityToolGUI(QMainWindow):
                 used_props = set(current_value.keys())
                 
                 # Add menu items for each available property
+                has_available_props = False
                 for prop_name, prop_schema in sorted(properties.items()):
                     if prop_name not in used_props:
+                        has_available_props = True
                         action = add_menu.addAction(prop_name)
                         is_required = prop_name in required
                         if is_required:
@@ -3521,6 +3533,11 @@ class EntityToolGUI(QMainWindow):
                             lambda checked, n=prop_name, s=prop_schema: 
                             self.add_property(widget, n, s)
                         )
+                
+                # If no available properties, add a disabled message
+                if not has_available_props:
+                    action = add_menu.addAction("No available properties")
+                    action.setEnabled(False)
                         
             elif isinstance(current_value, list):
                 # Get item schema
@@ -3530,8 +3547,9 @@ class EntityToolGUI(QMainWindow):
                     action.triggered.connect(
                         lambda checked: self.add_array_item(widget, items_schema)
                     )
-        else:
-        # Only add selection menu for simple values
+        
+        # Only add selection menu for non-container values (not objects or arrays)
+        if not isinstance(current_value, (dict, list)):
             select_menu = menu.addMenu("Select from...")
             
             # File selection action
