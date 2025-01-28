@@ -261,6 +261,11 @@ class CommandStack:
         has_changes = len(self.modified_files) > 0
         logging.debug(f"Checking for unsaved changes: {has_changes} (modified files: {self.modified_files})")
         return has_changes
+    
+    def mark_all_saved(self) -> None:
+        """Mark all changes as saved"""
+        self.modified_files.clear()
+        logging.info("Marked all changes as saved")
         
     def get_modified_files(self) -> Set[Path]:
         """Get the set of files that have unsaved changes"""

@@ -2965,10 +2965,10 @@ class EntityToolGUI(QMainWindow):
             self.update_save_button()  # Update save button state
     
     def save_changes(self):
-        """Save all pending changes and return True if successful"""
+        """Save all changes and return True if successful"""
         if not self.command_stack.has_unsaved_changes():
             logging.info("No unsaved changes to save")
-            return
+            return True
             
         # Get all modified files
         modified_files = self.command_stack.get_modified_files()
@@ -3000,11 +3000,13 @@ class EntityToolGUI(QMainWindow):
                 success = False
                 continue
                 
-        # Update UI
+        # Update UI and command stack state
         if success:
             self.status_label.setText("All changes saved")
             self.status_label.setProperty("status", "success")
             logging.info("All files saved successfully")
+            # Mark all changes as saved in command stack
+            self.command_stack.mark_all_saved()
         else:
             self.status_label.setText("Error saving some changes")
             self.status_label.setProperty("status", "error")
@@ -3013,7 +3015,7 @@ class EntityToolGUI(QMainWindow):
         self.status_label.style().polish(self.status_label)
         
         # Update save button state
-        self.save_btn.setEnabled(self.command_stack.has_unsaved_changes())
+        self.update_save_button()
         logging.info(f"Save button enabled: {self.command_stack.has_unsaved_changes()}")
 
         return success
