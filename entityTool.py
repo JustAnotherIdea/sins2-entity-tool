@@ -2815,7 +2815,7 @@ class EntityToolGUI(QMainWindow):
             self.update_save_button()  # Update save button state
     
     def save_changes(self):
-        """Save all pending changes"""
+        """Save all pending changes and return True if successful"""
         if not self.command_stack.has_unsaved_changes():
             logging.info("No unsaved changes to save")
             return
@@ -2865,6 +2865,8 @@ class EntityToolGUI(QMainWindow):
         # Update save button state
         self.save_btn.setEnabled(self.command_stack.has_unsaved_changes())
         logging.info(f"Save button enabled: {self.command_stack.has_unsaved_changes()}")
+
+        return success
         
     def update_save_button(self):
         """Update save button enabled state"""
@@ -3868,4 +3870,42 @@ class EntityToolGUI(QMainWindow):
         # Initial population
         update_texture_list()
         dialog.exec()
+
+    def closeEvent(self, event):
+        """Handle window close event"""
+        if self.command_stack.has_unsaved_changes():
+            reply = QMessageBox.question(
+                self,
+                'Unsaved Changes',
+                'You have unsaved changes. Do you want to save before closing?',
+                QMessageBox.StandardButton.Save | 
+                QMessageBox.StandardButton.Discard | 
+                QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Save
+            )
+            
+            if reply == QMessageBox.StandardButton.Save:
+                # Try to save changes
+                if self.save_changes():
+                    event.accept()
+                else:
+                    # If save failed, ask if they want to discard or cancel
+                    reply = QMessageBox.question(
+                        self,
+                        'Save Failed',
+                        'Failed to save changes. Do you want to discard changes and close anyway?',
+                        QMessageBox.StandardButton.Discard | 
+                        QMessageBox.StandardButton.Cancel,
+                        QMessageBox.StandardButton.Cancel
+                    )
+                    if reply == QMessageBox.StandardButton.Discard:
+                        event.accept()
+                    else:
+                        event.ignore()
+            elif reply == QMessageBox.StandardButton.Discard:
+                event.accept()
+            else:  # Cancel
+                event.ignore()
+        else:
+            event.accept()
 
