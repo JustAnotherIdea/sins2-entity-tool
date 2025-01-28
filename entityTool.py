@@ -48,27 +48,39 @@ class TransformWidgetCommand:
         self.data_path = widget.property("data_path")
         self.is_base_game = widget.property("is_base_game") or False
         
-        # Move the original widget into our container
-        widget.setParent(self.container)
-        self.container_layout.addWidget(widget)
-        
-        # Add container to parent layout
-        self.parent_layout.insertWidget(self.widget_index, self.container)
+        # For array items, we'll add to the existing layout instead of replacing
+        self.is_array_item = old_value is None and isinstance(widget, QWidget) and widget.layout() is not None
+        if not self.is_array_item:
+            # Move the original widget into our container
+            widget.setParent(self.container)
+            self.container_layout.addWidget(widget)
+            
+            # Add container to parent layout
+            self.parent_layout.insertWidget(self.widget_index, self.container)
+        else:
+            # For array items, we'll use the existing widget and layout
+            self.container = widget
+            self.container_layout = widget.layout()
         
     def replace_widget(self, new_widget):
         """Replace all widgets in container with new widget"""
         if not self.container_layout or not new_widget:
             return None
             
-        # Clear all widgets from container
-        while self.container_layout.count():
-            item = self.container_layout.takeAt(0)
-            if item.widget():
-                item.widget().hide()
-                item.widget().deleteLater()
-                
-        # Add new widget to container
-        self.container_layout.addWidget(new_widget)
+        if not self.is_array_item:
+            # Clear all widgets from container
+            while self.container_layout.count():
+                item = self.container_layout.takeAt(0)
+                if item.widget():
+                    item.widget().hide()
+                    item.widget().deleteLater()
+                    
+            # Add new widget to container
+            self.container_layout.addWidget(new_widget)
+        else:
+            # For array items, just add the new widget to the existing layout
+            self.container_layout.addWidget(new_widget)
+            
         return new_widget
         
     def execute(self):
@@ -78,8 +90,16 @@ class TransformWidgetCommand:
         
     def undo(self):
         """Undo the transformation"""
-        new_widget = self.gui.create_widget_for_value(self.old_value, {"type": "string"}, self.is_base_game, self.data_path)
-        return self.replace_widget(new_widget)
+        if not self.is_array_item:
+            new_widget = self.gui.create_widget_for_value(self.old_value, {"type": "string"}, self.is_base_game, self.data_path)
+            return self.replace_widget(new_widget)
+        else:
+            # For array items, remove the last widget from the layout
+            if self.container_layout.count() > 0:
+                item = self.container_layout.takeAt(self.container_layout.count() - 1)
+                if item.widget():
+                    item.widget().hide()
+                    item.widget().deleteLater()
         
     def redo(self):
         """Redo the transformation (same as execute)"""
@@ -2806,16 +2826,17 @@ class EntityToolGUI(QMainWindow):
             # Check if this is an array update by looking at the data at the path
             is_array_update = False
             if data_path:
-                # For top-level array updates, check the value in new_data
+                # Only treat it as an array update if we're updating the array itself, not an item within it
                 if len(data_path) == 1:
-                    is_array_update = isinstance(new_data.get(data_path[0]), list)
+                    # For top-level arrays, check if the value is a list
+                    is_array_update = isinstance(value, list)
                 else:
-                    # For nested arrays, navigate to the parent
+                    # For nested arrays, check if the parent is a list and we're not updating an item
                     current = new_data
                     for i, key in enumerate(data_path[:-1]):
                         if isinstance(current, dict) and key in current:
                             current = current[key]
-                    is_array_update = isinstance(current, list)
+                    is_array_update = isinstance(current, list) and isinstance(value, list)
 
             print(f"Is array update: {is_array_update}")
             
@@ -2892,7 +2913,6 @@ class EntityToolGUI(QMainWindow):
                                 return result
                     return None
                 
-                # For array updates, we need to find the array's content widget
                 if is_array_update:
                     # Find the array's toggle button
                     array_path = data_path[:-1] if len(data_path) > 1 else data_path
@@ -2918,14 +2938,30 @@ class EntityToolGUI(QMainWindow):
                                     array_content_layout = array_content.layout()
                                     if array_content_layout:
                                         # Create widget for the new array item
-                                        items_schema = self.current_schema.get("items", {})
+                                        # Get the schema for array items by traversing the schema structure
+                                        current_schema = self.current_schema
+                                        if len(data_path) == 1:
+                                            # For top-level arrays, get the items schema directly
+                                            current_schema = current_schema.get("properties", {}).get(data_path[0], {})
+                                        else:
+                                            # For nested arrays, traverse the schema structure
+                                            for key in data_path[:-1]:
+                                                if isinstance(current_schema, dict):
+                                                    if "properties" in current_schema:
+                                                        current_schema = current_schema["properties"].get(key, {})
+                                                    elif "items" in current_schema:
+                                                        current_schema = current_schema["items"]
+                                        
+                                        items_schema = current_schema.get("items", {})
                                         if isinstance(items_schema, dict):
                                             # Create widget for the new value
-                                            new_widget = self.create_widget_for_value(value[-1], items_schema, is_base_game, data_path)
+                                            item_path = data_path[:-1] if len(data_path) > 1 else data_path
+                                            item_path = item_path + [len(array_data) - 1]  # Add index of new item
+                                            new_widget = self.create_widget_for_value(value[-1], items_schema, is_base_game, item_path)
                                             if new_widget:
                                                 array_content_layout.addWidget(new_widget)
                                     break
-                else:
+                elif data_path:  # Only do regular value update if we have a data path and it's not an array update
                     # Regular value update
                     target_widget = find_widget_by_path(content, data_path)
                     if target_widget is not None and target_widget is not source_widget:
@@ -3778,79 +3814,79 @@ class EntityToolGUI(QMainWindow):
 
     def add_array_item(self, widget: QWidget, item_schema: dict):
         """Add a new item to an array"""
-        logging.info("adding array item")
-        data_path = widget.property("data_path")
+        # Get file path from parent schema view
         file_path = self.get_schema_view_file_path(widget)
+        if not file_path:
+            return
+            
+        data_path = widget.property("data_path")
+        if data_path is None:
+            return
+            
+        # Get current data from command stack
+        current_data = self.command_stack.get_file_data(file_path)
+        if not current_data:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                current_data = json.load(f)
+                
+        # Navigate to the target array
+        array_data = current_data
+        for part in data_path:
+            array_data = array_data[part]
+            
+        if not isinstance(array_data, list):
+            array_data = []
+            
+        # Create new item with default value based on schema
+        resolved_schema = self.resolve_schema_references(item_schema)
+        new_item = self.get_default_value(resolved_schema)
         
-        if data_path is not None and file_path:
-            # Ensure data_path is a list
-            if isinstance(data_path, bool):
-                logging.error(f"Invalid data_path type: {type(data_path)}")
-                return
-            data_path = list(data_path) if isinstance(data_path, (list, tuple)) else [data_path]
-            logging.debug(f"Data path after conversion: {data_path}")
-            
-            # Get current data
-            current_data = self.command_stack.get_file_data(file_path)
-            if not current_data:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    current_data = json.load(f)
-            
-            # Navigate to the target array
-            target = current_data
-            for part in data_path[:-1]:  # Exclude the last part which is the array itself
-                target = target[part]
-            
-            # Get the array to modify
-            array = target[data_path[-1]]
-            if not isinstance(array, list):
-                return
-            
-            print(array)
-            
-            # Create default value for the new item
-            resolved_schema = self.resolve_schema_references(item_schema)
-            default_value = self.get_default_value(resolved_schema)
-            
-            # Ensure required properties are present with proper default values
-            if isinstance(default_value, dict):
-                for prop_name, prop_schema in resolved_schema.get("properties", {}).items():
-                    if prop_name in resolved_schema.get("required", []) and prop_name not in default_value:
-                        default_value[prop_name] = self.get_default_value(self.resolve_schema_references(prop_schema))
-            
-            # Create command to add the item
-            old_value = array.copy()
-            new_value = array.copy()
-            new_value.append(default_value)
-            new_index = len(old_value)  # Index where new item will be added
-            
-            # Instead of refreshing the entire view, create and add just the new item widget
-            def update_ui(value):
-                if isinstance(widget, QWidget):
-                    container = widget.parent()
-                    if container and isinstance(container, QWidget):
-                        # Create widget just for the new item
-                        item_path = list(data_path) + [new_index]  # Ensure we create a new list
-                        logging.debug(f"Creating widget with path: {item_path}")
-                        item_widget = self.create_widget_for_value(
-                    default_value,
-                            resolved_schema,
-                            item_path,
-                            False  # is_base_game
-                            )
-                        # Add it to the container
-                        container.layout().addWidget(item_widget)
-            
-            command = EditValueCommand(
-                file_path,
-                data_path,
-                old_value,
-                new_value,
-                lambda v: update_ui(v),
-                self.update_data_value
+        # Ensure required properties are present with proper default values
+        if isinstance(new_item, dict):
+            for prop_name, prop_schema in resolved_schema.get("properties", {}).items():
+                if prop_name in resolved_schema.get("required", []) and prop_name not in new_item:
+                    new_item[prop_name] = self.get_default_value(self.resolve_schema_references(prop_schema))
+        
+        # Create new array with added item
+        new_array = array_data + [new_item]
+        
+        # Create value update command
+        value_cmd = EditValueCommand(
+            file_path,
+            data_path,
+            array_data,
+            new_array,
+            lambda v: None,  # No-op since widget update is handled separately
+            self.update_data_value
+        )
+        value_cmd.source_widget = widget
+        
+        # Create widget for the new item
+        item_path = data_path + [len(array_data)]  # Path to the new item
+        
+        # Find the array's content widget (next widget after the toggle button)
+        array_container = widget.parent()
+        content_widget = None
+        if array_container:
+            array_layout = array_container.layout()
+            for i in range(array_layout.count()):
+                item_widget = array_layout.itemAt(i).widget()
+                if item_widget and item_widget != widget:
+                    content_widget = item_widget
+                    break
+        
+        if content_widget and content_widget.layout():
+            # Create transform command for the new widget
+            transform_cmd = TransformWidgetCommand(
+                self,
+                content_widget,
+                None,  # No old value since we're adding a new widget
+                new_item
             )
-            print("pushing command")
-            self.command_stack.push(command)
+            
+            # Combine commands
+            composite_cmd = CompositeCommand([value_cmd, transform_cmd])
+            self.command_stack.push(composite_cmd)
             self.update_save_button()
 
     def resolve_schema_references(self, schema: dict) -> dict:
