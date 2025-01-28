@@ -93,7 +93,6 @@ class CommandStack:
     def update_file_data(self, file_path: Path, data: dict) -> None:
         """Update the stored data for a file"""
         logging.info(f"Updating stored data for file: {file_path}")
-        logging.debug(f"New data: {data}")
         self.file_data[file_path] = data.copy()  # Store a copy to prevent reference issues
         
     def get_file_data(self, file_path: Path) -> dict:
@@ -102,7 +101,6 @@ class CommandStack:
             print(f"No data found for file: {file_path}")
             return None
         print(f"Retrieving stored data for file: {file_path}")
-        print(f"Current data: {self.file_data[file_path]}")
         return self.file_data[file_path].copy()  # Return a copy to prevent reference issues
         
     def push(self, command: Command) -> None:

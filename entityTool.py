@@ -2796,14 +2796,34 @@ class EntityToolGUI(QMainWindow):
         # Create content widget
         content = QWidget()
         content_layout = QVBoxLayout(content)
-        content_layout.setSpacing(10)  # Add spacing between elements
+        content_layout.setSpacing(10)
         
         def update_content(new_data: dict, data_path: List[str] = None, value: Any = None, source_widget = None):
             """Update the content widget with new data"""
-            logging.info(f"Updating schema view content for {file_path}")
-            logging.debug(f"Data path: {data_path}, Value: {value}, Source widget: {source_widget}")
+            print(f"Updating schema view content for {file_path}")
+            print(f"Data path: {data_path}, Value: {value}, Source widget: {source_widget}")
             
-            if data_path is None or source_widget is None:
+            # Check if this is an array update by looking at the data at the path
+            is_array_update = False
+            if data_path:
+                # For top-level array updates, check the value in new_data
+                if len(data_path) == 1:
+                    is_array_update = isinstance(new_data.get(data_path[0]), list)
+                else:
+                    # For nested arrays, navigate to the parent
+                    current = new_data
+                    for i, key in enumerate(data_path[:-1]):
+                        if isinstance(current, dict) and key in current:
+                            current = current[key]
+                    is_array_update = isinstance(current, list)
+
+            print(f"Is array update: {is_array_update}")
+            
+            # Only do a full refresh if we have no data path AND it's not an array update
+            should_full_refresh = data_path is None and not is_array_update
+            
+            if should_full_refresh:
+                print("Full refresh")
                 # Full update - recreate entire view
                 logging.debug("Performing full update")
                 
@@ -2889,6 +2909,16 @@ class EntityToolGUI(QMainWindow):
                         target_widget.setCurrentText(str(value) if value is not None else "")
                     # Update original value property
                     target_widget.setProperty("original_value", value)
+                    
+                    # If this is an array update, update the parent toggle button count
+                    if is_array_update:
+                        array_widget = find_widget_by_path(content, data_path[:-1] if len(data_path) > 1 else data_path)
+                        if array_widget and isinstance(array_widget, QToolButton):
+                            array_data = value if len(data_path) == 1 else current  # Use value for top-level arrays
+                            prop_name = data_path[-2] if len(data_path) >= 2 else data_path[0]  # Get array name
+                            prop_name = prop_name if isinstance(prop_name, str) else f"Item {prop_name}"
+                            display_name = f"{prop_name.replace('_', ' ').title()} ({len(array_data)})"
+                            array_widget.setText(display_name)
         
         # Initial content update with command stack data
         update_content(display_data)
