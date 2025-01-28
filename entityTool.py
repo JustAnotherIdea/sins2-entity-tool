@@ -29,21 +29,34 @@ class TransformWidgetCommand:
         self.widget_index = self.parent_layout.indexOf(widget)
         self.data_path = widget.property("data_path")
         self.is_base_game = widget.property("is_base_game") or False
-        self.widget = None  # Current widget reference
+        self.current_widget = None  # Current widget reference
         
-    def replace_widget(self, old_widget, new_widget):
-        """Replace a widget in the layout"""
-        if self.parent_layout and old_widget and new_widget:
-            # If the old widget is still in the layout, remove it
-            old_index = self.parent_layout.indexOf(old_widget)
-            if old_index >= 0:
-                self.parent_layout.removeWidget(old_widget)
-                old_widget.deleteLater()
+    def replace_widget(self, new_widget):
+        """Replace current widget with new widget"""
+        if not self.parent_layout or not new_widget:
+            return None
             
-            # Add the new widget at the original index
-            self.parent_layout.insertWidget(self.widget_index, new_widget)
-            return new_widget
-        return None
+        # Remove current widget if it exists and is valid
+        if self.current_widget:
+            try:
+                # Check if widget is still valid and in layout
+                if not self.current_widget.isWidgetType():
+                    self.current_widget = None
+                else:
+                    old_index = self.parent_layout.indexOf(self.current_widget)
+                    if old_index >= 0:
+                        self.parent_layout.removeWidget(self.current_widget)
+                        self.current_widget.hide()  # Hide before deletion to prevent visual glitches
+                        self.current_widget.deleteLater()
+                        self.current_widget = None
+            except RuntimeError:
+                # Widget was already deleted
+                self.current_widget = None
+        
+        # Add the new widget at the original index
+        self.parent_layout.insertWidget(self.widget_index, new_widget)
+        self.current_widget = new_widget
+        return new_widget
         
     def create_temp_widget(self):
         """Create a temporary widget with stored properties"""
@@ -60,10 +73,8 @@ class TransformWidgetCommand:
         if not temp:
             return None
             
-        old_widget = self.widget
         new_widget = self.gui.create_widget_for_value(self.new_value, {"type": "string"}, self.is_base_game, self.data_path)
-        self.widget = self.replace_widget(old_widget if old_widget else temp, new_widget)
-        return self.widget
+        return self.replace_widget(new_widget)
         
     def undo(self):
         """Undo the transformation"""
@@ -71,10 +82,8 @@ class TransformWidgetCommand:
         if not temp:
             return None
             
-        old_widget = self.widget
         new_widget = self.gui.create_widget_for_value(self.old_value, {"type": "string"}, self.is_base_game, self.data_path)
-        self.widget = self.replace_widget(old_widget if old_widget else temp, new_widget)
-        return self.widget
+        return self.replace_widget(new_widget)
         
     def redo(self):
         """Redo the transformation (same as execute)"""
