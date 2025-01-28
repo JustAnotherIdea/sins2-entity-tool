@@ -2795,8 +2795,8 @@ class EntityToolGUI(QMainWindow):
         
         # Create content widget
         content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setSpacing(10)
+        main_layout = QVBoxLayout(content)
+        main_layout.setSpacing(10)
         
         def update_content(new_data: dict, data_path: List[str] = None, value: Any = None, source_widget = None):
             """Update the content widget with new data"""
@@ -2828,8 +2828,8 @@ class EntityToolGUI(QMainWindow):
                 logging.debug("Performing full update")
                 
                 # Clear existing content
-                while content_layout.count():
-                    item = content_layout.takeAt(0)
+                while main_layout.count():
+                    item = main_layout.takeAt(0)
                     if item.widget():
                         item.widget().deleteLater()
                 
@@ -2841,7 +2841,7 @@ class EntityToolGUI(QMainWindow):
                     name_label.setStyleSheet("font-size: 16px; font-weight: bold;")
                     if is_base_game or is_base_game_name:
                         name_label.setStyleSheet(name_label.styleSheet() + "; color: #666666; font-style: italic;")
-                    content_layout.addWidget(name_label)
+                    main_layout.addWidget(name_label)
                 
                 # Add description if available
                 if "description" in new_data:
@@ -2851,13 +2851,13 @@ class EntityToolGUI(QMainWindow):
                     desc_label.setWordWrap(True)
                     if is_base_game or is_base_game_desc:
                         desc_label.setStyleSheet("color: #666666; font-style: italic;")
-                    content_layout.addWidget(desc_label)
+                    main_layout.addWidget(desc_label)
                 
                 # Add picture if available
                 if "tooltip_picture" in new_data:
                     logging.debug("Adding tooltip picture")
                     picture_label = self.create_texture_label(new_data["tooltip_picture"], max_size=256)
-                    content_layout.addWidget(picture_label)
+                    main_layout.addWidget(picture_label)
                 
                 # Create the main details widget using the schema
                 title = f"{file_type.replace('-', ' ').title()} Details (Base Game)" if is_base_game else f"{file_type.replace('-', ' ').title()} Details"
@@ -2872,7 +2872,7 @@ class EntityToolGUI(QMainWindow):
                 details_layout = QVBoxLayout()
                 details_layout.addWidget(details_widget)
                 details_group.setLayout(details_layout)
-                content_layout.addWidget(details_group)
+                main_layout.addWidget(details_group)
             else:
                 # Partial update - find and update specific widget
                 logging.debug("Performing partial update")
@@ -2892,33 +2892,57 @@ class EntityToolGUI(QMainWindow):
                                 return result
                     return None
                 
-                # Find widget with matching data path
-                target_widget = find_widget_by_path(content, data_path)
-                if target_widget is not None and target_widget is not source_widget:
-                    logging.debug(f"Found widget to update: {target_widget}")
-                    # Update widget value based on its type
-                    if isinstance(target_widget, QLineEdit):
-                        target_widget.setText(str(value) if value is not None else "")
-                    elif isinstance(target_widget, QSpinBox):
-                        target_widget.setValue(int(value) if value is not None else 0)
-                    elif isinstance(target_widget, QDoubleSpinBox):
-                        target_widget.setValue(float(value) if value is not None else 0.0)
-                    elif isinstance(target_widget, QCheckBox):
-                        target_widget.setChecked(bool(value))
-                    elif isinstance(target_widget, QComboBox):
-                        target_widget.setCurrentText(str(value) if value is not None else "")
-                    # Update original value property
-                    target_widget.setProperty("original_value", value)
+                # For array updates, we need to find the array's content widget
+                if is_array_update:
+                    # Find the array's toggle button
+                    array_path = data_path[:-1] if len(data_path) > 1 else data_path
+                    array_widget = find_widget_by_path(content, array_path)
                     
-                    # If this is an array update, update the parent toggle button count
-                    if is_array_update:
-                        array_widget = find_widget_by_path(content, data_path[:-1] if len(data_path) > 1 else data_path)
-                        if array_widget and isinstance(array_widget, QToolButton):
-                            array_data = value if len(data_path) == 1 else current  # Use value for top-level arrays
-                            prop_name = data_path[-2] if len(data_path) >= 2 else data_path[0]  # Get array name
-                            prop_name = prop_name if isinstance(prop_name, str) else f"Item {prop_name}"
-                            display_name = f"{prop_name.replace('_', ' ').title()} ({len(array_data)})"
-                            array_widget.setText(display_name)
+                    if array_widget and isinstance(array_widget, QToolButton):
+                        # Update the array count in the toggle button
+                        array_data = value if len(data_path) == 1 else current
+                        prop_name = data_path[-2] if len(data_path) >= 2 else data_path[0]
+                        prop_name = prop_name if isinstance(prop_name, str) else f"Item {prop_name}"
+                        display_name = f"{prop_name.replace('_', ' ').title()} ({len(array_data)})"
+                        array_widget.setText(display_name)
+                        
+                        # Find the array's content widget (it's the next widget after the button)
+                        array_container = array_widget.parent()
+                        if array_container:
+                            array_layout = array_container.layout()
+                            for i in range(array_layout.count()):
+                                widget = array_layout.itemAt(i).widget()
+                                if widget and widget != array_widget:
+                                    # This is the content widget
+                                    array_content = widget
+                                    array_content_layout = array_content.layout()
+                                    if array_content_layout:
+                                        # Create widget for the new array item
+                                        items_schema = self.current_schema.get("items", {})
+                                        if isinstance(items_schema, dict):
+                                            # Create widget for the new value
+                                            new_widget = self.create_widget_for_value(value[-1], items_schema, is_base_game, data_path)
+                                            if new_widget:
+                                                array_content_layout.addWidget(new_widget)
+                                    break
+                else:
+                    # Regular value update
+                    target_widget = find_widget_by_path(content, data_path)
+                    if target_widget is not None and target_widget is not source_widget:
+                        logging.debug(f"Found widget to update: {target_widget}")
+                        # Update widget value based on its type
+                        if isinstance(target_widget, QLineEdit):
+                            target_widget.setText(str(value) if value is not None else "")
+                        elif isinstance(target_widget, QSpinBox):
+                            target_widget.setValue(int(value) if value is not None else 0)
+                        elif isinstance(target_widget, QDoubleSpinBox):
+                            target_widget.setValue(float(value) if value is not None else 0.0)
+                        elif isinstance(target_widget, QCheckBox):
+                            target_widget.setChecked(bool(value))
+                        elif isinstance(target_widget, QComboBox):
+                            target_widget.setCurrentText(str(value) if value is not None else "")
+                        # Update original value property
+                        target_widget.setProperty("original_value", value)
         
         # Initial content update with command stack data
         update_content(display_data)
