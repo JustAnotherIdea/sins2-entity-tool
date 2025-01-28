@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
                             QLineEdit, QListWidget, QComboBox, QTabWidget, QScrollArea, QGroupBox, QDialog, QSplitter, QToolButton,
-                            QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem, QMenu, QTreeWidget, QTreeWidgetItem, QPlainTextEdit)
+                            QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem, QMenu, QTreeWidget, QTreeWidgetItem, QPlainTextEdit, QProgressBar, QApplication)
 from PyQt6.QtCore import (Qt, QTimer)
 from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QPixmap, QIcon, QKeySequence,
                         QColor, QShortcut, QFont)
@@ -114,13 +114,138 @@ class GUILogHandler(logging.Handler):
         item.setForeground(Qt.GlobalColor.red if 'ERROR' in msg else Qt.GlobalColor.black)
         self.log_widget.scrollToBottom()
 
+class LoadingDialog(QDialog):
+    """Loading screen dialog shown during program initialization"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Loading Entity Tool")
+        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
+        self.setFixedSize(300, 100)
+        
+        # Center on screen
+        screen = QApplication.primaryScreen().geometry()
+        self.move(screen.center() - self.rect().center())
+        
+        # Create layout
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # Add loading text
+        self.status_label = QLabel("Initializing...")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.status_label)
+        
+        # Add progress bar
+        self.progress = QProgressBar()
+        self.progress.setTextVisible(False)
+        self.progress.setRange(0, 0)  # Indeterminate progress
+        layout.addWidget(self.progress)
+        
+    def set_status(self, text: str):
+        """Update the status text"""
+        self.status_label.setText(text)
+        QApplication.processEvents()  # Force UI update
+
 class EntityToolGUI(QMainWindow):
     def __init__(self):
         super().__init__()
         
+        # Show loading screen
+        self.loading = LoadingDialog(self)
+        self.loading.show()
+        QApplication.processEvents()  # Ensure loading screen is displayed
+        
+        try:
+            # Initialize variables
+            self.loading.set_status("Initializing variables...")
+            self.current_folder = None
+            self.base_game_folder = None
+            self.current_file = None
+            self.current_data = None
+            self.current_schema = None
+            self.current_language = "en"
+            self.files_by_type = {}
+            self.manifest_files = {}
+            self.manifest_data = {
+                'mod': {},      # {manifest_type: {id: data}}
+                'base_game': {} # {manifest_type: {id: data}}
+            }
+            self.texture_cache = {}
+            self.schemas = {}
+            self.schema_extensions = set()
+            self.all_texture_files = {'mod': set(), 'base_game': set()}
+            self.all_localized_strings = {
+                'mod': {},
+                'base_game': {}
+            }
+            
+            # Initialize UI components
+            self.loading.set_status("Initializing UI...")
+            self.init_ui()
+            
+            # Setup logging first
+            self.loading.set_status("Setting up logging...")
+            self.setup_logging()
+            
+            # Setup timers
+            self.text_edit_timer = QTimer()
+            self.text_edit_timer.setInterval(300)
+            self.text_edit_timer.setSingleShot(True)
+            self.text_edit_timer.timeout.connect(self.on_text_edit_timer_timeout)
+            self.current_text_edit = None
+            
+            # Initialize command stack
+            self.loading.set_status("Initializing command system...")
+            self.command_stack = CommandStack()
+            
+            # Load config
+            self.loading.set_status("Loading configuration...")
+            try:
+                with open('config.json', 'r') as f:
+                    self.config = json.load(f)
+                    if "base_game_folder" in self.config:
+                        self.base_game_folder = Path(self.config["base_game_folder"])
+                        logging.info(f"Loaded base game folder from config: {self.base_game_folder}")
+            except FileNotFoundError:
+                self.config = {}
+                logging.warning("No config.json found, using defaults")
+            except json.JSONDecodeError:
+                self.config = {}
+                logging.error("Error parsing config.json, using defaults")
+            
+            # Load schemas
+            self.loading.set_status("Loading schemas...")
+            self.load_schemas()
+            
+            # Load base game manifest files
+            self.loading.set_status("Loading base game manifests...")
+            self.load_base_game_manifest_files()
+            
+            # Apply stylesheet
+            self.loading.set_status("Applying visual styles...")
+            self.load_stylesheet()
+            
+            # Setup shortcuts
+            self.loading.set_status("Setting up shortcuts...")
+            self.setup_shortcuts()
+            
+            # Show window
+            self.showMaximized()
+            
+            # Close loading screen
+            self.loading.close()
+            self.loading = None
+            
+        except Exception as e:
+            # Show error and close loading screen
+            QMessageBox.critical(self, "Initialization Error", f"Failed to initialize: {str(e)}")
+            if self.loading:
+                self.loading.close()
+                self.loading = None
+            raise  # Re-raise the exception for proper error handling
+        
         # Initialize variables
         self.current_folder = None
-        self.base_game_folder = None
         self.current_file = None
         self.current_data = None
         self.current_schema = None
@@ -138,7 +263,6 @@ class EntityToolGUI(QMainWindow):
             'mod': {},
             'base_game': {}
         }
-        self.command_stack = CommandStack()
         self.text_edit_timer = QTimer()
         self.text_edit_timer.setInterval(300)
         self.text_edit_timer.setSingleShot(True)
@@ -164,9 +288,6 @@ class EntityToolGUI(QMainWindow):
 
         # Load manifest files
         self.load_base_game_manifest_files()
-        
-        # Initialize UI
-        self.init_ui()
         
         # Apply stylesheet
         self.load_stylesheet()
@@ -866,18 +987,31 @@ class EntityToolGUI(QMainWindow):
     
     def load_folder(self, folder_path: Path):
         """Load all files from the mod folder"""
+        # Show loading screen
+        loading = LoadingDialog(self)
+        loading.setWindowTitle("Loading Mod Folder")
+        loading.show()
+        QApplication.processEvents()
+        
         try:
+            loading.set_status("Initializing...")
             self.current_folder = folder_path.resolve()  # Get absolute path
             self.files_by_type.clear()
             self.manifest_files.clear()
             self.player_selector.clear()
             
             # Load all data into memory
+            loading.set_status("Loading localized strings...")
             self.load_all_localized_strings()
+            
+            loading.set_status("Loading texture files...")
             self.load_all_texture_files()
+            
+            loading.set_status("Loading manifest files...")
             self.load_mod_manifest_files()
             
             # Clear all lists
+            loading.set_status("Preparing interface...")
             self.items_list.clear()
             self.ability_list.clear()
             self.action_list.clear()
@@ -889,6 +1023,7 @@ class EntityToolGUI(QMainWindow):
             self.uniforms_list.clear()
             
             # Process all files recursively
+            loading.set_status("Loading entities...")
             entities_folder = self.current_folder / "entities"
             base_entities_folder = None if not self.base_game_folder else self.base_game_folder / "entities"
             
@@ -906,52 +1041,62 @@ class EntityToolGUI(QMainWindow):
                     list_widget.addItem(item)
 
             if entities_folder.exists():
+                loading.set_status("Loading units...")
                 # Load all units first
                 self.all_units_list.clear()
                 add_items_to_list(self.all_units_list, "*.unit", entities_folder)
                 if base_entities_folder:
                     add_items_to_list(self.all_units_list, "*.unit", base_entities_folder, True)
                 
+                loading.set_status("Loading unit items...")
                 # Load unit items
                 add_items_to_list(self.items_list, "*.unit_item", entities_folder)
                 if base_entities_folder:
                     add_items_to_list(self.items_list, "*.unit_item", base_entities_folder, True)
                 
+                loading.set_status("Loading abilities...")
                 # Load abilities
                 add_items_to_list(self.ability_list, "*.ability", entities_folder)
                 if base_entities_folder:
                     add_items_to_list(self.ability_list, "*.ability", base_entities_folder, True)
                 
+                loading.set_status("Loading actions...")
                 # Load action data sources
                 add_items_to_list(self.action_list, "*.action_data_source", entities_folder)
                 if base_entities_folder:
                     add_items_to_list(self.action_list, "*.action_data_source", base_entities_folder, True)
                 
+                loading.set_status("Loading buffs...")
                 # Load buffs
                 add_items_to_list(self.buff_list, "*.buff", entities_folder)
                 if base_entities_folder:
                     add_items_to_list(self.buff_list, "*.buff", base_entities_folder, True)
                 
+                loading.set_status("Loading formations...")
                 # Load formations
                 add_items_to_list(self.formations_list, "*.formation", entities_folder)
                 if base_entities_folder:
                     add_items_to_list(self.formations_list, "*.formation", base_entities_folder, True)
                 
+                loading.set_status("Loading flight patterns...")
                 # Load flight patterns
                 add_items_to_list(self.patterns_list, "*.flight_pattern", entities_folder)
                 if base_entities_folder:
                     add_items_to_list(self.patterns_list, "*.flight_pattern", base_entities_folder, True)
                 
+                loading.set_status("Loading NPC rewards...")
                 # Load NPC rewards
                 add_items_to_list(self.rewards_list, "*.npc_reward", entities_folder)
                 if base_entities_folder:
                     add_items_to_list(self.rewards_list, "*.npc_reward", base_entities_folder, True)
                 
+                loading.set_status("Loading exotics...")
                 # Load exotics
                 add_items_to_list(self.exotics_list, "*.exotic", entities_folder)
                 if base_entities_folder:
                     add_items_to_list(self.exotics_list, "*.exotic", base_entities_folder, True)
 
+            loading.set_status("Loading uniforms...")
             # Load uniforms from uniforms folder
             uniforms_folder = self.current_folder / "uniforms"
             base_uniforms_folder = None if not self.base_game_folder else self.base_game_folder / "uniforms"
@@ -959,6 +1104,7 @@ class EntityToolGUI(QMainWindow):
             if base_uniforms_folder and base_uniforms_folder.exists():
                 add_items_to_list(self.uniforms_list, "*.uniforms", base_uniforms_folder, True)
             
+            loading.set_status("Loading mod metadata...")
             # Load mod meta data if exists
             meta_file = self.current_folder / ".mod_meta_data"
             if meta_file.exists():
@@ -971,18 +1117,22 @@ class EntityToolGUI(QMainWindow):
                 except Exception as e:
                     logging.error(f"Error loading mod meta data: {str(e)}")
             
+            loading.set_status("Updating player selector...")
             # Update player selector from manifest data
             if 'player' in self.manifest_data['mod']:
                 player_ids = sorted(self.manifest_data['mod']['player'].keys())
                 self.player_selector.addItems(player_ids)
                 logging.info(f"Added {len(player_ids)} players to selector")
             
+            loading.close()
             logging.info(f"Successfully loaded folder: {self.current_folder}")
             
         except Exception as e:
             logging.error(f"Error loading folder: {str(e)}")
             self.current_folder = None
-           
+            loading.close()
+            QMessageBox.critical(self, "Error", f"Failed to load folder: {str(e)}")
+    
     def load_file(self, file_path: Path, try_base_game: bool = True) -> tuple[dict, bool]:
         """Load a file from mod folder or base game folder.
         Returns tuple of (data, is_from_base_game)"""
@@ -3908,4 +4058,26 @@ class EntityToolGUI(QMainWindow):
                 event.ignore()
         else:
             event.accept()
+
+    def setup_logging(self):
+        """Setup logging configuration"""
+        # Create log list widget if not already created in init_ui
+        if not hasattr(self, 'log_widget'):
+            self.log_widget = QListWidget()
+            self.log_widget.setMaximumHeight(100)
+            
+        # Create and configure the log handler
+        handler = GUILogHandler(self.log_widget)
+        handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        
+        # Get the root logger and add our handler
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+        
+        # Remove any existing handlers to avoid duplicates
+        for existing_handler in root_logger.handlers[:]:
+            root_logger.removeHandler(existing_handler)
+            
+        root_logger.addHandler(handler)
+        logging.info("Logging system initialized")
 
