@@ -1556,10 +1556,33 @@ class EntityToolGUI(QMainWindow):
             return container
             
         elif schema_type == "array":
+            # Create collapsible container for the entire array
             container = QWidget()
             container_layout = QVBoxLayout(container)
             container_layout.setContentsMargins(0, 0, 0, 0)
             container_layout.setSpacing(0)
+            
+            # Create collapsible button for the array
+            toggle_btn = QToolButton()
+            toggle_btn.setStyleSheet("QToolButton { border: none; }")
+            toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
+            # Get property name from path
+            prop_name = path[-1] if path else "Items"
+            # Format as "Property Name (X)"
+            if isinstance(prop_name, str):
+                display_name = f"{prop_name.replace('_', ' ').title()} ({len(data)})"
+            else:
+                display_name = f"Item {prop_name} ({len(data)})"
+            toggle_btn.setText(display_name)
+            toggle_btn.setCheckable(True)
+            container_layout.addWidget(toggle_btn)
+            
+            # Create content widget for array items
+            content = QWidget()
+            content_layout = QVBoxLayout(content)
+            content_layout.setContentsMargins(20, 0, 0, 0)  # Add left margin for indentation
+            content.setVisible(False)  # Initially collapsed
             
             # Get the schema for array items
             items_schema = schema.get("items", {})
@@ -1577,9 +1600,9 @@ class EntityToolGUI(QMainWindow):
                         # Update path for this array item
                         item_path = path + [i]
                         widget = self.create_widget_for_value(item, items_schema, is_base_game, item_path)
-                        container_layout.addWidget(widget)
+                        content_layout.addWidget(widget)
                 else:
-                    # For complex arrays, use collapsible sections
+                    # For complex arrays, show each item with its index
                     for i, item in enumerate(data):
                         # Update path for this array item
                         item_path = path + [i]
@@ -1589,38 +1612,24 @@ class EntityToolGUI(QMainWindow):
                         if widget:
                             if isinstance(item, dict) and "modifier_type" in item:
                                 # Special handling for modifier arrays
-                                container_layout.addWidget(widget)
-                            else:
-                                group_widget = QWidget()
-                                group_layout = QVBoxLayout(group_widget)
-                                group_layout.setContentsMargins(0, 0, 0, 0)
-                                
-                                # Create collapsible button
-                                toggle_btn = QToolButton()
-                                toggle_btn.setStyleSheet("QToolButton { border: none; }")
-                                toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-                                toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
-                                toggle_btn.setText(f"Item {i+1}")
-                                toggle_btn.setCheckable(True)
-                                
-                                # Create content widget
-                                content = QWidget()
-                                content_layout = QVBoxLayout(content)
-                                content_layout.setContentsMargins(20, 0, 0, 0)  # Add left margin for indentation
                                 content_layout.addWidget(widget)
+                            else:
+                                # Add index label before each item
+                                item_container = QWidget()
+                                item_layout = QHBoxLayout(item_container)
+                                item_layout.setContentsMargins(0, 0, 0, 0)
+                                item_layout.setSpacing(4)
                                 
-                                content.setVisible(False)  # Initially collapsed
-                                
-                                def update_arrow_state(checked, btn=toggle_btn):
-                                    btn.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
-                                
-                                toggle_btn.toggled.connect(content.setVisible)
-                                toggle_btn.toggled.connect(update_arrow_state)
-                                
-                                group_layout.addWidget(toggle_btn)
-                                group_layout.addWidget(content)
-                                container_layout.addWidget(group_widget)
+                                item_layout.addWidget(widget)
+                                content_layout.addWidget(item_container)
             
+            def update_arrow_state(checked):
+                toggle_btn.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
+            
+            toggle_btn.toggled.connect(content.setVisible)
+            toggle_btn.toggled.connect(update_arrow_state)
+            
+            container_layout.addWidget(content)
             return container
             
         else:
