@@ -178,6 +178,11 @@ class EntityToolGUI(QMainWindow):
                 'mod': {},
                 'base_game': {}
             }
+            self.text_edit_timer = QTimer()
+            self.text_edit_timer.setInterval(300)
+            self.text_edit_timer.setSingleShot(True)
+            self.text_edit_timer.timeout.connect(self.on_text_edit_timer_timeout)
+            self.current_text_edit = None
             
             # Initialize UI components
             self.loading.set_status("Initializing UI...")
@@ -243,64 +248,18 @@ class EntityToolGUI(QMainWindow):
                 self.loading.close()
                 self.loading = None
             raise  # Re-raise the exception for proper error handling
-        
-        # Initialize variables
-        self.current_folder = None
-        self.current_file = None
-        self.current_data = None
-        self.current_schema = None
-        self.current_language = "en"
-        self.files_by_type = {}
-        self.manifest_files = {}
-        self.manifest_data = {
-            'mod': {},      # {manifest_type: {id: data}}
-            'base_game': {} # {manifest_type: {id: data}}
-        }
-        self.texture_cache = {}
-        self.schemas = {}
-        self.schema_extensions = set()
-        self.all_localized_strings = {
-            'mod': {},
-            'base_game': {}
-        }
-        self.text_edit_timer = QTimer()
-        self.text_edit_timer.setInterval(300)
-        self.text_edit_timer.setSingleShot(True)
-        self.text_edit_timer.timeout.connect(self.on_text_edit_timer_timeout)
-        self.current_text_edit = None
-        
-        # Load config
-        try:
-            with open('config.json', 'r') as f:
-                self.config = json.load(f)
-                if "base_game_folder" in self.config:
-                    self.base_game_folder = Path(self.config["base_game_folder"])
-                    logging.info(f"Loaded base game folder from config: {self.base_game_folder}")
-        except FileNotFoundError:
-            self.config = {}
-            logging.warning("No config.json found, using defaults")
-        except json.JSONDecodeError:
-            self.config = {}
-            logging.error("Error parsing config.json, using defaults")
-        
-        # Load schemas
-        self.load_schemas()
-
-        # Load manifest files
-        self.load_base_game_manifest_files()
-        
-        # Apply stylesheet
-        self.load_stylesheet()
-        
-        self.showMaximized()
-        
-        self.setup_shortcuts()
     
     def setup_shortcuts(self):
-        """Set up keyboard shortcuts for undo/redo"""
+        """Setup keyboard shortcuts"""
+        # Save shortcut (Ctrl+S)
+        save_shortcut = QShortcut(QKeySequence.StandardKey.Save, self)
+        save_shortcut.activated.connect(self.save_changes)
+        
+        # Undo shortcut (Ctrl+Z)
         undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
         undo_shortcut.activated.connect(self.undo)
         
+        # Redo shortcut (Ctrl+Y or Ctrl+Shift+Z)
         redo_shortcut = QShortcut(QKeySequence.StandardKey.Redo, self)
         redo_shortcut.activated.connect(self.redo)
     
