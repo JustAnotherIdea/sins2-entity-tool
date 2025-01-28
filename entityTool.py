@@ -69,6 +69,8 @@ class TransformWidgetCommand:
             new_widget = self.gui.transform_widget_to_line_edit(temp, self.new_value)
         elif self.new_type == "localized_text":
             new_widget = self.gui.transform_widget_to_localized_text(temp, self.new_value)
+        elif self.new_type == "texture":
+            new_widget = self.gui.transform_widget_to_texture(temp, self.new_value)
             
         self.widget = self.replace_widget(old_widget if old_widget else temp, new_widget)
         return self.widget
@@ -86,6 +88,8 @@ class TransformWidgetCommand:
             new_widget = self.gui.transform_widget_to_line_edit(temp, self.old_value)
         elif self.old_type == "localized_text":
             new_widget = self.gui.transform_widget_to_localized_text(temp, self.old_value)
+        elif self.old_type == "texture":
+            new_widget = self.gui.transform_widget_to_texture(temp, self.old_value)
             
         self.widget = self.replace_widget(old_widget if old_widget else temp, new_widget)
         return self.widget
@@ -3362,6 +3366,10 @@ class EntityToolGUI(QMainWindow):
         text_action = select_menu.addAction("Localized Text...")
         text_action.triggered.connect(lambda: self.show_localized_text_selector(widget))
         
+        # Texture selection action
+        texture_action = select_menu.addAction("Texture...")
+        texture_action.triggered.connect(lambda: self.show_texture_selector(widget))
+        
         return menu
     
     def show_context_menu(self, widget, position, current_value):
@@ -3933,7 +3941,138 @@ class EntityToolGUI(QMainWindow):
             return "uniform"
         elif isinstance(widget, QWidget) and widget.findChild(QPlainTextEdit):
             return "localized_text"
+        elif isinstance(widget, QWidget) and widget.findChild(QLabel) and widget.findChild(QLineEdit):
+            # Texture widgets have both a QLabel (for preview) and QLineEdit
+            return "texture"
         else:
             # Default to uniform since it's the most basic type
             return "uniform"
+
+    def show_texture_selector(self, target_widget):
+        """Show a dialog to select a texture"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Texture")
+        dialog.resize(800, 600)
+        layout = QVBoxLayout(dialog)
+        
+        # Create list widget for textures
+        texture_list = QListWidget()
+        layout.addWidget(texture_list)
+        
+        # Add search box
+        search_box = QLineEdit()
+        search_box.setPlaceholderText("Search textures...")
+        layout.insertWidget(0, search_box)
+        
+        def update_texture_list(search=""):
+            texture_list.clear()
+            search = search.lower()
+            
+            def add_textures(textures, is_base_game=False):
+                for texture in sorted(textures):
+                    if search in texture.lower():
+                        item = QListWidgetItem(texture)
+                        if is_base_game:
+                            item.setForeground(QColor(150, 150, 150))
+                            font = item.font()
+                            font.setItalic(True)
+                            item.setFont(font)
+                        # Add preview if available
+                        pixmap, _ = self.load_texture(texture)
+                        if pixmap:
+                            # Scale pixmap to a reasonable size
+                            scaled_pixmap = pixmap.scaled(32, 32, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                            item.setIcon(QIcon(scaled_pixmap))
+                        texture_list.addItem(item)
+            
+            # Add mod textures first
+            add_textures(self.all_texture_files['mod'])
+            # Then add base game textures
+            add_textures(self.all_texture_files['base_game'], True)
+        
+        # Connect search box
+        search_box.textChanged.connect(update_texture_list)
+        
+        # Buttons
+        button_box = QHBoxLayout()
+        select_btn = QPushButton("Select")
+        select_btn.setEnabled(False)
+        cancel_btn = QPushButton("Cancel")
+        button_box.addStretch()
+        button_box.addWidget(select_btn)
+        button_box.addWidget(cancel_btn)
+        layout.addLayout(button_box)
+        
+        def on_item_selected():
+            if texture_list.currentItem():
+                new_value = texture_list.currentItem().text()
+                self.on_select_from_texture(target_widget, new_value)
+                dialog.accept()
+        
+        def on_item_double_clicked(item):
+            on_item_selected()
+        
+        def on_current_item_changed(current, previous):
+            select_btn.setEnabled(current is not None)
+        
+        texture_list.currentItemChanged.connect(on_current_item_changed)
+        texture_list.itemDoubleClicked.connect(on_item_double_clicked)
+        select_btn.clicked.connect(on_item_selected)
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        # Initial population
+        update_texture_list()
+        dialog.exec()
+
+    def on_select_from_texture(self, target_widget, new_value):
+        """Handle selection from texture selector"""
+        data_path = target_widget.property("data_path")
+        old_value = target_widget.property("original_value")
+        file_path = self.get_schema_view_file_path(target_widget)
+        
+        if data_path is not None and old_value != new_value and file_path:
+            # Create value update command
+            value_cmd = EditValueCommand(
+                file_path,
+                data_path,
+                old_value,
+                new_value,
+                lambda v: None,  # No-op since transformation is handled separately
+                self.update_data_value
+            )
+            value_cmd.source_widget = target_widget
+            
+            # Create transform command
+            old_type = self.get_widget_type(target_widget)
+            transform_cmd = TransformWidgetCommand(self, target_widget, old_type, "texture", old_value, new_value)
+            
+            # Combine commands
+            composite_cmd = CompositeCommand([value_cmd, transform_cmd])
+            self.command_stack.push(composite_cmd)
+            
+            # Delete the original widget after transformation
+            target_widget.deleteLater()
+            self.update_save_button()
+
+    def transform_widget_to_texture(self, widget, value):
+        """Transform a widget into a texture widget"""
+        # Get widget properties
+        data_path = widget.property("data_path")
+        is_base_game = widget.property("is_base_game") or False
+        
+        # Create new widget using existing method
+        new_widget = self.create_widget_for_value(value, {"type": "string"}, is_base_game, data_path)
+        
+        # Get the parent layout
+        parent = widget.parent()
+        layout = parent.layout()
+        if not layout:
+            layout = QVBoxLayout(parent)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(4)
+        
+        # Replace old widget
+        layout.replaceWidget(widget, new_widget)
+        widget.deleteLater()
+        return new_widget
 
