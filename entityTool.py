@@ -1484,15 +1484,26 @@ class EntityToolGUI(QMainWindow):
             container_layout.setContentsMargins(0, 0, 0, 0)
             container_layout.setSpacing(0)
             
+            # If data is None, create an empty dict
+            if data is None:
+                data = {}
+            
             # Sort properties alphabetically but prioritize common fields
             priority_fields = ["name", "description", "id", "type", "version"]
             properties = schema.get("properties", {}).items()
             sorted_properties = sorted(properties, 
                                     key=lambda x: (x[0] not in priority_fields, x[0].lower()))
             
+            # Add required properties first if they don't exist in data
+            required_props = schema.get("required", [])
+            for prop_name in required_props:
+                if prop_name not in data and prop_name in schema.get("properties", {}):
+                    data[prop_name] = self.get_default_value(schema["properties"][prop_name])
+            
             for prop_name, prop_schema in sorted_properties:
-                if prop_name in data:
-                    value = data[prop_name]
+                # For new objects, show all required properties and existing properties
+                if prop_name in data or prop_name in required_props:
+                    value = data.get(prop_name, self.get_default_value(prop_schema))
                     
                     # Check if this is a simple value or array of simple values
                     is_simple_value = isinstance(value, (str, int, float, bool))
