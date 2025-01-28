@@ -1903,6 +1903,12 @@ class EntityToolGUI(QMainWindow):
                     edit.setStyleSheet("font-style: italic;")
                     layout.addWidget(edit)
                 
+                    # Add context menu
+                    edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                    edit.customContextMenuRequested.connect(
+                        lambda pos, w=edit, v=value_str: self.show_context_menu(w, pos, v)
+                    )
+                
                 container.setProperty("data_path", path)
                 container.setProperty("original_value", value)
                 return container
@@ -1936,6 +1942,12 @@ class EntityToolGUI(QMainWindow):
                 else:
                     # Connect text changed signal to command creation
                     edit.textChanged.connect(lambda text: self.on_text_changed(edit, text))
+                    
+                    # Add context menu
+                    edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                    edit.customContextMenuRequested.connect(
+                        lambda pos, w=edit, v=value_str: self.show_context_menu(w, pos, v)
+                    )
                 
                 # Store path and original value
                 edit.setProperty("data_path", path)
