@@ -1455,6 +1455,43 @@ class EntityToolGUI(QMainWindow):
         
         # Rest of existing code... 
 
+    def get_default_value(self, schema: dict) -> any:
+        """Get a default value based on a schema"""
+        # Handle schema references
+        if "$ref" in schema:
+            ref_path = schema["$ref"].split("/")[1:]  # Skip the '#'
+            current = self.current_schema
+            for part in ref_path:
+                if part in current:
+                    current = current[part]
+                else:
+                    return None
+            return self.get_default_value(current)
+            
+        if "default" in schema:
+            return schema["default"]
+            
+        schema_type = schema.get("type")
+        if schema_type == "string":
+            return ""
+        elif schema_type == "number":
+            return 0.0
+        elif schema_type == "integer":
+            return 0
+        elif schema_type == "boolean":
+            return False
+        elif schema_type == "array":
+            return []
+        elif schema_type == "object":
+            # Create object with required properties
+            obj = {}
+            properties = schema.get("properties", {})
+            for prop in schema.get("required", []):
+                if prop in properties:
+                    obj[prop] = self.get_default_value(properties[prop])
+            return obj
+        return None
+
     def create_widget_for_schema(self, data: dict, schema: dict, is_base_game: bool = False, path: list = None) -> QWidget:
         """Create a widget to display data according to a JSON schema"""
         if path is None:
@@ -1464,6 +1501,7 @@ class EntityToolGUI(QMainWindow):
             return QLabel("Invalid schema")
             
         # Handle schema references
+        original_schema = schema
         if "$ref" in schema:
             ref_path = schema["$ref"].split("/")[1:]  # Skip the '#'
             current = self.current_schema
@@ -1472,7 +1510,7 @@ class EntityToolGUI(QMainWindow):
                     current = current[part]
                 else:
                     return QLabel(f"Invalid reference: {schema['$ref']}")
-            return self.create_widget_for_schema(data, current, is_base_game, path)
+            schema = current
             
         schema_type = schema.get("type")
         if not schema_type:
@@ -1484,9 +1522,9 @@ class EntityToolGUI(QMainWindow):
             container_layout.setContentsMargins(0, 0, 0, 0)
             container_layout.setSpacing(0)
             
-            # If data is None, create an empty dict
+            # If data is None, create an empty dict with required properties
             if data is None:
-                data = {}
+                data = self.get_default_value(schema)
             
             # Sort properties alphabetically but prioritize common fields
             priority_fields = ["name", "description", "id", "type", "version"]
@@ -3514,6 +3552,17 @@ class EntityToolGUI(QMainWindow):
             add_menu = menu.addMenu("Add..." if isinstance(current_value, dict) else "Add Item")
             
             if isinstance(current_value, dict):
+                # Resolve schema reference if it exists
+                if "$ref" in schema:
+                    ref_path = schema["$ref"].split("/")[1:]
+                    current = self.current_schema
+                    for part in ref_path:
+                        if part in current:
+                            current = current[part]
+                        else:
+                            return menu
+                    schema = current
+                
                 # Get available properties from schema
                 properties = schema.get("properties", {})
                 required = schema.get("required", [])
@@ -3607,31 +3656,6 @@ class EntityToolGUI(QMainWindow):
                         return None
         return schema
 
-    def get_default_value(self, schema: dict) -> any:
-        """Get a default value based on a schema"""
-        if "default" in schema:
-            return schema["default"]
-            
-        schema_type = schema.get("type")
-        if schema_type == "string":
-            return ""
-        elif schema_type == "number":
-            return 0.0
-        elif schema_type == "integer":
-            return 0
-        elif schema_type == "boolean":
-            return False
-        elif schema_type == "array":
-            return []
-        elif schema_type == "object":
-            # Create object with required properties
-            obj = {}
-            for prop in schema.get("required", []):
-                if prop in schema.get("properties", {}):
-                    obj[prop] = self.get_default_value(schema["properties"][prop])
-            return obj
-        return None
-
     def add_property(self, widget: QWidget, prop_name: str, prop_schema: dict):
         """Add a new property to an object"""
         data_path = widget.property("data_path")
@@ -3695,58 +3719,39 @@ class EntityToolGUI(QMainWindow):
             if not isinstance(array, list):
                 return
             
-            # Create default value for the new item
-            default_value = self.get_default_value(item_schema)
+            # Create default value for the new item, resolving any references
+            def resolve_schema(schema):
+                if "$ref" in schema:
+                    ref_path = schema["$ref"].split("/")[1:]
+                    current = self.current_schema
+                    for part in ref_path:
+                        if part in current:
+                            current = current[part]
+                        else:
+                            return schema
+                    return current
+                return schema
+            
+            resolved_schema = resolve_schema(item_schema)
+            default_value = self.get_default_value(resolved_schema)
+            
+            # Ensure required properties are present with proper default values
+            if isinstance(default_value, dict):
+                for prop_name, prop_schema in resolved_schema.get("properties", {}).items():
+                    if prop_name in resolved_schema.get("required", []) and prop_name not in default_value:
+                        default_value[prop_name] = self.get_default_value(resolve_schema(prop_schema))
             
             # Create command to add the item
             old_value = array.copy()
             new_value = array.copy()
             new_value.append(default_value)
             
-            # Find the content widget (the one that holds the array items)
-            array_button = widget
-            content_widget = None
-            for child in array_button.parent().findChildren(QWidget):
-                if child != array_button and child.parent() == array_button.parent():
-                    content_widget = child
-                    break
-            
-            if content_widget and content_widget.layout():
-                # Create widget for the new item
-                new_item_path = data_path + [len(array)]  # Add index to path
-                new_widget = self.create_widget_for_schema(
-                    default_value,
-                    item_schema,
-                    False,  # is_base_game
-                    new_item_path
-                )
-                
-                if new_widget:
-                    # Update array button text to show new count
-                    array_button.setText(f"{array_button.text().split(' (')[0]} ({len(new_value)})")
-                    
-                    # Add the new widget to the content layout
-                    content_layout = content_widget.layout()
-                    if isinstance(default_value, (str, int, float, bool)):
-                        # Simple values go directly in the layout
-                        content_layout.addWidget(new_widget)
-                    else:
-                        # Complex items need a container with horizontal layout
-                        item_container = QWidget()
-                        item_layout = QHBoxLayout(item_container)
-                        item_layout.setContentsMargins(0, 0, 0, 0)
-                        item_layout.setSpacing(4)
-                        item_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
-                        item_layout.addWidget(new_widget)
-                        content_layout.addWidget(item_container)
-            
-            # Create and push the command
             command = EditValueCommand(
                 file_path,
                 data_path,
                 old_value,
                 new_value,
-                lambda v: None,  # No refresh needed since we updated UI directly
+                lambda v: self.refresh_schema_view(file_path),
                 self.update_data_value
             )
             self.command_stack.push(command)
