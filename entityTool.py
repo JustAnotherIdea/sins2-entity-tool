@@ -3519,29 +3519,29 @@ class EntityToolGUI(QMainWindow):
                     action.triggered.connect(
                         lambda checked: self.add_array_item(widget, items_schema)
                     )
-            else:
-            # Only add selection menu for simple values
-                select_menu = menu.addMenu("Select from...")
-                
-                # File selection action
-                file_action = select_menu.addAction("File...")
-                file_action.triggered.connect(lambda: self.show_file_selector(widget))
-                
-                # Uniforms selection action
-                uniforms_action = select_menu.addAction("Uniforms...")
-                uniforms_action.triggered.connect(lambda: self.show_uniforms_selector(widget))
-                
-                # Localized text selection action
-                text_action = select_menu.addAction("Localized Text...")
-                text_action.triggered.connect(lambda: self.show_localized_text_selector(widget))
-                
-                # Texture selection action
-                texture_action = select_menu.addAction("Texture...")
-                texture_action.triggered.connect(lambda: self.show_texture_selector(widget))
-                
-                # Sound selection action
-                sound_action = select_menu.addAction("Sounds...")
-                sound_action.triggered.connect(lambda: self.show_sound_selector(widget))
+        else:
+        # Only add selection menu for simple values
+            select_menu = menu.addMenu("Select from...")
+            
+            # File selection action
+            file_action = select_menu.addAction("File...")
+            file_action.triggered.connect(lambda: self.show_file_selector(widget))
+            
+            # Uniforms selection action
+            uniforms_action = select_menu.addAction("Uniforms...")
+            uniforms_action.triggered.connect(lambda: self.show_uniforms_selector(widget))
+            
+            # Localized text selection action
+            text_action = select_menu.addAction("Localized Text...")
+            text_action.triggered.connect(lambda: self.show_localized_text_selector(widget))
+            
+            # Texture selection action
+            texture_action = select_menu.addAction("Texture...")
+            texture_action.triggered.connect(lambda: self.show_texture_selector(widget))
+            
+            # Sound selection action
+            sound_action = select_menu.addAction("Sounds...")
+            sound_action.triggered.connect(lambda: self.show_sound_selector(widget))
         
         return menu
 
