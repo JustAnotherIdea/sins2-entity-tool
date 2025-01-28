@@ -1580,6 +1580,8 @@ class EntityToolGUI(QMainWindow):
             content = QWidget()
             content_layout = QVBoxLayout(content)
             content_layout.setContentsMargins(20, 0, 0, 0)  # Add left margin for indentation
+            content_layout.setSpacing(0)
+            content_layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)  # Align content to the left and top
             content.setVisible(False)  # Initially collapsed
             
             # Get the schema for array items
@@ -1617,6 +1619,7 @@ class EntityToolGUI(QMainWindow):
                                 item_layout = QHBoxLayout(item_container)
                                 item_layout.setContentsMargins(0, 0, 0, 0)
                                 item_layout.setSpacing(4)
+                                item_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)  # Align items to the left
                                 
                                 item_layout.addWidget(widget)
                                 content_layout.addWidget(item_container)
