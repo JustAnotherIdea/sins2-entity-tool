@@ -1574,6 +1574,17 @@ class EntityToolGUI(QMainWindow):
                 display_name = f"Item {prop_name} ({len(data)})"
             toggle_btn.setText(display_name)
             toggle_btn.setCheckable(True)
+            
+            # Store array data and path for context menu
+            toggle_btn.setProperty("data_path", path)
+            toggle_btn.setProperty("original_value", data)
+
+            # Add context menu to the button
+            toggle_btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            toggle_btn.customContextMenuRequested.connect(
+                lambda pos, w=toggle_btn: self.show_context_menu(w, pos, data)
+            )
+            
             container_layout.addWidget(toggle_btn)
             
             # Create content widget for array items
@@ -3469,30 +3480,282 @@ class EntityToolGUI(QMainWindow):
     def create_context_menu(self, widget, current_value):
         """Create a context menu for text fields and buttons"""
         menu = QMenu(self)
-        select_menu = menu.addMenu("Select from...")
         
-        # File selection action
-        file_action = select_menu.addAction("File...")
-        file_action.triggered.connect(lambda: self.show_file_selector(widget))
+        # Get schema and data path from widget or its container
+        schema = None
+        data_path = widget.property("data_path")
+        if data_path:
+            # Find the schema for this path
+            schema = self.get_schema_for_path(data_path)
         
-        # Uniforms selection action
-        uniforms_action = select_menu.addAction("Uniforms...")
-        uniforms_action.triggered.connect(lambda: self.show_uniforms_selector(widget))
-        
-        # Localized text selection action
-        text_action = select_menu.addAction("Localized Text...")
-        text_action.triggered.connect(lambda: self.show_localized_text_selector(widget))
-        
-        # Texture selection action
-        texture_action = select_menu.addAction("Texture...")
-        texture_action.triggered.connect(lambda: self.show_texture_selector(widget))
-        
-        # Sound selection action
-        sound_action = select_menu.addAction("Sounds...")
-        sound_action.triggered.connect(lambda: self.show_sound_selector(widget))
+        # Add property/item menu if this is an object or array
+        if schema and isinstance(current_value, (dict, list)):
+            add_menu = menu.addMenu("Add..." if isinstance(current_value, dict) else "Add Item")
+            
+            if isinstance(current_value, dict):
+                # Get available properties from schema
+                properties = schema.get("properties", {})
+                required = schema.get("required", [])
+                # Get currently used properties
+                used_props = set(current_value.keys())
+                
+                # Add menu items for each available property
+                for prop_name, prop_schema in sorted(properties.items()):
+                    if prop_name not in used_props:
+                        action = add_menu.addAction(prop_name)
+                        is_required = prop_name in required
+                        if is_required:
+                            action.setText(f"{prop_name} (required)")
+                        action.triggered.connect(
+                            lambda checked, n=prop_name, s=prop_schema: 
+                            self.add_property(widget, n, s)
+                        )
+                        
+            elif isinstance(current_value, list):
+                # Get item schema
+                items_schema = schema.get("items", {})
+                if items_schema:
+                    action = add_menu.addAction("New Item")
+                    action.triggered.connect(
+                        lambda checked: self.add_array_item(widget, items_schema)
+                    )
+            else:
+            # Only add selection menu for simple values
+                select_menu = menu.addMenu("Select from...")
+                
+                # File selection action
+                file_action = select_menu.addAction("File...")
+                file_action.triggered.connect(lambda: self.show_file_selector(widget))
+                
+                # Uniforms selection action
+                uniforms_action = select_menu.addAction("Uniforms...")
+                uniforms_action.triggered.connect(lambda: self.show_uniforms_selector(widget))
+                
+                # Localized text selection action
+                text_action = select_menu.addAction("Localized Text...")
+                text_action.triggered.connect(lambda: self.show_localized_text_selector(widget))
+                
+                # Texture selection action
+                texture_action = select_menu.addAction("Texture...")
+                texture_action.triggered.connect(lambda: self.show_texture_selector(widget))
+                
+                # Sound selection action
+                sound_action = select_menu.addAction("Sounds...")
+                sound_action.triggered.connect(lambda: self.show_sound_selector(widget))
         
         return menu
-    
+
+    def get_schema_for_path(self, path: list) -> dict:
+        """Get the schema for a specific data path"""
+        if not self.current_schema:
+            return None
+            
+        schema = self.current_schema
+        for part in path:
+            if isinstance(schema, dict):
+                if "$ref" in schema:
+                    # Resolve reference
+                    ref_path = schema["$ref"].split("/")[1:]
+                    current = self.current_schema
+                    for ref_part in ref_path:
+                        if ref_part in current:
+                            current = current[ref_part]
+                        else:
+                            return None
+                    schema = current
+                
+                if isinstance(part, str):
+                    # Object property
+                    if "properties" in schema and part in schema["properties"]:
+                        schema = schema["properties"][part]
+                    else:
+                        return None
+                elif isinstance(part, int):
+                    # Array index
+                    if "items" in schema:
+                        schema = schema["items"]
+                    else:
+                        return None
+        return schema
+
+    def get_default_value(self, schema: dict) -> any:
+        """Get a default value based on a schema"""
+        if "default" in schema:
+            return schema["default"]
+            
+        schema_type = schema.get("type")
+        if schema_type == "string":
+            return ""
+        elif schema_type == "number":
+            return 0.0
+        elif schema_type == "integer":
+            return 0
+        elif schema_type == "boolean":
+            return False
+        elif schema_type == "array":
+            return []
+        elif schema_type == "object":
+            # Create object with required properties
+            obj = {}
+            for prop in schema.get("required", []):
+                if prop in schema.get("properties", {}):
+                    obj[prop] = self.get_default_value(schema["properties"][prop])
+            return obj
+        return None
+
+    def add_property(self, widget: QWidget, prop_name: str, prop_schema: dict):
+        """Add a new property to an object"""
+        data_path = widget.property("data_path")
+        file_path = self.get_schema_view_file_path(widget)
+        
+        if data_path is not None and file_path:
+            # Get current data
+            current_data = self.command_stack.get_file_data(file_path)
+            if not current_data:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    current_data = json.load(f)
+            
+            # Navigate to the target object
+            target = current_data
+            for part in data_path[:-1]:  # Exclude the last part which is the object itself
+                target = target[part]
+            
+            # Get the object to modify
+            obj = target[data_path[-1]]
+            if not isinstance(obj, dict):
+                return
+            
+            # Create default value for the new property
+            default_value = self.get_default_value(prop_schema)
+            
+            # Create command to add the property
+            old_value = obj.copy()
+            new_value = obj.copy()
+            new_value[prop_name] = default_value
+            
+            command = EditValueCommand(
+                file_path,
+                data_path,
+                old_value,
+                new_value,
+                lambda v: self.refresh_schema_view(file_path),
+                self.update_data_value
+            )
+            self.command_stack.push(command)
+            self.update_save_button()
+
+    def add_array_item(self, widget: QWidget, item_schema: dict):
+        """Add a new item to an array"""
+        data_path = widget.property("data_path")
+        file_path = self.get_schema_view_file_path(widget)
+        
+        if data_path is not None and file_path:
+            # Get current data
+            current_data = self.command_stack.get_file_data(file_path)
+            if not current_data:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    current_data = json.load(f)
+            
+            # Navigate to the target array
+            target = current_data
+            for part in data_path[:-1]:  # Exclude the last part which is the array itself
+                target = target[part]
+            
+            # Get the array to modify
+            array = target[data_path[-1]]
+            if not isinstance(array, list):
+                return
+            
+            # Create default value for the new item
+            default_value = self.get_default_value(item_schema)
+            
+            # Create command to add the item
+            old_value = array.copy()
+            new_value = array.copy()
+            new_value.append(default_value)
+            
+            # Find the content widget (the one that holds the array items)
+            array_button = widget
+            content_widget = None
+            for child in array_button.parent().findChildren(QWidget):
+                if child != array_button and child.parent() == array_button.parent():
+                    content_widget = child
+                    break
+            
+            if content_widget and content_widget.layout():
+                # Create widget for the new item
+                new_item_path = data_path + [len(array)]  # Add index to path
+                new_widget = self.create_widget_for_schema(
+                    default_value,
+                    item_schema,
+                    False,  # is_base_game
+                    new_item_path
+                )
+                
+                if new_widget:
+                    # Update array button text to show new count
+                    array_button.setText(f"{array_button.text().split(' (')[0]} ({len(new_value)})")
+                    
+                    # Add the new widget to the content layout
+                    content_layout = content_widget.layout()
+                    if isinstance(default_value, (str, int, float, bool)):
+                        # Simple values go directly in the layout
+                        content_layout.addWidget(new_widget)
+                    else:
+                        # Complex items need a container with horizontal layout
+                        item_container = QWidget()
+                        item_layout = QHBoxLayout(item_container)
+                        item_layout.setContentsMargins(0, 0, 0, 0)
+                        item_layout.setSpacing(4)
+                        item_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+                        item_layout.addWidget(new_widget)
+                        content_layout.addWidget(item_container)
+            
+            # Create and push the command
+            command = EditValueCommand(
+                file_path,
+                data_path,
+                old_value,
+                new_value,
+                lambda v: None,  # No refresh needed since we updated UI directly
+                self.update_data_value
+            )
+            self.command_stack.push(command)
+            self.update_save_button()
+
+    def refresh_schema_view(self, file_path: Path):
+        """Refresh the schema view for a file"""
+        # Get the current data
+        data = self.command_stack.get_file_data(file_path)
+        if not data:
+            return
+            
+        # Find the schema view widget
+        schema_view = None
+        for widget in self.findChildren(QWidget):
+            if (hasattr(widget, 'property') and 
+                widget.property("file_path") == str(file_path)):
+                schema_view = widget
+                break
+        
+        if schema_view and schema_view.parent() and schema_view.parent().layout():
+            # Get the schema type from the file extension
+            schema_type = file_path.suffix[1:]  # Remove the dot
+            
+            # Create new schema view
+            new_view = self.create_schema_view(
+                schema_type,
+                data,
+                False,  # is_base_game
+                file_path
+            )
+            
+            # Replace old view with new one
+            parent = schema_view.parent()
+            layout = parent.layout()
+            layout.replaceWidget(schema_view, new_view)
+            schema_view.deleteLater()
+
     def show_context_menu(self, widget, position, current_value):
         """Show the context menu at the given position"""
         menu = self.create_context_menu(widget, current_value)
