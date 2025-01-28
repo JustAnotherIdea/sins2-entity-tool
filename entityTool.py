@@ -3952,17 +3952,34 @@ class EntityToolGUI(QMainWindow):
         """Show a dialog to select a texture"""
         dialog = QDialog(self)
         dialog.setWindowTitle("Select Texture")
-        dialog.resize(800, 600)
-        layout = QVBoxLayout(dialog)
+        dialog.resize(1000, 600)
+        layout = QHBoxLayout(dialog)
         
-        # Create list widget for textures
-        texture_list = QListWidget()
-        layout.addWidget(texture_list)
+        # Left side with list
+        left_side = QWidget()
+        left_layout = QVBoxLayout(left_side)
+        layout.addWidget(left_side)
         
         # Add search box
         search_box = QLineEdit()
         search_box.setPlaceholderText("Search textures...")
-        layout.insertWidget(0, search_box)
+        left_layout.addWidget(search_box)
+        
+        # Create list widget for textures
+        texture_list = QListWidget()
+        left_layout.addWidget(texture_list)
+        
+        # Right side with preview
+        right_side = QWidget()
+        right_layout = QVBoxLayout(right_side)
+        layout.addWidget(right_side)
+        
+        # Preview label
+        preview_label = QLabel()
+        preview_label.setMinimumSize(300, 300)
+        preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        right_layout.addWidget(preview_label)
+        right_layout.addStretch()
         
         def update_texture_list(search=""):
             texture_list.clear()
@@ -3977,12 +3994,6 @@ class EntityToolGUI(QMainWindow):
                             font = item.font()
                             font.setItalic(True)
                             item.setFont(font)
-                        # Add preview if available
-                        pixmap, _ = self.load_texture(texture)
-                        if pixmap:
-                            # Scale pixmap to a reasonable size
-                            scaled_pixmap = pixmap.scaled(32, 32, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                            item.setIcon(QIcon(scaled_pixmap))
                         texture_list.addItem(item)
             
             # Add mod textures first
@@ -4001,7 +4012,7 @@ class EntityToolGUI(QMainWindow):
         button_box.addStretch()
         button_box.addWidget(select_btn)
         button_box.addWidget(cancel_btn)
-        layout.addLayout(button_box)
+        left_layout.addLayout(button_box)
         
         def on_item_selected():
             if texture_list.currentItem():
@@ -4014,6 +4025,18 @@ class EntityToolGUI(QMainWindow):
         
         def on_current_item_changed(current, previous):
             select_btn.setEnabled(current is not None)
+            if current:
+                # Update preview
+                texture_name = current.text()
+                pixmap, _ = self.load_texture(texture_name)
+                if pixmap:
+                    # Scale pixmap to fit preview area while maintaining aspect ratio
+                    scaled_pixmap = pixmap.scaled(300, 300, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    preview_label.setPixmap(scaled_pixmap)
+                else:
+                    preview_label.setText("No preview available")
+            else:
+                preview_label.clear()
         
         texture_list.currentItemChanged.connect(on_current_item_changed)
         texture_list.itemDoubleClicked.connect(on_item_double_clicked)
