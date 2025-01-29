@@ -1549,7 +1549,7 @@ class EntityToolGUI(QMainWindow):
             return False
             
         elif schema_type == "array":
-            return []
+            return [""]
             
         elif schema_type == "object":
             # Create object with all required properties
