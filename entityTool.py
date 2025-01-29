@@ -3864,9 +3864,11 @@ class EntityToolGUI(QMainWindow):
                     row_layout = QHBoxLayout(row_widget)
                     row_layout.setContentsMargins(0, 0, 0, 0)
                     row_layout.setSpacing(4)
+                    row_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)  # Left align the entire row
                     
-                    # Add label for the property name
-                    label = QLabel(f"{prop_name}:")
+                    # Add label for the property name (capitalized)
+                    display_name = prop_name.replace("_", " ").title()
+                    label = QLabel(f"{display_name}:")
                     row_layout.addWidget(label)
                     
                     # Create widget for the property value
@@ -3877,6 +3879,7 @@ class EntityToolGUI(QMainWindow):
                         data_path + [prop_name]
                     )
                     row_layout.addWidget(value_widget)
+                    row_layout.addStretch()  # Add stretch after the value widget to keep it left-aligned
                     
                     # Add to the content layout
                     content_widget.layout().addWidget(row_widget)
