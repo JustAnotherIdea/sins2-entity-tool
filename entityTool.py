@@ -1582,6 +1582,7 @@ class EntityToolGUI(QMainWindow):
             return QLabel("Schema missing type")
             
         if schema_type == "object":
+            # Create container for object properties
             container = QWidget()
             container_layout = QVBoxLayout(container)
             container_layout.setContentsMargins(0, 0, 0, 0)
@@ -1654,13 +1655,13 @@ class EntityToolGUI(QMainWindow):
                             # Add context menu to the button
                             toggle_btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
                             toggle_btn.customContextMenuRequested.connect(
-                                lambda pos, w=toggle_btn: self.show_context_menu(w, pos, value)
+                                lambda pos, w=toggle_btn, v=value: self.show_context_menu(w, pos, v)
                             )
                             
                             # Create content widget
                             content = QWidget()
                             content_layout = QVBoxLayout(content)
-                            content_layout.setContentsMargins(20, 0, 0, 0)  # Add left margin for indentation
+                            content_layout.setContentsMargins(20, 0, 0, 0)
                             content_layout.addWidget(widget)
                             
                             content.setVisible(False)  # Initially collapsed
@@ -1674,6 +1675,15 @@ class EntityToolGUI(QMainWindow):
                             group_layout.addWidget(toggle_btn)
                             group_layout.addWidget(content)
                             container_layout.addWidget(group_widget)
+            
+            # For top-level objects, add context menu to the container itself
+            if not path:
+                container.setProperty("data_path", path)
+                container.setProperty("original_value", data)
+                container.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                container.customContextMenuRequested.connect(
+                    lambda pos, w=container, v=data: self.show_context_menu(w, pos, v)
+                )
             
             return container
             
@@ -2858,7 +2868,11 @@ class EntityToolGUI(QMainWindow):
             self.current_schema = create_schema_for_value(display_data)
         else:
             logging.debug(f"Found schema: {schema_name}")
-            self.current_schema = self.schemas[schema_name]
+            # Get the schema and resolve any top-level references
+            schema = self.schemas[schema_name]
+            if isinstance(schema, dict) and "$ref" in schema:
+                schema = self.resolve_schema_references(schema)
+            self.current_schema = schema
         
         # Create scrollable area for the content
         scroll = QScrollArea()
@@ -3712,23 +3726,35 @@ class EntityToolGUI(QMainWindow):
         # Get schema and data path from widget or its container
         schema = None
         data_path = widget.property("data_path")
-        if data_path:
+        print(f"Creating context menu for path: {data_path}, current value: {current_value}")
+        
+        if data_path is not None:  # Changed from 'if data_path:' to handle empty lists
             # Find the schema for this path
             schema = self.get_schema_for_path(data_path)
+            print(f"Got schema for path {data_path}: {schema}")
+            
+            # For top-level objects, we need to resolve references in the schema itself
+            if not data_path and schema and "$ref" in schema:
+                schema = self.resolve_schema_references(schema)
+                print(f"Resolved top-level schema reference: {schema}")
         
         # Add property/item menu if this is an object or array
         if schema and isinstance(current_value, (dict, list)):
             add_menu = menu.addMenu("Add..." if isinstance(current_value, dict) else "Add Item")
             
             if isinstance(current_value, dict):
+                # Resolve schema references before checking properties
                 schema = self.resolve_schema_references(schema)
-                
+                print(f"Resolved schema for properties: {schema}")
+
                 # Get available properties from schema
                 properties = schema.get("properties", {})
                 required = schema.get("required", [])
                 # Get currently used properties
                 used_props = set(current_value.keys())
-                
+                print(f"Used properties: {used_props}")
+                print(f"Available properties: {properties.keys()}")
+
                 # Add menu items for each available property
                 has_available_props = False
                 for prop_name, prop_schema in sorted(properties.items()):
@@ -3745,13 +3771,15 @@ class EntityToolGUI(QMainWindow):
                 
                 # If no available properties, add a disabled message
                 if not has_available_props:
+                    print("No available properties found")
                     action = add_menu.addAction("No available properties")
                     action.setEnabled(False)
-                        
+                    
             elif isinstance(current_value, list):
-                # Get item schema
+                # Get item schema and resolve references
                 items_schema = schema.get("items", {})
                 if items_schema:
+                    items_schema = self.resolve_schema_references(items_schema)
                     action = add_menu.addAction("New Item")
                     action.triggered.connect(
                         lambda checked: self.add_array_item(widget, items_schema)
@@ -3780,16 +3808,27 @@ class EntityToolGUI(QMainWindow):
             # Sound selection action
             sound_action = select_menu.addAction("Sounds...")
             sound_action.triggered.connect(lambda: self.show_sound_selector(widget))
-        
+            
         return menu
 
     def get_schema_for_path(self, path: list) -> dict:
         """Get the schema for a specific data path"""
         if not self.current_schema:
+            print("No current schema available")
             return None
+            
+        # For empty path (top-level object), return the current schema
+        if not path:
+            print(f"Returning top-level schema: {self.current_schema}")
+            return self.current_schema
             
         schema = self.current_schema
         for part in path:
+            if not schema:
+                print(f"Schema is None while processing path part: {part}")
+                return None
+                
+            # Resolve any references in the current schema
             if isinstance(schema, dict):
                 if "$ref" in schema:
                     # Resolve reference
@@ -3809,11 +3848,22 @@ class EntityToolGUI(QMainWindow):
                     else:
                         return None
                 elif isinstance(part, int):
-                    # Array index
+                    # Array index - get the items schema
                     if "items" in schema:
                         schema = schema["items"]
+                        # Resolve any references in the items schema
+                        if isinstance(schema, dict) and "$ref" in schema:
+                            ref_path = schema["$ref"].split("/")[1:]
+                            current = self.current_schema
+                            for ref_part in ref_path:
+                                if ref_part in current:
+                                    current = current[ref_part]
+                                else:
+                                    return None
+                            schema = current
                     else:
                         return None
+                        
         return schema
 
     def add_property(self, widget: QWidget, prop_name: str, prop_schema: dict):
@@ -4047,8 +4097,13 @@ class EntityToolGUI(QMainWindow):
 
     def show_context_menu(self, widget, position, current_value):
         """Show the context menu at the given position"""
+        logging.debug(f"show_context_menu called for widget: {widget}, position: {position}, current_value: {current_value}")
         menu = self.create_context_menu(widget, current_value)
-        menu.exec(widget.mapToGlobal(position))
+        if menu:
+            logging.debug("Menu created, about to show")
+            menu.exec(widget.mapToGlobal(position))
+        else:
+            logging.debug("No menu was created")
 
     def show_file_selector(self, target_widget):
         """Show a dialog to select a file from mod or base game"""
