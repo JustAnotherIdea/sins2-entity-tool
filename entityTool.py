@@ -1521,40 +1521,57 @@ class EntityToolGUI(QMainWindow):
         # Rest of existing code... 
 
     def get_default_value(self, schema: dict) -> any:
-        """Get a default value based on a schema"""
-        # Handle schema references
-        if "$ref" in schema:
-            ref_path = schema["$ref"].split("/")[1:]  # Skip the '#'
-            current = self.current_schema
-            for part in ref_path:
-                if part in current:
-                    current = current[part]
-                else:
-                    return None
-            return self.get_default_value(current)
-            
-        if "default" in schema:
-            return schema["default"]
+        """Get a default value for a schema"""
+        # Resolve any references first
+        schema = self.resolve_schema_references(schema)
+        
+        if not schema:
+            return None
             
         schema_type = schema.get("type")
+        
         if schema_type == "string":
+            if "enum" in schema:
+                return schema["enum"][0]  # Return first enum value
             return ""
+            
         elif schema_type == "number":
+            if "minimum" in schema:
+                return schema["minimum"]
             return 0.0
+            
         elif schema_type == "integer":
+            if "minimum" in schema:
+                return schema["minimum"]
             return 0
+            
         elif schema_type == "boolean":
             return False
+            
         elif schema_type == "array":
             return []
+            
         elif schema_type == "object":
-            # Create object with required properties
-            obj = {}
+            # Create object with all required properties
+            result = {}
             properties = schema.get("properties", {})
-            for prop in schema.get("required", []):
-                if prop in properties:
-                    obj[prop] = self.get_default_value(properties[prop])
-            return obj
+            required = schema.get("required", [])
+            
+            # Add all required properties with their default values
+            for prop_name in required:
+                if prop_name in properties:
+                    prop_schema = self.resolve_schema_references(properties[prop_name])
+                    result[prop_name] = self.get_default_value(prop_schema)
+            
+            # If unevaluatedProperties is false, add all optional properties too
+            if schema.get("unevaluatedProperties") is False:
+                for prop_name, prop_schema in properties.items():
+                    if prop_name not in result:
+                        prop_schema = self.resolve_schema_references(prop_schema)
+                        result[prop_name] = self.get_default_value(prop_schema)
+            
+            return result
+            
         return None
 
     def create_widget_for_schema(self, data: dict, schema: dict, is_base_game: bool = False, path: list = None) -> QWidget:
