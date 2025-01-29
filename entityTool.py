@@ -3846,24 +3846,41 @@ class EntityToolGUI(QMainWindow):
             new_value = obj.copy()
             new_value[prop_name] = default_value
 
+            # Find the content widget (next widget after the toggle button)
+            container = widget.parent()
+            content_widget = None
+            if container:
+                container_layout = container.layout()
+                for i in range(container_layout.count()):
+                    item_widget = container_layout.itemAt(i).widget()
+                    if item_widget and item_widget != widget:
+                        content_widget = item_widget
+                        break
+
             def update_ui(value):
-                if isinstance(widget, QWidget):
-                    container = widget.parent()
-                    if container and isinstance(container, QWidget):
-                        # Create widget just for the new property
-                        property_widget = self.create_widget_for_property(
-                            prop_name, 
-                            default_value,
-                            prop_schema,
-                            False,  # is_base_game
-                            data_path + [prop_name]
-                        )
-                        # Add it to the container
-                        if isinstance(container.layout(), QFormLayout):
-                            container.layout().addRow(prop_name, property_widget)
-                        else:
-                            container.layout().addWidget(property_widget)
-            
+                if content_widget and content_widget.layout():
+                    # Create container for the new property
+                    row_widget = QWidget()
+                    row_layout = QHBoxLayout(row_widget)
+                    row_layout.setContentsMargins(0, 0, 0, 0)
+                    row_layout.setSpacing(4)
+                    
+                    # Add label for the property name
+                    label = QLabel(f"{prop_name}:")
+                    row_layout.addWidget(label)
+                    
+                    # Create widget for the property value
+                    value_widget = self.create_widget_for_value(
+                        default_value,
+                        prop_schema,
+                        False,  # is_base_game
+                        data_path + [prop_name]
+                    )
+                    row_layout.addWidget(value_widget)
+                    
+                    # Add to the content layout
+                    content_widget.layout().addWidget(row_widget)
+
             command = EditValueCommand(
                 file_path,
                 data_path,
