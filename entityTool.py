@@ -2285,6 +2285,7 @@ class EntityToolGUI(QMainWindow):
             return group
             
         else:
+            return None
             # Fallback for unknown types
             print(f"Creating edit for unknown type: {value}")
             edit = QLineEdit(str(value))
@@ -3863,20 +3864,45 @@ class EntityToolGUI(QMainWindow):
         # Create new array with added item
         new_array = array_data + [new_item]
         
-        # Create value update command
-        command = EditValueCommand(
-            file_path,
-            data_path,
-            array_data,
-            new_array,
-            lambda v: None,  # No-op since widget update is handled by data change notification
-            self.update_data_value
-        )
-        command.source_widget = widget
+        # Find the array's content widget (next widget after the toggle button)
+        array_container = widget.parent()
+        content_widget = None
+        if array_container:
+            array_layout = array_container.layout()
+            for i in range(array_layout.count()):
+                item_widget = array_layout.itemAt(i).widget()
+                if item_widget and item_widget != widget:
+                    content_widget = item_widget
+                    break
         
-        # Push the command to update the data
-        self.command_stack.push(command)
-        self.update_save_button()
+        if content_widget and content_widget.layout():
+            # Create value update command first
+            value_cmd = EditValueCommand(
+                file_path,
+                data_path,
+                array_data,
+                new_array,
+                lambda v: None,  # No-op since widget update is handled by transform command
+                self.update_data_value
+            )
+            value_cmd.source_widget = widget
+            
+            # Create transform command for the new widget
+            transform_cmd = TransformWidgetCommand(
+                self,
+                content_widget,
+                None,  # No old value since we're adding a new widget
+                new_item
+            )
+            # Add required attributes to transform command
+            transform_cmd.file_path = file_path
+            transform_cmd.data_path = data_path + [len(array_data)]  # Path to the new item
+            transform_cmd.source_widget = widget
+            
+            # Combine commands
+            composite_cmd = CompositeCommand([value_cmd, transform_cmd])
+            self.command_stack.push(composite_cmd)
+            self.update_save_button()
 
     def resolve_schema_references(self, schema: dict) -> dict:
         """Resolve any $ref in the schema to get the actual schema"""
