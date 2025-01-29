@@ -595,9 +595,14 @@ class DeleteArrayItemCommand(Command):
                 # Add new widget at the same position
                 parent_layout.insertWidget(widget_index, new_widget)
                 
-                # Update our reference to point to the content widget of the new array
-                # Find the content widget in the new structure
+                # Find and click the toggle button to open the array
                 new_layout = new_widget.layout()
+                if new_layout and new_layout.count() > 0:
+                    toggle_btn = new_layout.itemAt(0).widget()
+                    if isinstance(toggle_btn, QToolButton):
+                        toggle_btn.setChecked(True)  # This will trigger the toggled signal and open the array
+                
+                # Update our reference to point to the content widget of the new array
                 if new_layout and new_layout.count() > 1:  # Should have toggle button and content
                     content_widget = new_layout.itemAt(1).widget()  # Content widget is second item
                     if content_widget:
