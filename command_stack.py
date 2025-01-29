@@ -343,39 +343,41 @@ class AddPropertyCommand(Command):
                 row_layout.setSpacing(4)
                 row_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
                 
-                # Add label for the property name (capitalized)
-                display_name = self.prop_name.replace("_", " ").title()
-                label = QLabel(f"{display_name}:")
-                row_layout.addWidget(label)
-                
                 # Get default value
                 default_value = self.gui.get_default_value(self.schema)
                 
                 # Create appropriate widget based on schema type
                 if self.schema.get("type") in ["object", "array"]:
-                    # For objects and arrays, use create_widget_for_schema
+                    # For objects and arrays, use create_widget_for_schema directly
                     value_widget = self.gui.create_widget_for_schema(
                         default_value,
                         self.schema,
                         False,  # is_base_game
                         self.data_path + [self.prop_name]
                     )
+                    if value_widget:
+                        # No need for row_widget, just add directly to parent
+                        self.parent_layout.addWidget(value_widget)
+                        self.added_widget = value_widget
                 else:
-                    # For simple values, use create_widget_for_value
+                    # For simple values, use create_widget_for_value with a label
+                    display_name = self.prop_name.replace("_", " ").title()
+                    label = QLabel(f"{display_name}:")
+                    row_layout.addWidget(label)
+                    
                     value_widget = self.gui.create_widget_for_value(
                         default_value,
                         self.schema,
                         False,  # is_base_game
                         self.data_path + [self.prop_name]
                     )
-                
-                if value_widget:
-                    row_layout.addWidget(value_widget)
-                    row_layout.addStretch()
-                    
-                    # Add to the parent layout
-                    self.parent_layout.addWidget(row_widget)
-                    self.added_widget = row_widget
+                    if value_widget:
+                        row_layout.addWidget(value_widget)
+                        row_layout.addStretch()
+                        
+                        # Add row to parent layout
+                        self.parent_layout.addWidget(row_widget)
+                        self.added_widget = row_widget
                 
         except Exception as e:
             logging.error(f"Error executing add property command: {str(e)}")
