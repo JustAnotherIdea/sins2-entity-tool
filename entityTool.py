@@ -1551,10 +1551,16 @@ class EntityToolGUI(QMainWindow):
         elif schema_type == "array":
             # Get the schema for array items
             items_schema = schema.get("items", {})
+            min_items = schema.get("minItems", 1)  # Default to 1 item if not specified
+            max_items = schema.get("maxItems", None)  # No max by default
+            
             if items_schema:
-                # Create a single item with the proper default value
-                default_item = self.get_default_value(items_schema)
-                return [default_item]
+                # Create the minimum required number of items
+                default_items = []
+                for _ in range(min_items):
+                    default_item = self.get_default_value(items_schema)
+                    default_items.append(default_item)
+                return default_items
             return [""]  # Fallback for arrays with no items schema
             
         elif schema_type == "object":
