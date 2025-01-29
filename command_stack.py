@@ -343,6 +343,11 @@ class AddPropertyCommand(Command):
                 row_layout.setSpacing(4)
                 row_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
                 
+                # Add label for the property name (capitalized)
+                display_name = self.prop_name.replace("_", " ").title()
+                label = QLabel(f"{display_name}:")
+                row_layout.addWidget(label)
+                
                 # Get default value
                 default_value = self.gui.get_default_value(self.schema)
                 
@@ -363,10 +368,6 @@ class AddPropertyCommand(Command):
                         False,  # is_base_game
                         self.data_path + [self.prop_name]
                     )
-                    # Add label for the property name (capitalized)
-                    display_name = self.prop_name.replace("_", " ").title()
-                    label = QLabel(f"{display_name}:")
-                    row_layout.addWidget(label)
                 
                 if value_widget:
                     row_layout.addWidget(value_widget)

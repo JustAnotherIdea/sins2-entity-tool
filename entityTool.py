@@ -1549,7 +1549,13 @@ class EntityToolGUI(QMainWindow):
             return False
             
         elif schema_type == "array":
-            return [""]
+            # Get the schema for array items
+            items_schema = schema.get("items", {})
+            if items_schema:
+                # Create a single item with the proper default value
+                default_item = self.get_default_value(items_schema)
+                return [default_item]
+            return [""]  # Fallback for arrays with no items schema
             
         elif schema_type == "object":
             # Create object with all required properties
