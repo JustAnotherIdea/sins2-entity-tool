@@ -531,11 +531,47 @@ class DeleteArrayItemCommand(Command):
             if self.data_path is not None:
                 self.gui.update_data_value(self.data_path, self.old_value)
             
-            # Recreate the array items
+            # Find the collapsible widget (parent of our array widget)
+            collapsible_widget = None
+            current = self.array_widget
+            while current:
+                # Look for a widget that has a QToolButton as its first child
+                layout = current.layout()
+                if layout and layout.count() > 0:
+                    first_item = layout.itemAt(0)
+                    if first_item.widget() and isinstance(first_item.widget(), QToolButton):
+                        collapsible_widget = current
+                        break
+                current = current.parent()
+            
+            if not collapsible_widget:
+                logging.error("Could not find collapsible widget")
+                return
+                
+            # Get the parent of the collapsible widget
+            parent = collapsible_widget.parent()
+            if not parent:
+                return
+                
+            parent_layout = parent.layout()
+            if not parent_layout:
+                return
+                
+            # Find the collapsible widget's index in its parent's layout
+            widget_index = -1
+            for i in range(parent_layout.count()):
+                if parent_layout.itemAt(i).widget() == collapsible_widget:
+                    widget_index = i
+                    break
+                    
+            if widget_index == -1:
+                return
+                
+            # Get schema and create new array widget
             schema = self.gui.get_schema_for_path(self.data_path)
             if not schema:
                 return
-            
+                
             # Create new widget for the array
             new_widget = self.gui.create_widget_for_schema(
                 self.old_value,
@@ -545,23 +581,27 @@ class DeleteArrayItemCommand(Command):
             )
             
             if new_widget:
-                # Replace the old widget with the new one
-                old_layout = self.array_widget.layout()
-                if old_layout:
-                    # Clear the old layout
-                    while old_layout.count():
-                        item = old_layout.takeAt(0)
-                        if item.widget():
-                            item.widget().hide()
-                            item.widget().deleteLater()
-                    
-                    # Move widgets from new_widget to array_widget
-                    new_layout = new_widget.layout()
-                    if new_layout:
-                        while new_layout.count():
-                            item = new_layout.takeAt(0)
-                            if item.widget():
-                                old_layout.addWidget(item.widget())
+                # First hide the old widget
+                collapsible_widget.hide()
+                
+                # Remove it from the layout
+                old_item = parent_layout.takeAt(widget_index)
+                if old_item:
+                    old_widget = old_item.widget()
+                    if old_widget:
+                        old_widget.setParent(None)
+                        old_widget.deleteLater()
+                
+                # Add new widget at the same position
+                parent_layout.insertWidget(widget_index, new_widget)
+                
+                # Update our reference to point to the content widget of the new array
+                # Find the content widget in the new structure
+                new_layout = new_widget.layout()
+                if new_layout and new_layout.count() > 1:  # Should have toggle button and content
+                    content_widget = new_layout.itemAt(1).widget()  # Content widget is second item
+                    if content_widget:
+                        self.array_widget = content_widget
                 
         except Exception as e:
             logging.error(f"Error undoing delete array item command: {str(e)}")
