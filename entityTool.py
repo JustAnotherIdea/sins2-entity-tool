@@ -3906,33 +3906,47 @@ class EntityToolGUI(QMainWindow):
                     if item_widget and item_widget != widget:
                         content_widget = item_widget
                         break
-
+            
+            # Track the added row widget so we can remove it during undo
+            added_row_widget = None
+            
             def update_ui(value):
+                nonlocal added_row_widget
                 if content_widget and content_widget.layout():
-                    # Create container for the new property
-                    row_widget = QWidget()
-                    row_layout = QHBoxLayout(row_widget)
-                    row_layout.setContentsMargins(0, 0, 0, 0)
-                    row_layout.setSpacing(4)
-                    row_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)  # Left align the entire row
-                    
-                    # Add label for the property name (capitalized)
-                    display_name = prop_name.replace("_", " ").title()
-                    label = QLabel(f"{display_name}:")
-                    row_layout.addWidget(label)
-                    
-                    # Create widget for the property value
-                    value_widget = self.create_widget_for_value(
-                        default_value,
-                        prop_schema,
-                        False,  # is_base_game
-                        data_path + [prop_name]
-                    )
-                    row_layout.addWidget(value_widget)
-                    row_layout.addStretch()  # Add stretch after the value widget to keep it left-aligned
-                    
-                    # Add to the content layout
-                    content_widget.layout().addWidget(row_widget)
+                    # If we're undoing (value == old_value) and we have a row widget, remove it
+                    if value == old_value and added_row_widget:
+                        added_row_widget.setParent(None)
+                        added_row_widget.deleteLater()
+                        added_row_widget = None
+                        return
+                        
+                    # If we're adding/redoing (value == new_value) and don't have a row widget, create it
+                    if value == new_value and not added_row_widget:
+                        # Create container for the new property
+                        row_widget = QWidget()
+                        row_layout = QHBoxLayout(row_widget)
+                        row_layout.setContentsMargins(0, 0, 0, 0)
+                        row_layout.setSpacing(4)
+                        row_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)  # Left align the entire row
+                        
+                        # Add label for the property name (capitalized)
+                        display_name = prop_name.replace("_", " ").title()
+                        label = QLabel(f"{display_name}:")
+                        row_layout.addWidget(label)
+                        
+                        # Create widget for the property value
+                        value_widget = self.create_widget_for_value(
+                            default_value,
+                            prop_schema,
+                            False,  # is_base_game
+                            data_path + [prop_name]
+                        )
+                        row_layout.addWidget(value_widget)
+                        row_layout.addStretch()  # Add stretch after the value widget to keep it left-aligned
+                        
+                        # Add to the content layout
+                        content_widget.layout().addWidget(row_widget)
+                        added_row_widget = row_widget
 
             command = EditValueCommand(
                 file_path,
