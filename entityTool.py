@@ -24,78 +24,107 @@ import ast
 logging.basicConfig(level=logging.DEBUG)
 
 class TransformWidgetCommand:
-    """Command for transforming a widget's content"""
-    
+    """Command for transforming a widget from one type to another"""
     def __init__(self, gui, widget, old_value, new_value):
         self.gui = gui
-        self.widget = widget
         self.old_value = old_value
         self.new_value = new_value
+        
+        # Store widget properties and references
+        self.parent = widget.parent()
+        self.parent_layout = self.parent.layout()
+        if not self.parent_layout:
+            self.parent_layout = QVBoxLayout(self.parent)
+            self.parent_layout.setContentsMargins(0, 0, 0, 0)
+            self.parent_layout.setSpacing(4)
+            
+        # Create a container widget to hold our transformed widgets
+        self.container = QWidget(self.parent)
+        self.container_layout = QVBoxLayout(self.container)
+        self.container_layout.setContentsMargins(0, 0, 0, 0)
+        self.container_layout.setSpacing(0)
+        
+        # Store original widget index and properties
+        self.widget_index = self.parent_layout.indexOf(widget)
+        self.data_path = widget.property("data_path")
+        self.is_base_game = widget.property("is_base_game") or False
+        
+        # For array items, we'll add to the existing layout instead of replacing
+        self.is_array_item = old_value is None and isinstance(widget, QWidget) and widget.layout() is not None
+        if not self.is_array_item:
+            # Move the original widget into our container
+            widget.setParent(self.container)
+            self.container_layout.addWidget(widget)
+            
+            # Add container to parent layout
+            self.parent_layout.insertWidget(self.widget_index, self.container)
+        else:
+            # For array items, we'll use the existing widget and layout
+            self.container = widget
+            self.container_layout = widget.layout()
+            
+        # Additional properties for array items
         self.file_path = None
-        self.data_path = None
         self.source_widget = None
-        self.schema = None  # Add schema field
+        self.schema = None
+        self.array_data = None
+        self.new_array = None
+        self.added_widget = None
         
     def replace_widget(self, new_widget):
-        """Replace the old widget with a new one in the parent layout"""
-        if not self.widget or not self.widget.parent():
-            return
+        """Replace all widgets in container with new widget"""
+        if not self.container_layout or not new_widget:
+            return None
             
-        parent = self.widget.parent()
-        layout = parent.layout()
-        if not layout:
-            return
+        if not self.is_array_item:
+            # Clear all widgets from container
+            while self.container_layout.count():
+                item = self.container_layout.takeAt(0)
+                if item.widget():
+                    item.widget().hide()
+                    item.widget().deleteLater()
+                    
+            # Add new widget to container
+            self.container_layout.addWidget(new_widget)
+        else:
+            # For array items, just add the new widget to the existing layout
+            self.container_layout.addWidget(new_widget)
+            self.added_widget = new_widget  # Track the added widget for array items
             
-        # Find the old widget's position in the layout
-        for i in range(layout.count()):
-            if layout.itemAt(i).widget() == self.widget:
-                # Remove old widget
-                layout.takeAt(i)
-                self.widget.deleteLater()
-                
-                # Add new widget at the same position
-                if isinstance(layout, QFormLayout):
-                    # For form layouts, we need to handle label and field
-                    if i % 2 == 0:  # Label
-                        layout.insertRow(i // 2, new_widget, layout.itemAt(i + 1).widget())
-                    else:  # Field
-                        layout.insertRow(i // 2, layout.itemAt(i - 1).widget(), new_widget)
-                else:
-                    layout.insertWidget(i, new_widget)
-                break
-                
+        return new_widget
+        
     def execute(self):
-        """Execute the command - create and add the new widget"""
-        print(f"Creating edit for: {self.new_value}")
-        if not self.widget or not self.widget.layout():
-            return
-            
-        # Create the new widget
-        if self.schema:
+        """Execute the transformation"""
+        if self.is_array_item and self.schema:
+            # Handle array item addition
+            if self.array_data is not None and self.new_array is not None:
+                self.gui.update_data_value(self.data_path[:-1], self.new_array)
             new_widget = self.gui.create_widget_for_schema(self.new_value, self.schema, False, self.data_path)
         else:
-            new_widget = self.gui.create_widget_for_value(self.new_value, {"type": "string"}, False, self.data_path)
-            
-        if new_widget:
-            # For arrays, we append the new widget to the layout
-            self.widget.layout().addWidget(new_widget)
-            self.added_widget = new_widget
+            # Handle normal widget transformation
+            new_widget = self.gui.create_widget_for_value(self.new_value, {"type": "string"}, self.is_base_game, self.data_path)
+        return self.replace_widget(new_widget)
         
     def undo(self):
-        """Undo the command - remove the added widget"""
-        if self.added_widget and self.widget and self.widget.layout():
-            # Find and remove the added widget
-            layout = self.widget.layout()
-            for i in range(layout.count()):
-                if layout.itemAt(i).widget() == self.added_widget:
-                    layout.takeAt(i)
-                    self.added_widget.deleteLater()
+        """Undo the transformation"""
+        if not self.is_array_item:
+            # Handle normal widget transformation
+            new_widget = self.gui.create_widget_for_value(self.old_value, {"type": "string"}, self.is_base_game, self.data_path)
+            return self.replace_widget(new_widget)
+        else:
+            # Handle array item removal
+            if self.array_data is not None:
+                self.gui.update_data_value(self.data_path[:-1], self.array_data)
+            if self.container_layout.count() > 0:
+                item = self.container_layout.takeAt(self.container_layout.count() - 1)
+                if item.widget():
+                    item.widget().hide()
+                    item.widget().deleteLater()
                     self.added_widget = None
-                    break
-                    
+        
     def redo(self):
-        """Redo the command"""
-        self.execute()
+        """Redo the transformation (same as execute)"""
+        return self.execute()
 
 class CompositeCommand:
     """Command that combines multiple commands into one atomic operation"""
