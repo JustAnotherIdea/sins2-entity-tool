@@ -1782,7 +1782,21 @@ class EntityToolGUI(QMainWindow):
                         # Update path for this array item
                         item_path = path + [i]
                         widget = self.create_widget_for_value(item, items_schema, is_base_game, item_path)
-                        content_layout.addWidget(widget)
+                        
+                        # Add index label before each item
+                        item_container = QWidget()
+                        item_layout = QHBoxLayout(item_container)
+                        item_layout.setContentsMargins(0, 0, 0, 0)
+                        item_layout.setSpacing(4)
+                        item_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)  # Align items to the left
+                        
+                        # Add index label
+                        index_label = QLabel(f"[{i}]")
+                        index_label.setStyleSheet("QLabel { color: gray; }")
+                        item_layout.addWidget(index_label)
+                        
+                        item_layout.addWidget(widget)
+                        content_layout.addWidget(item_container)
                 else:
                     # For complex arrays, show each item with its index
                     for i, item in enumerate(data):
@@ -1792,19 +1806,20 @@ class EntityToolGUI(QMainWindow):
                             item, items_schema, is_base_game, item_path
                         )
                         if widget:
-                            if isinstance(item, dict) and "modifier_type" in item:
-                                # Special handling for modifier arrays
-                                content_layout.addWidget(widget)
-                            else:
-                                # Add index label before each item
-                                item_container = QWidget()
-                                item_layout = QHBoxLayout(item_container)
-                                item_layout.setContentsMargins(0, 0, 0, 0)
-                                item_layout.setSpacing(4)
-                                item_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)  # Align items to the left
-                                
-                                item_layout.addWidget(widget)
-                                content_layout.addWidget(item_container)
+                            # Add index label before each item
+                            item_container = QWidget()
+                            item_layout = QHBoxLayout(item_container)
+                            item_layout.setContentsMargins(0, 0, 0, 0)
+                            item_layout.setSpacing(4)
+                            item_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)  # Align items to the left
+                            
+                            # Add index label
+                            index_label = QLabel(f"[{i}]")
+                            index_label.setStyleSheet("QLabel { color: gray; }")
+                            item_layout.addWidget(index_label)
+                            
+                            item_layout.addWidget(widget)
+                            content_layout.addWidget(item_container)
             
             def update_arrow_state(checked):
                 toggle_btn.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
