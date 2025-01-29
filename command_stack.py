@@ -470,4 +470,106 @@ class AddPropertyCommand(Command):
             return self.execute()
         except Exception as e:
             logging.error(f"Error redoing add property command: {str(e)}")
+            return None
+
+class DeleteArrayItemCommand(Command):
+    """Command for deleting an item from an array"""
+    def __init__(self, gui, array_widget, array_data, item_index):
+        # Store the old and new array values
+        old_array = array_data.copy()
+        new_array = array_data.copy()
+        new_array.pop(item_index)
+        
+        super().__init__(None, None, old_array, new_array)  # File path and data path set later
+        self.gui = gui
+        self.array_widget = array_widget
+        self.item_index = item_index
+        
+    def execute(self):
+        """Execute the array item deletion"""
+        try:
+            # Update the data
+            if self.data_path is not None:
+                self.gui.update_data_value(self.data_path, self.new_value)
+            
+            # Get the array's content layout
+            content_layout = self.array_widget.layout()
+            if not content_layout:
+                return
+            
+            # Remove the item widget at the specified index
+            if content_layout.count() > self.item_index:
+                item = content_layout.takeAt(self.item_index)
+                if item.widget():
+                    item.widget().hide()
+                    item.widget().deleteLater()
+            
+            # Update remaining indices
+            for i in range(self.item_index, content_layout.count()):
+                item_container = content_layout.itemAt(i).widget()
+                if item_container:
+                    item_layout = item_container.layout()
+                    if item_layout and item_layout.count() > 0:
+                        # First widget should be the index label
+                        index_label = item_layout.itemAt(0).widget()
+                        if isinstance(index_label, QLabel):
+                            index_label.setText(f"[{i}]")
+                            # Update data path property
+                            data_path = index_label.property("data_path")
+                            if data_path:
+                                data_path = data_path[:-1] + [i]  # Update index
+                                index_label.setProperty("data_path", data_path)
+            
+        except Exception as e:
+            logging.error(f"Error executing delete array item command: {str(e)}")
+            return None
+            
+    def undo(self):
+        """Undo the array item deletion"""
+        try:
+            # Update the data
+            if self.data_path is not None:
+                self.gui.update_data_value(self.data_path, self.old_value)
+            
+            # Recreate the array items
+            schema = self.gui.get_schema_for_path(self.data_path)
+            if not schema:
+                return
+            
+            # Create new widget for the array
+            new_widget = self.gui.create_widget_for_schema(
+                self.old_value,
+                schema,
+                False,  # is_base_game
+                self.data_path
+            )
+            
+            if new_widget:
+                # Replace the old widget with the new one
+                old_layout = self.array_widget.layout()
+                if old_layout:
+                    # Clear the old layout
+                    while old_layout.count():
+                        item = old_layout.takeAt(0)
+                        if item.widget():
+                            item.widget().hide()
+                            item.widget().deleteLater()
+                    
+                    # Move widgets from new_widget to array_widget
+                    new_layout = new_widget.layout()
+                    if new_layout:
+                        while new_layout.count():
+                            item = new_layout.takeAt(0)
+                            if item.widget():
+                                old_layout.addWidget(item.widget())
+                
+        except Exception as e:
+            logging.error(f"Error undoing delete array item command: {str(e)}")
+            
+    def redo(self):
+        """Redo the array item deletion"""
+        try:
+            return self.execute()
+        except Exception as e:
+            logging.error(f"Error redoing delete array item command: {str(e)}")
             return None 

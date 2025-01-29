@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 from research_view import ResearchTreeView
 import os
-from command_stack import CommandStack, EditValueCommand, AddPropertyCommand
+from command_stack import CommandStack, EditValueCommand, AddPropertyCommand, DeleteArrayItemCommand
 from typing import List, Any
 import sounddevice as sd
 import soundfile as sf
@@ -1790,11 +1790,20 @@ class EntityToolGUI(QMainWindow):
                         item_layout.setSpacing(4)
                         item_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)  # Align items to the left
                         
-                        # Add index label
+                        # Add index label with context menu
                         index_label = QLabel(f"[{i}]")
                         index_label.setStyleSheet("QLabel { color: gray; }")
-                        item_layout.addWidget(index_label)
+                        index_label.setProperty("data_path", item_path)
+                        index_label.setProperty("array_data", data)
                         
+                        # Only add context menu if there's more than one item
+                        if len(data) > 1:
+                            index_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                            index_label.customContextMenuRequested.connect(
+                                lambda pos, w=index_label: self.show_array_item_menu(w, pos)
+                            )
+                        
+                        item_layout.addWidget(index_label)
                         item_layout.addWidget(widget)
                         content_layout.addWidget(item_container)
                 else:
@@ -1813,11 +1822,20 @@ class EntityToolGUI(QMainWindow):
                             item_layout.setSpacing(4)
                             item_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)  # Align items to the left
                             
-                            # Add index label
+                            # Add index label with context menu
                             index_label = QLabel(f"[{i}]")
                             index_label.setStyleSheet("QLabel { color: gray; }")
-                            item_layout.addWidget(index_label)
+                            index_label.setProperty("data_path", item_path)
+                            index_label.setProperty("array_data", data)
                             
+                            # Only add context menu if there's more than one item
+                            if len(data) > 1:
+                                index_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                                index_label.customContextMenuRequested.connect(
+                                    lambda pos, w=index_label: self.show_array_item_menu(w, pos)
+                                )
+                            
+                            item_layout.addWidget(index_label)
                             item_layout.addWidget(widget)
                             content_layout.addWidget(item_container)
             
@@ -4893,4 +4911,66 @@ class EntityToolGUI(QMainWindow):
             
         root_logger.addHandler(handler)
         logging.info("Logging system initialized")
+
+    def show_array_item_menu(self, widget: QWidget, pos):
+        """Show context menu for array item indices"""
+        menu = QMenu()
+        
+        # Get data path and array data
+        data_path = widget.property("data_path")
+        array_data = widget.property("array_data")
+        
+        if data_path and array_data and len(array_data) > 1:
+            # Add delete action
+            delete_action = menu.addAction("Delete Item")
+            delete_action.triggered.connect(
+                lambda: self.delete_array_item(widget, data_path)
+            )
+        
+        menu.exec(widget.mapToGlobal(pos))
+        
+    def delete_array_item(self, widget: QWidget, item_path: list):
+        """Delete an item from an array"""
+        # Get file path from parent schema view
+        file_path = self.get_schema_view_file_path(widget)
+        if not file_path:
+            return
+            
+        # Get current data from command stack
+        current_data = self.command_stack.get_file_data(file_path)
+        if not current_data:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                current_data = json.load(f)
+        
+        # Get array path (everything except the last index)
+        array_path = item_path[:-1]
+        item_index = item_path[-1]
+        
+        # Navigate to the array
+        array_data = current_data
+        for part in array_path:
+            array_data = array_data[part]
+            
+        if not isinstance(array_data, list):
+            return
+            
+        # Find the array's content widget (where the items are stored)
+        content_widget = widget.parent().parent()
+        if not content_widget:
+            return
+        
+        # Create and execute command
+        command = DeleteArrayItemCommand(
+            self,
+            content_widget,
+            array_data,
+            item_index
+        )
+        # Add required attributes to transform command
+        command.file_path = file_path
+        command.data_path = array_path
+        command.source_widget = widget
+        
+        self.command_stack.push(command)
+        self.update_save_button()
 
