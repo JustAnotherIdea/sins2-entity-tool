@@ -1816,19 +1816,6 @@ class EntityToolGUI(QMainWindow):
             
         # Get current value from command stack if available
         current_value = self.get_current_value_from_command_stack(file_path, path, value)
-        
-        # Try to parse string values as objects/dicts
-        if isinstance(current_value, str):
-            try:
-                # Check if it looks like a dict/object string
-                if current_value.strip().startswith('{') and current_value.strip().endswith('}'):
-                    parsed_value = ast.literal_eval(current_value)
-                    if isinstance(parsed_value, dict):
-                        # Use the schema's properties to create the widget
-                        print(f"Creating widget for object: {parsed_value}")
-                        return self.create_widget_for_schema(parsed_value, schema, is_base_game, path)
-            except:
-                pass  # Keep original string value if parsing fails
 
         # Handle different schema types
         schema_type = schema.get("type")
@@ -2954,6 +2941,13 @@ class EntityToolGUI(QMainWindow):
                                     array_content = widget
                                     array_content_layout = array_content.layout()
                                     if array_content_layout:
+                                        return
+                                        # Skip widget creation if flag is set
+                                        if array_content.property("skip_widget_creation"):
+                                            print("Skipping widget creation")
+
+                                            continue
+                                        
                                         # Create widget for the new array item
                                         # Get the schema for array items by traversing the schema structure
                                         current_schema = self.current_schema
