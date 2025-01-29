@@ -3920,15 +3920,30 @@ class EntityToolGUI(QMainWindow):
         if not isinstance(array_data, list):
             array_data = []
             
-        # Create new item with default value based on schema
+        # Resolve schema references and get the full schema
         resolved_schema = self.resolve_schema_references(item_schema)
+        
+        # Create new item with default value based on schema
         new_item = self.get_default_value(resolved_schema)
         
-        # Ensure required properties are present with proper default values
+        # For objects, ensure all required properties are present with proper default values
         if isinstance(new_item, dict):
-            for prop_name, prop_schema in resolved_schema.get("properties", {}).items():
-                if prop_name in resolved_schema.get("required", []) and prop_name not in new_item:
-                    new_item[prop_name] = self.get_default_value(self.resolve_schema_references(prop_schema))
+            # Get required properties from schema
+            required_props = resolved_schema.get("required", [])
+            properties = resolved_schema.get("properties", {})
+            
+            # Add all required properties
+            for prop_name in required_props:
+                if prop_name not in new_item and prop_name in properties:
+                    prop_schema = self.resolve_schema_references(properties[prop_name])
+                    new_item[prop_name] = self.get_default_value(prop_schema)
+                    
+            # If schema has unevaluatedProperties set to false, add all optional properties too
+            if resolved_schema.get("unevaluatedProperties") is False:
+                for prop_name, prop_schema in properties.items():
+                    if prop_name not in new_item:
+                        prop_schema = self.resolve_schema_references(prop_schema)
+                        new_item[prop_name] = self.get_default_value(prop_schema)
                     
         new_array = array_data + [new_item]
         
@@ -3944,17 +3959,6 @@ class EntityToolGUI(QMainWindow):
                     break
         
         if content_widget and content_widget.layout():
-            # Create value update command first
-            value_cmd = EditValueCommand(
-                file_path,
-                data_path,
-                array_data,
-                new_array,
-                lambda v: None,  # No-op since widget update is handled by transform command
-                self.update_data_value
-            )
-            value_cmd.source_widget = widget
-            
             # Create transform command for the new widget
             transform_cmd = TransformWidgetCommand(
                 self,
@@ -3967,24 +3971,45 @@ class EntityToolGUI(QMainWindow):
             transform_cmd.data_path = data_path + [len(array_data)]  # Path to the new item
             transform_cmd.source_widget = widget
             transform_cmd.schema = resolved_schema  # Pass the schema to the transform command
+            transform_cmd.array_data = array_data  # Pass current array data
+            transform_cmd.new_array = new_array  # Pass new array data
             
-            # Combine commands
-            composite_cmd = CompositeCommand([value_cmd, transform_cmd])
-            self.command_stack.push(composite_cmd)
+            self.command_stack.push(transform_cmd)
             self.update_save_button()
 
     def resolve_schema_references(self, schema: dict) -> dict:
-        """Resolve any $ref in the schema to get the actual schema"""
-        if isinstance(schema, dict):
-            if "$ref" in schema:
-                ref_path = schema["$ref"].split("/")[1:]
-                current = self.current_schema
-                for part in ref_path:
-                    if part in current:
-                        current = current[part]
-                    else:
-                        return schema
-                return current
+        """Resolve schema references recursively"""
+        if not schema:
+            return schema
+            
+        if "$ref" in schema:
+            ref_path = schema["$ref"].split("/")[1:]  # Skip the first '#' element
+            # Find the referenced schema in the loaded schemas
+            for loaded_schema in self.schemas.values():
+                try:
+                    resolved = loaded_schema
+                    for part in ref_path:
+                        resolved = resolved[part]
+                    # Merge any additional properties from the original schema
+                    resolved = {**resolved, **{k: v for k, v in schema.items() if k != "$ref"}}
+                    return resolved
+                except (KeyError, TypeError):
+                    continue
+            # If we get here, we couldn't resolve the reference
+            print(f"Warning: Could not resolve schema reference: {schema['$ref']}")
+            return schema
+            
+        # Handle nested objects
+        if "properties" in schema:
+            resolved_props = {}
+            for prop_name, prop_schema in schema["properties"].items():
+                resolved_props[prop_name] = self.resolve_schema_references(prop_schema)
+            schema["properties"] = resolved_props
+            
+        # Handle arrays
+        if "items" in schema:
+            schema["items"] = self.resolve_schema_references(schema["items"])
+            
         return schema
 
     def refresh_schema_view(self, file_path: Path):
