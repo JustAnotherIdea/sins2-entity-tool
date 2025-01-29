@@ -373,6 +373,12 @@ class AddPropertyCommand(Command):
                     toggle_btn.setText(self.prop_name.replace("_", " ").title())
                     toggle_btn.setCheckable(True)
                     
+                    # Make button bold if property is required
+                    parent_schema = self.gui.get_schema_for_path(self.data_path)
+                    if parent_schema and "required" in parent_schema:
+                        if self.prop_name in parent_schema["required"]:
+                            toggle_btn.setStyleSheet("QToolButton { border: none; font-weight: bold; }")
+                    
                     # Store data path and value for context menu
                     toggle_btn.setProperty("data_path", self.data_path + [self.prop_name])
                     toggle_btn.setProperty("original_value", default_value)
@@ -415,6 +421,13 @@ class AddPropertyCommand(Command):
                     # For simple values, use create_widget_for_value with a label
                     display_name = self.prop_name.replace("_", " ").title()
                     label = QLabel(f"{display_name}:")
+                    
+                    # Make label bold if property is required
+                    parent_schema = self.gui.get_schema_for_path(self.data_path)
+                    if parent_schema and "required" in parent_schema:
+                        if self.prop_name in parent_schema["required"]:
+                            label.setStyleSheet("QLabel { font-weight: bold; }")
+                    
                     row_layout.addWidget(label)
                     
                     value_widget = self.gui.create_widget_for_value(

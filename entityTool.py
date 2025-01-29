@@ -1655,6 +1655,10 @@ class EntityToolGUI(QMainWindow):
                             row_layout.setContentsMargins(0, 2, 0, 2)  # Add small vertical spacing
                             
                             label = QLabel(prop_name.replace("_", " ").title() + ":")
+                            # Make label bold if property is required
+                            if prop_name in required_props:
+                                label.setStyleSheet("QLabel { font-weight: bold; }")
+                            
                             row_layout.addWidget(label)
                             row_layout.addWidget(widget)
                             row_layout.addStretch()
@@ -1676,6 +1680,10 @@ class EntityToolGUI(QMainWindow):
                             toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
                             toggle_btn.setText(prop_name.replace("_", " ").title())
                             toggle_btn.setCheckable(True)
+                            
+                            # Make button bold if property is required
+                            if prop_name in required_props:
+                                toggle_btn.setStyleSheet("QToolButton { border: none; font-weight: bold; }")
                             
                             # Store object data and path for context menu
                             toggle_btn.setProperty("data_path", prop_path)
