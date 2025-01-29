@@ -95,36 +95,47 @@ class TransformWidgetCommand:
         
     def execute(self):
         """Execute the transformation"""
-        if self.is_array_item and self.schema:
-            # Handle array item addition
-            if self.array_data is not None and self.new_array is not None:
-                self.gui.update_data_value(self.data_path[:-1], self.new_array)
-            new_widget = self.gui.create_widget_for_schema(self.new_value, self.schema, False, self.data_path)
-        else:
-            # Handle normal widget transformation
-            new_widget = self.gui.create_widget_for_value(self.new_value, {"type": "string"}, self.is_base_game, self.data_path)
-        return self.replace_widget(new_widget)
+        try:
+            if self.is_array_item and self.schema:
+                # Handle array item addition
+                if self.array_data is not None and self.new_array is not None:
+                    self.gui.update_data_value(self.data_path[:-1], self.new_array)
+                new_widget = self.gui.create_widget_for_schema(self.new_value, self.schema, False, self.data_path)
+            else:
+                # Handle normal widget transformation
+                new_widget = self.gui.create_widget_for_value(self.new_value, {"type": "string"}, self.is_base_game, self.data_path)
+            return self.replace_widget(new_widget)
+        except Exception as e:
+            logging.error(f"Error executing transform command: {str(e)}")
+            return None
         
     def undo(self):
         """Undo the transformation"""
-        if not self.is_array_item:
-            # Handle normal widget transformation
-            new_widget = self.gui.create_widget_for_value(self.old_value, {"type": "string"}, self.is_base_game, self.data_path)
-            return self.replace_widget(new_widget)
-        else:
-            # Handle array item removal
-            if self.array_data is not None:
-                self.gui.update_data_value(self.data_path[:-1], self.array_data)
-            if self.container_layout.count() > 0:
-                item = self.container_layout.takeAt(self.container_layout.count() - 1)
-                if item.widget():
-                    item.widget().hide()
-                    item.widget().deleteLater()
-                    self.added_widget = None
+        try:
+            if not self.is_array_item:
+                # Handle normal widget transformation
+                new_widget = self.gui.create_widget_for_value(self.old_value, {"type": "string"}, self.is_base_game, self.data_path)
+                return self.replace_widget(new_widget)
+            else:
+                # Handle array item removal
+                if self.array_data is not None:
+                    self.gui.update_data_value(self.data_path[:-1], self.array_data)
+                if self.container_layout.count() > 0:
+                    item = self.container_layout.takeAt(self.container_layout.count() - 1)
+                    if item.widget():
+                        item.widget().hide()
+                        item.widget().deleteLater()
+                        self.added_widget = None
+        except Exception as e:
+            logging.error(f"Error undoing transform command: {str(e)}")
         
     def redo(self):
         """Redo the transformation (same as execute)"""
-        return self.execute()
+        try:
+            return self.execute()
+        except Exception as e:
+            logging.error(f"Error redoing transform command: {str(e)}")
+            return None
 
 class CompositeCommand:
     """Command that combines multiple commands into one atomic operation"""
@@ -132,25 +143,35 @@ class CompositeCommand:
         self.commands = commands
         # For logging purposes, use the first command's attributes
         if commands and hasattr(commands[0], 'file_path'):
-            self.file_path = commands[0].file_path
-            self.data_path = commands[0].data_path
-            self.old_value = commands[0].old_value
-            self.new_value = commands[0].new_value
-            self.source_widget = commands[0].source_widget if hasattr(commands[0], 'source_widget') else None
+            try:
+                self.file_path = commands[0].file_path
+                self.data_path = commands[0].data_path
+                self.old_value = commands[0].old_value
+                self.new_value = commands[0].new_value
+                self.source_widget = commands[0].source_widget if hasattr(commands[0], 'source_widget') else None
+            except Exception as e:
+                logging.error(f"Error initializing composite command: {str(e)}")
         
     def redo(self):
         """Execute the command (called by command stack)"""
-        # Execute transform command first to create new widget
-        self.commands[1].execute()
-        # Then update the value
-        self.commands[0].redo()
+        try:
+            # Execute transform command first to create new widget
+            if len(self.commands) > 1:
+                self.commands[1].execute()
+            # Then update the value
+            if self.commands:
+                self.commands[0].redo()
+        except Exception as e:
+            logging.error(f"Error executing composite command redo: {str(e)}")
         
     def undo(self):
-        """Undo the command"""
-        # Undo value command first
-        self.commands[0].undo()
-        # Then undo transform command to restore widget
-        self.commands[1].undo()
+        """Undo the command (called by command stack)"""
+        try:
+            # Undo in reverse order
+            for cmd in reversed(self.commands):
+                cmd.undo()
+        except Exception as e:
+            logging.error(f"Error executing composite command undo: {str(e)}")
 
 class GUILogHandler(logging.Handler):
     def __init__(self, log_widget):
