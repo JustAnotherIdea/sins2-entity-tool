@@ -373,6 +373,16 @@ class AddPropertyCommand(Command):
                     toggle_btn.setText(self.prop_name.replace("_", " ").title())
                     toggle_btn.setCheckable(True)
                     
+                    # Store data path and value for context menu
+                    toggle_btn.setProperty("data_path", self.data_path + [self.prop_name])
+                    toggle_btn.setProperty("original_value", default_value)
+                    
+                    # Add context menu
+                    toggle_btn.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                    toggle_btn.customContextMenuRequested.connect(
+                        lambda pos, w=toggle_btn: self.gui.show_context_menu(w, pos, default_value)
+                    )
+                    
                     # Create content widget
                     content = QWidget()
                     content_layout = QVBoxLayout(content)
