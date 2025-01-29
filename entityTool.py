@@ -2036,6 +2036,7 @@ class EntityToolGUI(QMainWindow):
                 layout.setSpacing(4)
                 
                 # Add editable field for the key
+                print(f"Creating key edit for: {value_str}")
                 key_edit = QLineEdit(value_str)
                 key_edit.textChanged.connect(lambda text: self.on_text_changed(key_edit, text))
                 key_edit.setProperty("data_path", path)
@@ -2120,6 +2121,7 @@ class EntityToolGUI(QMainWindow):
                 
                 # Add editable field if not base game
                 if not is_base_game:
+                    print(f"Creating texture edit for: {value_str}")
                     edit = QLineEdit(value_str)
                     edit.textChanged.connect(lambda text: self.on_text_changed(edit, text))
                     edit.setProperty("data_path", path)
@@ -2159,6 +2161,7 @@ class EntityToolGUI(QMainWindow):
 
             # Handle all other values
             else:
+                print(f"Creating edit for: {value_str}")
                 edit = QLineEdit(value_str)
                 if is_base_game:
                     edit.setStyleSheet("color: #666666; font-style: italic;")
@@ -2283,6 +2286,7 @@ class EntityToolGUI(QMainWindow):
             
         else:
             # Fallback for unknown types
+            print(f"Creating edit for unknown type: {value}")
             edit = QLineEdit(str(value))
             if is_base_game:
                 edit.setStyleSheet("color: #666666; font-style: italic;")
@@ -2291,6 +2295,13 @@ class EntityToolGUI(QMainWindow):
             # Store path and original value
             edit.setProperty("data_path", path)
             edit.setProperty("original_value", value)
+
+            # Add context menu
+            edit.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            edit.customContextMenuRequested.connect(
+                lambda pos, w=edit, v=value: self.show_context_menu(w, pos, v)
+            )
+            
             return edit
     
     def load_referenced_entity(self, entity_id: str, entity_type: str):
@@ -2968,6 +2979,7 @@ class EntityToolGUI(QMainWindow):
                         logging.debug(f"Found widget to update: {target_widget}")
                         # Update widget value based on its type
                         if isinstance(target_widget, QLineEdit):
+                            print(f"Updating QLineEdit with value: {value}")
                             target_widget.setText(str(value) if value is not None else "")
                         elif isinstance(target_widget, QSpinBox):
                             target_widget.setValue(int(value) if value is not None else 0)
@@ -3021,6 +3033,7 @@ class EntityToolGUI(QMainWindow):
         # Convert None to empty string for comparison
         old_value_str = str(old_value) if old_value is not None else ""
         
+        print(f"data_path: {data_path}, old_value_str: {old_value_str}, new_text: {new_text}")
         if data_path is not None and old_value_str != new_text:
             command = EditValueCommand(
                 file_path,
@@ -3851,43 +3864,19 @@ class EntityToolGUI(QMainWindow):
         new_array = array_data + [new_item]
         
         # Create value update command
-        value_cmd = EditValueCommand(
+        command = EditValueCommand(
             file_path,
             data_path,
             array_data,
             new_array,
-            lambda v: None,  # No-op since widget update is handled separately
+            lambda v: None,  # No-op since widget update is handled by data change notification
             self.update_data_value
         )
-        value_cmd.source_widget = widget
+        command.source_widget = widget
         
-        # Create widget for the new item
-        item_path = data_path + [len(array_data)]  # Path to the new item
-        
-        # Find the array's content widget (next widget after the toggle button)
-        array_container = widget.parent()
-        content_widget = None
-        if array_container:
-            array_layout = array_container.layout()
-            for i in range(array_layout.count()):
-                item_widget = array_layout.itemAt(i).widget()
-                if item_widget and item_widget != widget:
-                    content_widget = item_widget
-                    break
-        
-        if content_widget and content_widget.layout():
-            # Create transform command for the new widget
-            transform_cmd = TransformWidgetCommand(
-                self,
-                content_widget,
-                None,  # No old value since we're adding a new widget
-                new_item
-            )
-            
-            # Combine commands
-            composite_cmd = CompositeCommand([value_cmd, transform_cmd])
-            self.command_stack.push(composite_cmd)
-            self.update_save_button()
+        # Push the command to update the data
+        self.command_stack.push(command)
+        self.update_save_button()
 
     def resolve_schema_references(self, schema: dict) -> dict:
         """Resolve any $ref in the schema to get the actual schema"""
