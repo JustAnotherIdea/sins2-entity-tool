@@ -3934,7 +3934,7 @@ class EntityToolGUI(QMainWindow):
             # Create transform command for the new property
             transform_cmd = AddPropertyCommand(
                 self,
-                content_widget,
+                content_widget,  # Pass content_widget instead of widget
                 old_value,
                 new_value
             )

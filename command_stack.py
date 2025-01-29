@@ -314,15 +314,12 @@ class AddPropertyCommand(Command):
         self.gui = gui
         
         # Store widget properties and references
-        self.parent = widget.parent()
+        self.parent = widget
         self.parent_layout = self.parent.layout()
         if not self.parent_layout:
             self.parent_layout = QVBoxLayout(self.parent)
             self.parent_layout.setContentsMargins(0, 0, 0, 0)
             self.parent_layout.setSpacing(4)
-            
-        # Store original widget index and properties
-        self.widget_index = self.parent_layout.indexOf(widget)
         
         # Additional properties for property addition
         self.source_widget = None
@@ -338,7 +335,7 @@ class AddPropertyCommand(Command):
                 self.gui.update_data_value(self.data_path, self.new_value)
                 
             # Create and add the widget
-            if self.schema and self.prop_name:
+            if self.schema and self.prop_name and self.parent_layout:
                 # Create container for the new property
                 row_widget = QWidget()
                 row_layout = QHBoxLayout(row_widget)
