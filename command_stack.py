@@ -2,6 +2,8 @@ from typing import Any, List, Dict, Set, Callable
 from pathlib import Path
 import json
 import logging
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
+from PyQt6.QtCore import Qt
 
 class Command:
     """Base class for all commands"""
@@ -303,4 +305,90 @@ class CommandStack:
             
     def clear_modified_state(self, file_path: Path) -> None:
         """Clear the modified state for a file without saving"""
-        self.modified_files.discard(file_path) 
+        self.modified_files.discard(file_path)
+
+class AddPropertyCommand(Command):
+    """Command for adding a property to an object"""
+    def __init__(self, gui, widget, old_value, new_value):
+        super().__init__(None, None, old_value, new_value)  # File path and data path set later
+        self.gui = gui
+        
+        # Store widget properties and references
+        self.parent = widget.parent()
+        self.parent_layout = self.parent.layout()
+        if not self.parent_layout:
+            self.parent_layout = QVBoxLayout(self.parent)
+            self.parent_layout.setContentsMargins(0, 0, 0, 0)
+            self.parent_layout.setSpacing(4)
+            
+        # Store original widget index and properties
+        self.widget_index = self.parent_layout.indexOf(widget)
+        
+        # Additional properties for property addition
+        self.source_widget = None
+        self.schema = None
+        self.prop_name = None
+        self.added_widget = None
+        
+    def execute(self):
+        """Execute the property addition"""
+        try:
+            # Update the data
+            if self.data_path is not None:
+                self.gui.update_data_value(self.data_path, self.new_value)
+                
+            # Create and add the widget
+            if self.schema and self.prop_name:
+                # Create container for the new property
+                row_widget = QWidget()
+                row_layout = QHBoxLayout(row_widget)
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                row_layout.setSpacing(4)
+                row_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+                
+                # Add label for the property name (capitalized)
+                display_name = self.prop_name.replace("_", " ").title()
+                label = QLabel(f"{display_name}:")
+                row_layout.addWidget(label)
+                
+                # Create widget for the property value
+                default_value = self.gui.get_default_value(self.schema)
+                value_widget = self.gui.create_widget_for_value(
+                    default_value,
+                    self.schema,
+                    False,  # is_base_game
+                    self.data_path + [self.prop_name]
+                )
+                row_layout.addWidget(value_widget)
+                row_layout.addStretch()
+                
+                # Add to the parent layout
+                self.parent_layout.addWidget(row_widget)
+                self.added_widget = row_widget
+                
+        except Exception as e:
+            logging.error(f"Error executing add property command: {str(e)}")
+            
+    def undo(self):
+        """Undo the property addition"""
+        try:
+            # Update the data
+            if self.data_path is not None:
+                self.gui.update_data_value(self.data_path, self.old_value)
+                
+            # Remove the widget
+            if self.added_widget:
+                self.added_widget.setParent(None)
+                self.added_widget.deleteLater()
+                self.added_widget = None
+                
+        except Exception as e:
+            logging.error(f"Error undoing add property command: {str(e)}")
+            
+    def redo(self):
+        """Redo the property addition"""
+        try:
+            return self.execute()
+        except Exception as e:
+            logging.error(f"Error redoing add property command: {str(e)}")
+            return None 

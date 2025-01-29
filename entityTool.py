@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 from research_view import ResearchTreeView
 import os
-from command_stack import CommandStack, EditValueCommand
+from command_stack import CommandStack, EditValueCommand, AddPropertyCommand
 from typing import List, Any
 import sounddevice as sd
 import soundfile as sf
@@ -3885,95 +3885,67 @@ class EntityToolGUI(QMainWindow):
 
     def add_property(self, widget: QWidget, prop_name: str, prop_schema: dict):
         """Add a new property to an object"""
-        data_path = widget.property("data_path")
+        # Get file path from parent schema view
         file_path = self.get_schema_view_file_path(widget)
+        if not file_path:
+            return
+            
+        data_path = widget.property("data_path")
+        if data_path is None:
+            return
+            
+        # Get current data from command stack
+        current_data = self.command_stack.get_file_data(file_path)
+        if not current_data:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                current_data = json.load(f)
+                
+        # Navigate to the target object
+        target = current_data
+        for part in data_path:
+            target = target[part]
+            
+        if not isinstance(target, dict):
+            return
+            
+        # Resolve schema references and get the full schema
+        resolved_schema = self.resolve_schema_references(prop_schema)
         
-        if data_path is not None and file_path:
-            # Get current data
-            current_data = self.command_stack.get_file_data(file_path)
-            if not current_data:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    current_data = json.load(f)
-            
-            # Navigate to the target object
-            target = current_data
-            for part in data_path[:-1]:  # Exclude the last part which is the object itself
-                target = target[part]
-            
-            # Get the object to modify
-            obj = target[data_path[-1]]
-            if not isinstance(obj, dict):
-                return
-            
-            # Create default value for the new property
-            default_value = self.get_default_value(prop_schema)
-            
-            # Create command to add the property
-            old_value = obj.copy()
-            new_value = obj.copy()
-            new_value[prop_name] = default_value
-
-            # Find the content widget (next widget after the toggle button)
-            container = widget.parent()
-            content_widget = None
-            if container:
-                container_layout = container.layout()
-                for i in range(container_layout.count()):
-                    item_widget = container_layout.itemAt(i).widget()
-                    if item_widget and item_widget != widget:
-                        content_widget = item_widget
-                        break
-            
-            # Track the added row widget so we can remove it during undo
-            added_row_widget = None
-            
-            def update_ui(value):
-                nonlocal added_row_widget
-                if content_widget and content_widget.layout():
-                    # If we're undoing (value == old_value) and we have a row widget, remove it
-                    if value == old_value and added_row_widget:
-                        added_row_widget.setParent(None)
-                        added_row_widget.deleteLater()
-                        added_row_widget = None
-                        return
-                        
-                    # If we're adding/redoing (value == new_value) and don't have a row widget, create it
-                    if value == new_value and not added_row_widget:
-                        # Create container for the new property
-                        row_widget = QWidget()
-                        row_layout = QHBoxLayout(row_widget)
-                        row_layout.setContentsMargins(0, 0, 0, 0)
-                        row_layout.setSpacing(4)
-                        row_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)  # Left align the entire row
-                        
-                        # Add label for the property name (capitalized)
-                        display_name = prop_name.replace("_", " ").title()
-                        label = QLabel(f"{display_name}:")
-                        row_layout.addWidget(label)
-                        
-                        # Create widget for the property value
-                        value_widget = self.create_widget_for_value(
-                            default_value,
-                            prop_schema,
-                            False,  # is_base_game
-                            data_path + [prop_name]
-                        )
-                        row_layout.addWidget(value_widget)
-                        row_layout.addStretch()  # Add stretch after the value widget to keep it left-aligned
-                        
-                        # Add to the content layout
-                        content_widget.layout().addWidget(row_widget)
-                        added_row_widget = row_widget
-
-            command = EditValueCommand(
-                file_path,
-                data_path,
+        # Create default value for the new property
+        default_value = self.get_default_value(resolved_schema)
+        
+        # Create old and new values for the object
+        old_value = target.copy()
+        new_value = target.copy()
+        new_value[prop_name] = default_value
+        
+        # Find the content widget (next widget after the toggle button)
+        container = widget.parent()
+        content_widget = None
+        if container:
+            container_layout = container.layout()
+            for i in range(container_layout.count()):
+                item_widget = container_layout.itemAt(i).widget()
+                if item_widget and item_widget != widget:
+                    content_widget = item_widget
+                    break
+        
+        if content_widget and content_widget.layout():
+            # Create transform command for the new property
+            transform_cmd = AddPropertyCommand(
+                self,
+                content_widget,
                 old_value,
-                new_value,
-                lambda v: update_ui(v),
-                self.update_data_value
+                new_value
             )
-            self.command_stack.push(command)
+            # Add required attributes to transform command
+            transform_cmd.file_path = file_path
+            transform_cmd.data_path = data_path
+            transform_cmd.source_widget = widget
+            transform_cmd.schema = resolved_schema
+            transform_cmd.prop_name = prop_name
+            
+            self.command_stack.push(transform_cmd)
             self.update_save_button()
 
     def add_array_item(self, widget: QWidget, item_schema: dict):
