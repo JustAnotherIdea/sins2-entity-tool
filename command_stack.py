@@ -2,7 +2,7 @@ from typing import Any, List, Dict, Set, Callable
 from pathlib import Path
 import json
 import logging
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QToolButton
 from PyQt6.QtCore import Qt
 
 class Command:
@@ -347,8 +347,8 @@ class AddPropertyCommand(Command):
                 default_value = self.gui.get_default_value(self.schema)
                 
                 # Create appropriate widget based on schema type
-                if self.schema.get("type") in ["object", "array"]:
-                    # For objects and arrays, use create_widget_for_schema directly
+                if self.schema.get("type") == "array":
+                    # For arrays, use create_widget_for_schema directly (it creates its own header)
                     value_widget = self.gui.create_widget_for_schema(
                         default_value,
                         self.schema,
@@ -359,6 +359,48 @@ class AddPropertyCommand(Command):
                         # No need for row_widget, just add directly to parent
                         self.parent_layout.addWidget(value_widget)
                         self.added_widget = value_widget
+                elif self.schema.get("type") == "object":
+                    # For objects, create a collapsible section with our own label
+                    group_widget = QWidget()
+                    group_layout = QVBoxLayout(group_widget)
+                    group_layout.setContentsMargins(0, 0, 0, 0)
+                    
+                    # Create collapsible button
+                    toggle_btn = QToolButton()
+                    toggle_btn.setStyleSheet("QToolButton { border: none; }")
+                    toggle_btn.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+                    toggle_btn.setArrowType(Qt.ArrowType.RightArrow)
+                    toggle_btn.setText(self.prop_name.replace("_", " ").title())
+                    toggle_btn.setCheckable(True)
+                    
+                    # Create content widget
+                    content = QWidget()
+                    content_layout = QVBoxLayout(content)
+                    content_layout.setContentsMargins(20, 0, 0, 0)
+                    
+                    # Create the object widget
+                    value_widget = self.gui.create_widget_for_schema(
+                        default_value,
+                        self.schema,
+                        False,  # is_base_game
+                        self.data_path + [self.prop_name]
+                    )
+                    if value_widget:
+                        content_layout.addWidget(value_widget)
+                        content.setVisible(False)  # Initially collapsed
+                        
+                        # Connect toggle button
+                        def update_arrow_state(checked):
+                            toggle_btn.setArrowType(Qt.ArrowType.DownArrow if checked else Qt.ArrowType.RightArrow)
+                        
+                        toggle_btn.toggled.connect(content.setVisible)
+                        toggle_btn.toggled.connect(update_arrow_state)
+                        
+                        # Add to layout
+                        group_layout.addWidget(toggle_btn)
+                        group_layout.addWidget(content)
+                        self.parent_layout.addWidget(group_widget)
+                        self.added_widget = group_widget
                 else:
                     # For simple values, use create_widget_for_value with a label
                     display_name = self.prop_name.replace("_", " ").title()
