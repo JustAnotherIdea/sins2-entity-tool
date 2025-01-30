@@ -181,24 +181,29 @@ class CommandStack:
             command.undo()
             
             # Update the stored data
-            current = data
-            for i, key in enumerate(command.data_path[:-1]):
-                if isinstance(current, dict):
-                    if key not in current:
-                        current[key] = {} if isinstance(command.data_path[i + 1], str) else []
-                    current = current[key]
-                elif isinstance(current, list):
-                    while len(current) <= key:
-                        current.append({} if isinstance(command.data_path[i + 1], str) else [])
-                    current = current[key]
-            
-            if command.data_path:
-                if isinstance(current, dict):
-                    current[command.data_path[-1]] = command.old_value
-                elif isinstance(current, list):
-                    while len(current) <= command.data_path[-1]:
-                        current.append(None)
-                    current[command.data_path[-1]] = command.old_value
+            if not command.data_path:  # Root level update
+                # For root level changes, use the old_value directly
+                data = command.old_value.copy() if isinstance(command.old_value, dict) else command.old_value
+            else:
+                # For nested changes, navigate to the correct location
+                current = data
+                for i, key in enumerate(command.data_path[:-1]):
+                    if isinstance(current, dict):
+                        if key not in current:
+                            current[key] = {} if isinstance(command.data_path[i + 1], str) else []
+                        current = current[key]
+                    elif isinstance(current, list):
+                        while len(current) <= key:
+                            current.append({} if isinstance(command.data_path[i + 1], str) else [])
+                        current = current[key]
+                
+                if command.data_path:
+                    if isinstance(current, dict):
+                        current[command.data_path[-1]] = command.old_value
+                    elif isinstance(current, list):
+                        while len(current) <= command.data_path[-1]:
+                            current.append(None)
+                        current[command.data_path[-1]] = command.old_value
                     
             # Store updated data and notify listeners
             self.update_file_data(command.file_path, data)
@@ -634,10 +639,30 @@ class DeletePropertyCommand(Command):
     """Command for deleting a property from an object"""
     def __init__(self, gui, property_widget, property_name, parent_data):
         # Store the old and new object values
-        old_data = parent_data.copy()
-        new_data = parent_data.copy()
-        if property_name in new_data:
+        if isinstance(parent_data, dict) and property_name in parent_data:
+            old_data = parent_data.copy()
+            new_data = parent_data.copy()
             del new_data[property_name]
+        else:
+            # For root properties, get the entire data structure
+            file_path = gui.get_schema_view_file_path(property_widget)
+            if file_path:
+                old_data = gui.command_stack.get_file_data(file_path)
+                if old_data:
+                    old_data = old_data.copy()
+                    new_data = old_data.copy()
+                    if property_name in new_data:
+                        del new_data[property_name]
+                else:
+                    old_data = parent_data.copy()
+                    new_data = parent_data.copy()
+                    if property_name in new_data:
+                        del new_data[property_name]
+            else:
+                old_data = parent_data.copy()
+                new_data = parent_data.copy()
+                if property_name in new_data:
+                    del new_data[property_name]
         
         super().__init__(None, None, old_data, new_value=new_data)  # File path and data path set later
         self.gui = gui
@@ -691,12 +716,8 @@ class DeletePropertyCommand(Command):
             # Update the data
             if self.data_path is not None:
                 if not self.data_path:  # Empty list means root property
-                    # For root properties, we need to update the entire data structure
-                    current_data = self.gui.command_stack.get_file_data(self.file_path)
-                    if current_data and self.property_name in current_data:
-                        new_data = current_data.copy()
-                        new_data[self.property_name] = self.old_value
-                        self.gui.update_data_value([], new_data)
+                    # For root properties, restore the entire old data structure
+                    self.gui.update_data_value([], self.old_value)
                 else:
                     # For nested properties, update the parent object
                     self.gui.update_data_value(self.data_path, self.old_value)
