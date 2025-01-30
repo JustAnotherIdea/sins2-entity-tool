@@ -2,7 +2,7 @@ from typing import Any, List, Dict, Set, Callable
 from pathlib import Path
 import json
 import logging
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QToolButton
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QToolButton, QGroupBox
 from PyQt6.QtCore import Qt
 
 class Command:
@@ -619,7 +619,7 @@ class DeleteArrayItemCommand(Command):
                 
                 # Update our reference to point to the content widget of the new array
                 if new_layout and new_layout.count() > 1:  # Should have toggle button and content
-                    content_widget = new_layout.itemAt(1).widget()  # Content widget is second item
+                    content_widget = new_layout.itemAt(1).widget()
                     if content_widget:
                         self.array_widget = content_widget
                 
@@ -637,11 +637,37 @@ class DeleteArrayItemCommand(Command):
 class DeletePropertyCommand(Command):
     """Command for deleting a property from an object"""
     def __init__(self, gui, property_widget, property_name, parent_data):
-        # Store the old and new object values
-        if isinstance(parent_data, dict) and property_name in parent_data:
-            old_data = parent_data.copy()
-            new_data = parent_data.copy()
-            del new_data[property_name]
+        # Get the full data path from the widget
+        data_path = property_widget.property("data_path")
+        if not data_path:
+            # Try parent widget if this one doesn't have the path
+            parent = property_widget.parent()
+            if parent:
+                data_path = parent.property("data_path")
+        
+        print(f"Full data path from widget: {data_path}")
+        
+        # Store the old and new values
+        if data_path:
+            # Navigate to the parent object
+            current = gui.command_stack.get_file_data(gui.get_schema_view_file_path(property_widget))
+            parent_path = data_path[:-1]  # All but the last element
+            print(f"Parent path for data lookup: {parent_path}")
+            
+            for part in parent_path:
+                if isinstance(current, (dict, list)):
+                    current = current[part]
+            
+            # Now current is the parent object containing our property
+            if isinstance(current, dict) and property_name in current:
+                old_data = current.copy()
+                new_data = current.copy()
+                del new_data[property_name]
+            else:
+                old_data = parent_data.copy()
+                new_data = parent_data.copy()
+                if property_name in new_data:
+                    del new_data[property_name]
         else:
             # For root properties, get the entire data structure
             file_path = gui.get_schema_view_file_path(property_widget)
@@ -663,55 +689,28 @@ class DeletePropertyCommand(Command):
                 if property_name in new_data:
                     del new_data[property_name]
         
-        super().__init__(None, None, old_data, new_value=new_data)  # File path and data path set later
+        super().__init__(gui.get_schema_view_file_path(property_widget), data_path[:-1], old_data, new_value=new_data)
         self.gui = gui
         self.property_widget = property_widget
         self.property_name = property_name
-        # Store schema view reference before we delete anything
-        self.schema_view = self.gui.find_parent_schema_view(property_widget)
+        self.full_path = data_path  # Store the complete path including property name
         
     def execute(self):
         """Execute the property deletion"""
         try:
             print(f"Executing delete property command for {self.property_name}")
-            print(f"Data path: {self.data_path}")
+            print(f"Full path: {self.full_path}")
+            print(f"Parent path for update: {self.data_path}")
             print(f"Property widget: {self.property_widget}")
             
             # Update the data
             if self.data_path is not None:
-                if not self.data_path:  # Empty list means root property
-                    print("Handling root property deletion")
-                    # For root properties, we need to update the entire data structure
-                    current_data = self.gui.command_stack.get_file_data(self.file_path)
-                    if current_data and self.property_name in current_data:
-                        new_data = current_data.copy()
-                        del new_data[self.property_name]
-                        self.gui.update_data_value([], new_data)
-                else:
-                    print("Handling nested property deletion")
-                    # For nested properties, update the parent object
-                    self.gui.update_data_value(self.data_path, self.new_value)
+                print(f"Updating data value at path: {self.data_path}")
+                self.gui.update_data_value(self.data_path, self.new_value)
             
             # Remove the widget
             if self.property_widget:
                 print("Removing widget")
-                # For collapsible sections, we need to remove the entire group widget
-                if isinstance(self.property_widget, QWidget) and self.property_widget.layout():
-                    print("Widget has layout")
-                    layout = self.property_widget.layout()
-                    if layout.count() > 0:
-                        print("Layout has items")
-                        first_item = layout.itemAt(0)
-                        if first_item and isinstance(first_item.widget(), QToolButton):
-                            print("Found collapsible section")
-                            # This is a collapsible section, remove the entire widget
-                            self.property_widget.hide()
-                            self.property_widget.setParent(None)
-                            self.property_widget.deleteLater()
-                            return
-                
-                print("Handling simple property widget")
-                # For simple properties, we need to remove the row widget (parent of the value widget)
                 parent = self.property_widget.parent()
                 if parent:
                     print(f"Found parent widget: {parent}")
@@ -734,91 +733,107 @@ class DeletePropertyCommand(Command):
         try:
             # Update the data first
             if self.data_path is not None:
-                if not self.data_path:  # Empty list means root property
-                    # For root properties, restore the entire old data structure
-                    self.gui.update_data_value([], self.old_value)
-                else:
-                    # For nested properties, update the parent object
-                    self.gui.update_data_value(self.data_path, self.old_value)
+                print(f"Undoing deletion at path: {self.data_path}")
+                self.gui.update_data_value(self.data_path, self.old_value)
             
-            # Use stored schema view reference
-            if not self.schema_view:
+            # Find the schema view by searching all widgets
+            schema_view = None
+            for widget in self.gui.findChildren(QWidget):
+                if (hasattr(widget, 'property') and 
+                    widget.property("file_path") == str(self.file_path)):
+                    schema_view = widget
+                    break
+
+            if not schema_view:
                 print("Could not find schema view")
                 return
 
-            # Find the correct parent layout by traversing the data path
-            parent_widget = None
-            current_widget = self.schema_view
-            
-            # First find the details group box
-            for widget in self.schema_view.findChildren(QWidget):
-                if widget.layout() and isinstance(widget.layout(), QVBoxLayout):
-                    current_widget = widget
-                    break
-            
-            # Then traverse the data path to find the correct parent
-            if self.data_path:
-                for i, path_part in enumerate(self.data_path):
-                    found = False
-                    # Look through the current widget's children
-                    for child in current_widget.findChildren(QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly):
-                        if not child.layout():
-                            continue
-                            
-                        # Check if this is a collapsible section
-                        layout = child.layout()
-                        if layout.count() > 0:
-                            first_item = layout.itemAt(0)
-                            if first_item and isinstance(first_item.widget(), QToolButton):
-                                # Get the button text and compare with path part
-                                btn_text = first_item.widget().text().replace(" ", "_").lower()
-                                
-                                # For array indices, look for "[index]" in the button text
-                                if isinstance(path_part, int):
-                                    if f"[{path_part}]" in btn_text:
-                                        # Found matching array item
-                                        if layout.count() > 1:
-                                            content_widget = layout.itemAt(1).widget()
-                                            if content_widget:
-                                                current_widget = content_widget
-                                                found = True
-                                                # Make sure the section is expanded
-                                                first_item.widget().setChecked(True)
-                                                break
-                                # For object properties, match the property name
-                                elif isinstance(path_part, str) and btn_text == path_part:
-                                    # Found matching section, get its content widget
-                                    if layout.count() > 1:
-                                        content_widget = layout.itemAt(1).widget()
-                                        if content_widget:
-                                            current_widget = content_widget
-                                            found = True
-                                            # Make sure the section is expanded
-                                            first_item.widget().setChecked(True)
-                                            break
+            # For array items, first find the array's collapsible section
+            if isinstance(self.data_path[-1], int):
+                array_path = self.data_path[:-1]  # ['planet_levels']
+                array_widget = None
+                print(f"Looking for array widget with path: {array_path}")
+                
+                # Find the array's collapsible section by looking for a QToolButton with the array name
+                for widget in schema_view.findChildren(QToolButton):
+                    btn_text = widget.text()
+                    print(f"Found button with text: {btn_text}")
                     
-                    if not found:
-                        print(f"Could not find widget for path part: {path_part}")
-                        return
-            
-            parent_widget = current_widget
-            
+                    # Remove count suffix if present (e.g., "Planet Levels (4)" -> "Planet Levels")
+                    btn_text = btn_text.split(" (")[0]
+                    
+                    # Try different text formats
+                    possible_texts = [
+                        array_path[0],  # planet_levels
+                        array_path[0].replace("_", " "),  # planet levels
+                        array_path[0].replace("_", " ").title(),  # Planet Levels
+                        array_path[0].replace("_", " ").lower(),  # planet levels
+                        array_path[0].lower(),  # planetlevels
+                        array_path[0].title()  # PlanetLevels
+                    ]
+                    if any(text == btn_text for text in possible_texts):
+                        print(f"Found array button: {btn_text}")
+                        # Get the collapsible section's content widget
+                        parent = widget.parent()
+                        if parent and parent.layout() and parent.layout().count() > 1:
+                            content_widget = parent.layout().itemAt(1).widget()
+                            if content_widget:
+                                array_widget = content_widget
+                                widget.setChecked(True)  # Expand the section
+                                print(f"Found array widget: {array_widget}")
+                                break
+                
+                if not array_widget:
+                    print("Could not find array widget")
+                    print("Available buttons:")
+                    for widget in schema_view.findChildren(QToolButton):
+                        print(f"  {widget.text()}")
+                    return
+                    
+                # Now find the specific array item's widget
+                item_index = self.data_path[-1]
+                parent_widget = None
+                
+                # Look for a QLabel with the array index
+                for label in array_widget.findChildren(QLabel):
+                    label_text = label.text()
+                    print(f"Checking label text: {label_text}")
+                    if label_text == f"[{item_index}]":
+                        # Found the index label, use its parent widget
+                        parent_widget = label.parent()
+                        print(f"Found array item container: {parent_widget}")
+                        break
+            else:
+                # For regular properties, find a widget with matching data path
+                parent_widget = None
+                for widget in schema_view.findChildren(QWidget):
+                    if (hasattr(widget, 'property') and 
+                        widget.property("data_path") == self.data_path):
+                        parent_widget = widget
+                        if parent_widget.layout():
+                            break
+
             if not parent_widget or not parent_widget.layout():
                 print("Could not find parent widget with layout")
                 return
                 
             # Get the schema for this property
-            schema = self.gui.get_schema_for_path(self.data_path)  # For root properties, this will get root schema
-            if not schema:
-                print("Could not find schema for path")
+            # First get the array schema
+            array_schema = self.gui.get_schema_for_path(array_path)
+            if not array_schema:
+                print("Could not find array schema")
                 return
                 
-            # For array items, we need to get the items schema
-            if isinstance(self.data_path[-1], int):
-                schema = schema.get("items", {})
+            # Then get the items schema
+            schema = array_schema.get("items", {})
+            if not schema:
+                print("Could not find items schema")
+                return
             
             if "properties" not in schema or self.property_name not in schema["properties"]:
                 print("Could not find schema for property")
+                print(f"Schema: {schema}")
+                print(f"Property name: {self.property_name}")
                 return
                 
             prop_schema = schema["properties"][self.property_name]
@@ -829,69 +844,47 @@ class DeletePropertyCommand(Command):
             print(f"Schema: {prop_schema}")
             
             # Create new widget for the property
-            if isinstance(prop_value, (dict, list)):
-                # For objects and arrays, use create_widget_for_schema
-                new_widget = self.gui.create_widget_for_schema(
-                    prop_value,
-                    prop_schema,
-                    False,  # is_base_game
-                    (self.data_path or []) + [self.property_name]
-                )
-            else:
-                # For simple values, create a row with label and value widget
-                row_widget = QWidget()
-                row_layout = QHBoxLayout(row_widget)
-                row_layout.setContentsMargins(0, 2, 0, 2)
-                
-                # Create label
-                display_name = self.property_name.replace("_", " ").title()
-                label = QLabel(f"{display_name}:")
-                
-                # Make label bold if property is required
-                if "required" in schema and self.property_name in schema["required"]:
-                    label.setStyleSheet("QLabel { font-weight: bold; }")
-                
-                # Add context menu to label
-                label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-                label.setProperty("data_path", (self.data_path or []) + [self.property_name])
-                label.customContextMenuRequested.connect(
-                    lambda pos, w=label, v=prop_value: self.gui.show_context_menu(w, pos, v)
-                )
-                
-                row_layout.addWidget(label)
-                
-                # Create value widget
-                value_widget = self.gui.create_widget_for_value(
-                    prop_value,
-                    prop_schema,
-                    False,  # is_base_game
-                    (self.data_path or []) + [self.property_name]
-                )
-                
-                if value_widget:
-                    row_layout.addWidget(value_widget)
-                    row_layout.addStretch()
-                    new_widget = row_widget
+            row_widget = QWidget()
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 2, 0, 2)
             
-            if new_widget:
+            # Create label
+            display_name = self.property_name.replace("_", " ").title()
+            label = QLabel(f"{display_name}:")
+            
+            # Make label bold if property is required
+            if "required" in schema and self.property_name in schema["required"]:
+                label.setStyleSheet("QLabel { font-weight: bold; }")
+            
+            # Add context menu to label
+            label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            label.setProperty("data_path", self.full_path)  # Use full path including property name
+            label.customContextMenuRequested.connect(
+                lambda pos, w=label, v=prop_value: self.gui.show_context_menu(w, pos, v)
+            )
+            
+            row_layout.addWidget(label)
+            
+            # Create value widget
+            value_widget = self.gui.create_widget_for_value(
+                prop_value,
+                prop_schema,
+                False,  # is_base_game
+                self.full_path  # Use full path including property name
+            )
+            
+            if value_widget:
+                row_layout.addWidget(value_widget)
+                row_layout.addStretch()
+                
                 print("Adding new widget to parent layout")
-                # Add the widget to the parent layout
-                parent_widget.layout().addWidget(new_widget)
-                
-                # If it's a collapsible widget (object/array), expand it
-                new_layout = new_widget.layout()
-                if new_layout and new_layout.count() > 0:
-                    first_item = new_layout.itemAt(0)
-                    if first_item and isinstance(first_item.widget(), QToolButton):
-                        first_item.widget().setChecked(True)
-                
-                # Update our reference
-                self.property_widget = new_widget
+                parent_widget.layout().addWidget(row_widget)
+                self.property_widget = row_widget
                 
         except Exception as e:
             print(f"Error undoing delete property command: {str(e)}")
-            print(f"Data path: {self.data_path}")
-            print(f"Property name: {self.property_name}")
+            import traceback
+            traceback.print_exc()
             
     def redo(self):
         """Redo the property deletion"""
