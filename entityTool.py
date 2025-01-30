@@ -2984,7 +2984,7 @@ class EntityToolGUI(QMainWindow):
         def update_content(new_data: dict, data_path: List[str] = None, value: Any = None, source_widget = None):
             """Update the content widget with new data"""
             print(f"Updating schema view content for {file_path}")
-            print(f"Data path: {data_path}, Value: {value}, Source widget: {source_widget}")
+            print(f"Data path: {data_path}, Source widget: {source_widget}")
             
             # Check if this is an array update by looking at the data at the path
             is_array_update = False
@@ -3818,7 +3818,7 @@ class EntityToolGUI(QMainWindow):
         # Get schema and data path from widget or its container
         schema = None
         data_path = widget.property("data_path")
-        print(f"Creating context menu for path: {data_path}, current value: {current_value}")
+        print(f"Creating context menu for path: {data_path}")
             
         if data_path is not None:  # Changed from 'if data_path:' to handle empty lists
             # Find the schema for this path
@@ -5050,9 +5050,12 @@ class EntityToolGUI(QMainWindow):
     def delete_property(self, widget: QWidget, property_name: str):
         """Delete a property from an object"""
         try:
+            print(f"Starting delete_property for {property_name}")
             # Get the data path
             data_path = widget.property("data_path")
+            print(f"Data path from widget: {data_path}")
             if data_path is None:  # Changed from 'if not data_path:' to handle empty lists
+                print("No data path found on widget")
                 return
                 
             # Get the parent widget (where we'll remove this property from)
@@ -5060,40 +5063,55 @@ class EntityToolGUI(QMainWindow):
             if isinstance(widget, QToolButton):
                 # For collapsible sections, widget is the toggle button
                 parent_widget = widget.parent()
+                print("Widget is a QToolButton, using parent")
             else:
                 # For simple properties, widget is the value widget
                 parent_widget = widget.parent()
+                print("Widget is not a QToolButton, using parent")
             
             if not parent_widget:
+                print("No parent widget found")
                 return
                 
             # Get the current data
             file_path = self.get_schema_view_file_path(widget)
+            print(f"File path: {file_path}")
             if not file_path:
+                print("No file path found")
                 return
                 
             parent_data = self.command_stack.get_file_data(file_path)
+            print(f"Got parent data: {parent_data is not None}")
             if not parent_data:
+                print("No parent data found")
                 return
                 
             # Navigate to the parent object
             current = parent_data
             if len(data_path) > 1:  # If not a root property
+                print(f"Navigating to parent object through path: {data_path[:-1]}")
                 for key in data_path[:-1]:  # Exclude property name
                     if isinstance(current, dict):
                         current = current.get(key, {})
                     elif isinstance(current, list):
                         current = current[key] if 0 <= key < len(current) else {}
+                    print(f"Current object after key {key}: {current}")
             
             # Create and execute the delete command
-            command = DeletePropertyCommand(self, parent_widget, property_name, current)
+            print("Creating DeletePropertyCommand")
+            command = DeletePropertyCommand(self, widget, property_name, current)
             command.file_path = file_path
             command.data_path = data_path[:-1] if len(data_path) > 0 else []  # Empty list for root properties
+            print(f"Command created with file_path: {command.file_path}, data_path: {command.data_path}")
+            
             self.command_stack.push(command)
+            print("Command pushed to stack")
             
             # Update UI state
             self.update_save_button()  # Update save/undo/redo button states
             
         except Exception as e:
             print(f"Error deleting property: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
