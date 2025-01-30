@@ -20,7 +20,7 @@ def main():
             app.setStyleSheet(f.read())
             logging.info("Loaded stylesheet")
     else:
-        logging.warning(f"Stylesheet not found at {style_path}")
+        print(f"Stylesheet not found at {style_path}")
     
     # Create and show main window
     window = EntityToolGUI()

@@ -27,8 +27,8 @@ class EditValueCommand(Command):
         super().__init__(file_path, data_path, old_value, new_value)
         self.update_widget_func = update_widget_func
         self.update_data_func = update_data_func
-        logging.debug(f"Created EditValueCommand for {file_path} at path {data_path}")
-        logging.debug(f"Old value: {old_value}, New value: {new_value}")
+        print(f"Created EditValueCommand for {file_path} at path {data_path}")
+        print(f"Old value: {old_value}, New value: {new_value}")
         
     def update_widget_safely(self, value: any):
         """Try to update widget, but don't fail if widget is gone"""
@@ -36,17 +36,17 @@ class EditValueCommand(Command):
             self.update_widget_func(value)
         except RuntimeError as e:
             # Widget was deleted, just log and continue
-            logging.debug(f"Widget was deleted, skipping UI update: {str(e)}")
+            print(f"Widget was deleted, skipping UI update: {str(e)}")
         
     def undo(self):
         """Restore the old value"""
-        logging.info(f"Undoing EditValueCommand for {self.file_path} at path {self.data_path}")
+        print(f"Undoing EditValueCommand for {self.file_path} at path {self.data_path}")
         self.update_widget_safely(self.old_value)
         self.update_data_func(self.data_path, self.old_value)
         
     def redo(self):
         """Apply the new value"""
-        logging.info(f"Redoing EditValueCommand for {self.file_path} at path {self.data_path}")
+        print(f"Redoing EditValueCommand for {self.file_path} at path {self.data_path}")
         self.update_widget_safely(self.new_value)
         self.update_data_func(self.data_path, self.new_value)
 
@@ -59,21 +59,21 @@ class CommandStack:
         self.modified_files: Set[Path] = set()  # Track files with unsaved changes
         self.file_data: Dict[Path, dict] = {}  # Store current data for each file
         self.data_change_callbacks: Dict[Path, List[Callable]] = {}  # Callbacks for data changes
-        logging.info("Initialized new CommandStack")
+        print("Initialized new CommandStack")
         
     def register_data_change_callback(self, file_path: Path, callback: Callable) -> None:
         """Register a callback to be called when data changes for a file"""
         if file_path not in self.data_change_callbacks:
             self.data_change_callbacks[file_path] = []
         self.data_change_callbacks[file_path].append(callback)
-        logging.debug(f"Registered data change callback for {file_path}")
+        print(f"Registered data change callback for {file_path}")
         
     def unregister_data_change_callback(self, file_path: Path, callback: Callable) -> None:
         """Unregister a data change callback"""
         if file_path in self.data_change_callbacks:
             try:
                 self.data_change_callbacks[file_path].remove(callback)
-                logging.debug(f"Unregistered data change callback for {file_path}")
+                print(f"Unregistered data change callback for {file_path}")
             except ValueError:
                 pass
             
@@ -90,11 +90,11 @@ class CommandStack:
                         # Full update with just data
                         callback(self.get_file_data(file_path), None, None, None)
                 except Exception as e:
-                    logging.error(f"Error in data change callback for {file_path}: {str(e)}")
+                    print(f"Error in data change callback for {file_path}: {str(e)}")
         
     def update_file_data(self, file_path: Path, data: dict) -> None:
         """Update the stored data for a file"""
-        logging.info(f"Updating stored data for file: {file_path}")
+        print(f"Updating stored data for file: {file_path}")
         self.file_data[file_path] = data.copy()  # Store a copy to prevent reference issues
         
     def get_file_data(self, file_path: Path) -> dict:
@@ -108,7 +108,7 @@ class CommandStack:
     def push(self, command: Command) -> None:
         """Add a new command to the stack"""
         if self.is_executing:
-            logging.debug("Skipping command push - already executing")
+            print("Skipping command push - already executing")
             return
         
         print(f"Pushing command for file: {command.file_path}, path: {command.data_path}, old value: {command.old_value}, new value: {command.new_value}")
@@ -116,7 +116,7 @@ class CommandStack:
         # Get current data for the file
         data = self.get_file_data(command.file_path)
         if data is None:
-            logging.error(f"No data found for file {command.file_path} when pushing command")
+            print(f"No data found for file {command.file_path} when pushing command")
             return
             
         # Execute the command
@@ -168,12 +168,12 @@ class CommandStack:
     def undo(self) -> None:
         """Undo the last command"""
         if not self.undo_stack:
-            logging.debug("No commands to undo")
+            print("No commands to undo")
             return
             
         self.is_executing = True
         command = self.undo_stack.pop()
-        logging.info(f"Undoing command for file: {command.file_path}, path: {command.data_path}")
+        print(f"Undoing command for file: {command.file_path}, path: {command.data_path}")
         
         # Get current data and update it
         data = self.get_file_data(command.file_path)
@@ -213,20 +213,20 @@ class CommandStack:
         
         # Mark file as modified since we changed its data
         self.modified_files.add(command.file_path)
-        logging.info(f"Marked {command.file_path} as modified after undo")
+        print(f"Marked {command.file_path} as modified after undo")
             
         self.is_executing = False
-        logging.debug(f"Modified files after undo: {self.modified_files}")
+        print(f"Modified files after undo: {self.modified_files}")
         
     def redo(self) -> None:
         """Redo the last undone command"""
         if not self.redo_stack:
-            logging.debug("No commands to redo")
+            print("No commands to redo")
             return
             
         self.is_executing = True
         command = self.redo_stack.pop()
-        logging.info(f"Redoing command for file: {command.file_path}, path: {command.data_path}")
+        print(f"Redoing command for file: {command.file_path}, path: {command.data_path}")
         
         # Get current data and update it
         data = self.get_file_data(command.file_path)
@@ -261,10 +261,10 @@ class CommandStack:
         
         # Mark file as modified since we changed its data
         self.modified_files.add(command.file_path)
-        logging.info(f"Marked {command.file_path} as modified after redo")
+        print(f"Marked {command.file_path} as modified after redo")
         
         self.is_executing = False
-        logging.debug(f"Modified files after redo: {self.modified_files}")
+        print(f"Modified files after redo: {self.modified_files}")
         
     def can_undo(self) -> bool:
         """Check if there are commands that can be undone"""
@@ -277,24 +277,23 @@ class CommandStack:
     def has_unsaved_changes(self) -> bool:
         """Check if there are any unsaved changes"""
         has_changes = len(self.modified_files) > 0
-        logging.debug(f"Checking for unsaved changes: {has_changes} (modified files: {self.modified_files})")
+        print(f"Checking for unsaved changes: {has_changes} (modified files: {self.modified_files})")
         return has_changes
     
     def mark_all_saved(self) -> None:
         """Mark all changes as saved"""
         self.modified_files.clear()
-        logging.info("Marked all changes as saved")
+        print("Marked all changes as saved")
         
     def get_modified_files(self) -> Set[Path]:
         """Get the set of files that have unsaved changes"""
-        logging.debug(f"Getting modified files: {self.modified_files}")
+        print(f"Getting modified files: {self.modified_files}")
         return self.modified_files.copy()
         
     def save_file(self, file_path: Path, data: dict) -> bool:
         """Save changes to a specific file"""
         try:
-            logging.info(f"Saving file: {file_path}")
-            logging.debug(f"Data to save: {data}")
+            print(f"Saving file: {file_path}")
             
             # Ensure parent directory exists
             file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -305,11 +304,11 @@ class CommandStack:
             
             # Remove from modified files
             self.modified_files.discard(file_path)
-            logging.info(f"Successfully saved changes to {file_path}")
-            logging.debug(f"Modified files after save: {self.modified_files}")
+            print(f"Successfully saved changes to {file_path}")
+            print(f"Modified files after save: {self.modified_files}")
             return True
         except Exception as e:
-            logging.error(f"Error saving file {file_path}: {str(e)}")
+            print(f"Error saving file {file_path}: {str(e)}")
             return False
             
     def clear_modified_state(self, file_path: Path) -> None:
@@ -461,7 +460,7 @@ class AddPropertyCommand(Command):
                         self.added_widget = row_widget
                 
         except Exception as e:
-            logging.error(f"Error executing add property command: {str(e)}")
+            print(f"Error executing add property command: {str(e)}")
             return None
             
     def undo(self):
@@ -478,14 +477,14 @@ class AddPropertyCommand(Command):
                 self.added_widget = None
                 
         except Exception as e:
-            logging.error(f"Error undoing add property command: {str(e)}")
+            print(f"Error undoing add property command: {str(e)}")
             
     def redo(self):
         """Redo the property addition"""
         try:
             return self.execute()
         except Exception as e:
-            logging.error(f"Error redoing add property command: {str(e)}")
+            print(f"Error redoing add property command: {str(e)}")
             return None
 
 class DeleteArrayItemCommand(Command):
@@ -537,7 +536,7 @@ class DeleteArrayItemCommand(Command):
                                 index_label.setProperty("data_path", data_path)
             
         except Exception as e:
-            logging.error(f"Error executing delete array item command: {str(e)}")
+            print(f"Error executing delete array item command: {str(e)}")
             return None
             
     def undo(self):
@@ -561,7 +560,7 @@ class DeleteArrayItemCommand(Command):
                 current = current.parent()
             
             if not collapsible_widget:
-                logging.error("Could not find collapsible widget")
+                print("Could not find collapsible widget")
                 return
                 
             # Get the parent of the collapsible widget
@@ -625,14 +624,14 @@ class DeleteArrayItemCommand(Command):
                         self.array_widget = content_widget
                 
         except Exception as e:
-            logging.error(f"Error undoing delete array item command: {str(e)}")
+            print(f"Error undoing delete array item command: {str(e)}")
             
     def redo(self):
         """Redo the array item deletion"""
         try:
             return self.execute()
         except Exception as e:
-            logging.error(f"Error redoing delete array item command: {str(e)}")
+            print(f"Error redoing delete array item command: {str(e)}")
             return None
 
 class DeletePropertyCommand(Command):
@@ -707,7 +706,7 @@ class DeletePropertyCommand(Command):
                     parent.deleteLater()
             
         except Exception as e:
-            logging.error(f"Error executing delete property command: {str(e)}")
+            print(f"Error executing delete property command: {str(e)}")
             return None
             
     def undo(self):
@@ -741,17 +740,18 @@ class DeletePropertyCommand(Command):
                     current = current.parent()
             
             if not parent_widget:
-                logging.error("Could not find parent widget")
+                print("Could not find parent widget")
                 return
                 
-            # Get the parent's layout
-            parent_layout = parent_widget.layout()
+            parent_layout = self.parent_widget.layout()
             if not parent_layout:
+                print("Parent widget has no layout")
                 return
             
             # Get schema and create new property widget
             schema = self.gui.get_schema_for_path(self.data_path)  # For root properties, this will get root schema
             if not schema or "properties" not in schema or self.property_name not in schema["properties"]:
+                print("Could not find schema for property")
                 return
                 
             prop_schema = schema["properties"][self.property_name]
@@ -781,12 +781,12 @@ class DeletePropertyCommand(Command):
                 self.property_widget = new_widget
                 
         except Exception as e:
-            logging.error(f"Error undoing delete property command: {str(e)}")
+            print(f"Error undoing delete property command: {str(e)}")
             
     def redo(self):
         """Redo the property deletion"""
         try:
             return self.execute()
         except Exception as e:
-            logging.error(f"Error redoing delete property command: {str(e)}")
+            print(f"Error redoing delete property command: {str(e)}")
             return None 

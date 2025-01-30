@@ -106,7 +106,7 @@ class TransformWidgetCommand:
                 new_widget = self.gui.create_widget_for_value(self.new_value, {"type": "string"}, self.is_base_game, self.data_path)
             return self.replace_widget(new_widget)
         except Exception as e:
-            logging.error(f"Error executing transform command: {str(e)}")
+            print(f"Error executing transform command: {str(e)}")
             return None
         
     def undo(self):
@@ -127,14 +127,14 @@ class TransformWidgetCommand:
                         item.widget().deleteLater()
                         self.added_widget = None
         except Exception as e:
-            logging.error(f"Error undoing transform command: {str(e)}")
+            print(f"Error undoing transform command: {str(e)}")
         
     def redo(self):
         """Redo the transformation (same as execute)"""
         try:
             return self.execute()
         except Exception as e:
-            logging.error(f"Error redoing transform command: {str(e)}")
+            print(f"Error redoing transform command: {str(e)}")
             return None
 
 class CompositeCommand:
@@ -150,7 +150,7 @@ class CompositeCommand:
                 self.new_value = commands[0].new_value
                 self.source_widget = commands[0].source_widget if hasattr(commands[0], 'source_widget') else None
             except Exception as e:
-                logging.error(f"Error initializing composite command: {str(e)}")
+                print(f"Error initializing composite command: {str(e)}")
         
     def redo(self):
         """Execute the command (called by command stack)"""
@@ -162,7 +162,7 @@ class CompositeCommand:
             if self.commands:
                 self.commands[0].redo()
         except Exception as e:
-            logging.error(f"Error executing composite command redo: {str(e)}")
+            print(f"Error executing composite command redo: {str(e)}")
         
     def undo(self):
         """Undo the command (called by command stack)"""
@@ -171,7 +171,7 @@ class CompositeCommand:
             for cmd in reversed(self.commands):
                 cmd.undo()
         except Exception as e:
-            logging.error(f"Error executing composite command undo: {str(e)}")
+            print(f"Error executing composite command undo: {str(e)}")
 
 class GUILogHandler(logging.Handler):
     def __init__(self, log_widget):
@@ -281,7 +281,7 @@ class EntityToolGUI(QMainWindow):
                     self.config = json.load(f)
                     if "base_game_folder" in self.config:
                         self.base_game_folder = Path(self.config["base_game_folder"])
-                        logging.info(f"Loaded base game folder from config: {self.base_game_folder}")
+                        print(f"Loaded base game folder from config: {self.base_game_folder}")
             except FileNotFoundError:
                 self.config = {}
                 logging.warning("No config.json found, using defaults")
@@ -346,13 +346,12 @@ class EntityToolGUI(QMainWindow):
     
     def update_data_value(self, data_path: list, new_value: any):
         """Update a value in the data structure using its path"""
-        logging.info(f"Updating data value at path {data_path} to {new_value}")
-        logging.debug(f"Current data before update: {self.current_data}")
+        print(f"Updating data value at path {data_path} to {new_value}")
 
         if not data_path:
             # Empty path - replace entire data structure
             self.current_data = new_value
-            logging.debug(f"Replaced entire data structure with new value")
+            print(f"Replaced entire data structure with new value")
             return
         
         if len(data_path) == 1:
@@ -362,39 +361,38 @@ class EntityToolGUI(QMainWindow):
                     # Remove property if new_value is None
                     if data_path[0] in self.current_data:
                         del self.current_data[data_path[0]]
-                        logging.debug(f"Removed root property {data_path[0]}")
+                        print(f"Removed root property {data_path[0]}")
                 else:
                     # Add or update property
                     self.current_data[data_path[0]] = new_value
-                    logging.debug(f"Updated root property {data_path[0]} to {new_value}")
+                    print(f"Updated root property {data_path[0]} to {new_value}")
             return
         
         current = self.current_data
         for i, key in enumerate(data_path[:-1]):
-            logging.debug(f"Traversing path element {i}: {key}")
+            print(f"Traversing path element {i}: {key}")
             if isinstance(current, dict):
                 if key not in current:
                     current[key] = {} if isinstance(data_path[i + 1], str) else []
-                    logging.debug(f"Created new dict/list for key {key}")
+                    print(f"Created new dict/list for key {key}")
                 current = current[key]
             elif isinstance(current, list):
                 while len(current) <= key:
                     current.append({} if isinstance(data_path[i + 1], str) else [])
-                    logging.debug(f"Extended list to accommodate index {key}")
+                    print(f"Extended list to accommodate index {key}")
                 current = current[key]
         
         if data_path:
             if isinstance(current, dict):
-                logging.debug(f"Setting dict key {data_path[-1]} to {new_value}")
+                print(f"Setting dict key {data_path[-1]} to {new_value}")
                 current[data_path[-1]] = new_value
             elif isinstance(current, list):
                 while len(current) <= data_path[-1]:
                     current.append(None)
-                    logging.debug(f"Extended list to accommodate final index {data_path[-1]}")
-                logging.debug(f"Setting list index {data_path[-1]} to {new_value}")
+                    print(f"Extended list to accommodate final index {data_path[-1]}")
+                print(f"Setting list index {data_path[-1]} to {new_value}")
                 current[data_path[-1]] = new_value
                 
-        logging.debug(f"Current data after update: {self.current_data}")
     
     def init_ui(self):
         self.setWindowTitle('Sins 2 Entity Tool')
@@ -986,13 +984,13 @@ class EntityToolGUI(QMainWindow):
                 # Load from file if not in command stack
                 unit_data, is_base_game = self.load_file(unit_file)
                 if not unit_data:
-                    logging.error(f"Unit file not found: {unit_file}")
+                    print(f"Unit file not found: {unit_file}")
                     return
                     
                 # Store initial data in command stack
                 self.command_stack.update_file_data(unit_file, unit_data)
             else:
-                logging.info(f"Using data from command stack for {unit_file}")
+                print(f"Using data from command stack for {unit_file}")
                 
             # Update current file and data
             self.current_file = unit_file
@@ -1009,7 +1007,7 @@ class EntityToolGUI(QMainWindow):
             self.unit_details_layout.addWidget(schema_view)
             
         except Exception as e:
-            logging.error(f"Error loading unit {unit_id}: {str(e)}")
+            print(f"Error loading unit {unit_id}: {str(e)}")
             error_label = QLabel(f"Error loading unit: {str(e)}")
             error_label.setStyleSheet("color: red;")
             self.unit_details_layout.addWidget(error_label)
@@ -1165,20 +1163,20 @@ class EntityToolGUI(QMainWindow):
                     schema_view = self.create_schema_view("mod-meta-data", meta_data, False, meta_file)
                     self.meta_layout.addWidget(schema_view)
                 except Exception as e:
-                    logging.error(f"Error loading mod meta data: {str(e)}")
+                    print(f"Error loading mod meta data: {str(e)}")
             
             loading.set_status("Updating player selector...")
             # Update player selector from manifest data
             if 'player' in self.manifest_data['mod']:
                 player_ids = sorted(self.manifest_data['mod']['player'].keys())
                 self.player_selector.addItems(player_ids)
-                logging.info(f"Added {len(player_ids)} players to selector")
+                print(f"Added {len(player_ids)} players to selector")
             
             loading.close()
-            logging.info(f"Successfully loaded folder: {self.current_folder}")
+            print(f"Successfully loaded folder: {self.current_folder}")
             
         except Exception as e:
-            logging.error(f"Error loading folder: {str(e)}")
+            print(f"Error loading folder: {str(e)}")
             self.current_folder = None
             loading.close()
             QMessageBox.critical(self, "Error", f"Failed to load folder: {str(e)}")
@@ -1202,7 +1200,7 @@ class EntityToolGUI(QMainWindow):
             raise FileNotFoundError(f"File not found in mod or base game folder: {file_path}")
             
         except Exception as e:
-            logging.error(f"Error loading file {file_path}: {str(e)}")
+            print(f"Error loading file {file_path}: {str(e)}")
             return None, False
         
     def dragEnterEvent(self, event: QDragEnterEvent):
@@ -1229,7 +1227,7 @@ class EntityToolGUI(QMainWindow):
             
         schema_path = Path(schema_folder)
         if not schema_path.exists():
-            logging.error(f"Schema folder does not exist: {schema_path}")
+            print(f"Schema folder does not exist: {schema_path}")
             return
             
         try:
@@ -1239,7 +1237,7 @@ class EntityToolGUI(QMainWindow):
             
             # Process each schema file
             schema_files = list(schema_path.glob("*-schema.json"))  # Changed pattern to match actual filenames
-            logging.info(f"Found {len(schema_files)} schema files")
+            print(f"Found {len(schema_files)} schema files")
             
             for file_path in schema_files:
                 try:
@@ -1258,14 +1256,14 @@ class EntityToolGUI(QMainWindow):
                             ext = '.' + ext
                         self.schema_extensions.add(ext)
                         
-                    logging.info(f"Loaded schema: {schema_name}")
+                    print(f"Loaded schema: {schema_name}")
                 except Exception as e:
-                    logging.error(f"Error loading schema {file_path}: {str(e)}")
+                    print(f"Error loading schema {file_path}: {str(e)}")
             
-            logging.info(f"Successfully loaded {len(self.schemas)} schemas")
+            print(f"Successfully loaded {len(self.schemas)} schemas")
             
         except Exception as e:
-            logging.error(f"Error loading schemas: {str(e)}")
+            print(f"Error loading schemas: {str(e)}")
         
     def get_localized_text(self, text_key: str) -> tuple[str, bool]:
         """Get localized text for a key and whether it's from base game.
@@ -1319,13 +1317,13 @@ class EntityToolGUI(QMainWindow):
                 raise ValueError(f"File is not a player file: {file_path}")
             
             # Log data details
-            logging.info(f"Successfully loaded: {file_path}")
-            logging.info(f"Data type: {type(self.current_data)}")
+            print(f"Successfully loaded: {file_path}")
+            print(f"Data type: {type(self.current_data)}")
             if isinstance(self.current_data, dict):
-                logging.info(f"Top-level keys: {list(self.current_data.keys())}")
+                print(f"Top-level keys: {list(self.current_data.keys())}")
                 
         except Exception as e:
-            logging.error(f"Error loading file {file_path}: {str(e)}")
+            print(f"Error loading file {file_path}: {str(e)}")
             self.current_file = None
             self.current_data = None
     
@@ -1437,7 +1435,7 @@ class EntityToolGUI(QMainWindow):
                             pixmap, is_base_game = self.load_texture(picture)
                             if not pixmap.isNull():
                                 field_backgrounds[field_id] = pixmap
-                                logging.info(f"Loaded background for field {field_id}: {picture}")
+                                print(f"Loaded background for field {field_id}: {picture}")
         
         # Set field backgrounds in tree view
         tree_view.set_field_backgrounds(field_backgrounds)
@@ -1960,10 +1958,10 @@ class EntityToolGUI(QMainWindow):
             path = [path]
         path = list(path)  # Convert to list if it's a tuple
             
-        logging.debug(f"create_widget_for_value called with:")
-        logging.debug(f"  value: {value}")
-        logging.debug(f"  schema: {schema}")
-        logging.debug(f"  path: {path}")
+        print(f"create_widget_for_value called with:")
+        print(f"  value: {value}")
+        print(f"  schema: {schema}")
+        print(f"  path: {path}")
         
         # Get the current file path from the parent schema view
         file_path = None
@@ -1983,7 +1981,7 @@ class EntityToolGUI(QMainWindow):
 
             # Get property name from the path - use the last string in the path
             property_name = next((p for p in reversed(path) if isinstance(p, str)), "").lower()
-            logging.debug(f"Extracted property_name from path: {property_name}")
+            print(f"Extracted property_name from path: {property_name}")
             
             manifest_type_map = {
                 "weapon": "weapon",
@@ -2018,7 +2016,7 @@ class EntityToolGUI(QMainWindow):
                 layout.setContentsMargins(0, 0, 0, 0)
                 layout.setSpacing(2)
                 
-                logging.debug(f"Processing array with schema: {schema}")
+                print(f"Processing array with schema: {schema}")
                 
                 for i, item in enumerate(value):
                     if isinstance(item, dict):
@@ -2033,7 +2031,7 @@ class EntityToolGUI(QMainWindow):
                                         layout.addWidget(label)
                                         continue
                                         
-                                    logging.debug(f"Creating widget for array item with key: {key}")
+                                    print(f"Creating widget for array item with key: {key}")
                                     # Create widget with property name from key
                                     widget = self.create_widget_for_value(
                                         sub_item,
@@ -2054,7 +2052,7 @@ class EntityToolGUI(QMainWindow):
                     else:
                         # For simple values in arrays, use the parent property name
                         parent_property = schema.get("property_name", "")
-                        logging.debug(f"Creating widget for simple array item with parent property: {parent_property}")
+                        print(f"Creating widget for simple array item with parent property: {parent_property}")
                         widget = self.create_widget_for_value(
                             item,
                             {"type": "string", "property_name": parent_property},
@@ -2067,40 +2065,40 @@ class EntityToolGUI(QMainWindow):
 
             # Check if property name indicates a specific entity type
             entity_type = None
-            logging.debug(f"Checking for {value_str} in manifest type {property_name}")
+            print(f"Checking for {value_str} in manifest type {property_name}")
             
             # Check if the property name maps to a known entity type
             if property_name in manifest_type_map:
-                logging.debug(f"Found manifest type mapping: {property_name} -> {manifest_type_map[property_name]}")
+                print(f"Found manifest type mapping: {property_name} -> {manifest_type_map[property_name]}")
                 expected_type = manifest_type_map[property_name]
-                logging.debug(f"Checking for {value_str} in manifest type {expected_type}")
+                print(f"Checking for {value_str} in manifest type {expected_type}")
                 # Only check the expected type based on property name
                 if (value_str in self.manifest_data['mod'].get(expected_type, {}) or 
                     value_str in self.manifest_data['base_game'].get(expected_type, {})):
                     entity_type = expected_type
-                    logging.debug(f"Found {value_str} in manifest {expected_type}")
+                    print(f"Found {value_str} in manifest {expected_type}")
                 else:
                     # If not found in the expected type, log a warning
-                    logging.warning(f"Referenced {expected_type} not found: {value_str}")
+                    print(f"Referenced {expected_type} not found: {value_str}")
                     # Don't search other manifests if we have a specific type
                     return QLabel(value_str)
             else:
                 # Only search all manifests if no specific type is mapped
-                logging.debug(f"Checking all manifests for {value_str}")
+                print(f"Checking all manifests for {value_str}")
                 for manifest_type, manifest_data in self.manifest_data['mod'].items():
                     if value_str in manifest_data:
-                        logging.debug(f"Found {value_str} in mod manifest {manifest_type}")
+                        print(f"Found {value_str} in mod manifest {manifest_type}")
                         entity_type = manifest_type
                         break
                 if not entity_type:
                     for manifest_type, manifest_data in self.manifest_data['base_game'].items():
                         if value_str in manifest_data:
-                            logging.debug(f"Found {value_str} in base game manifest {manifest_type}")
+                            print(f"Found {value_str} in base game manifest {manifest_type}")
                             entity_type = manifest_type
                             break
             
             if entity_type:
-                logging.debug(f"Creating button for {value_str} of type {entity_type}")
+                print(f"Creating button for {value_str} of type {entity_type}")
                 btn = QPushButton(value_str)
                 btn.setStyleSheet("text-align: left; padding: 2px;")
 
@@ -2158,26 +2156,26 @@ class EntityToolGUI(QMainWindow):
                 is_localized_key = True
                 localized_text = self.all_localized_strings['mod'][self.current_language][value_str]
                 is_base = False
-                logging.debug(f"Found localized text in mod {self.current_language}: {localized_text}")
+                print(f"Found localized text in mod {self.current_language}: {localized_text}")
             elif "en" in self.all_localized_strings['mod'] and value_str in self.all_localized_strings['mod']["en"]:
                 is_localized_key = True
                 localized_text = self.all_localized_strings['mod']["en"][value_str]
                 is_base = False
-                logging.debug(f"Found localized text in mod en: {localized_text}")
+                print(f"Found localized text in mod en: {localized_text}")
             # Try base game strings
             elif self.current_language in self.all_localized_strings['base_game'] and value_str in self.all_localized_strings['base_game'][self.current_language]:
                 is_localized_key = True
                 localized_text = self.all_localized_strings['base_game'][self.current_language][value_str]
                 is_base = True
-                logging.debug(f"Found localized text in base game {self.current_language}: {localized_text}")
+                print(f"Found localized text in base game {self.current_language}: {localized_text}")
             elif "en" in self.all_localized_strings['base_game'] and value_str in self.all_localized_strings['base_game']["en"]:
                 is_localized_key = True
                 localized_text = self.all_localized_strings['base_game']["en"][value_str]
                 is_base = True
-                logging.debug(f"Found localized text in base game en: {localized_text}")
+                print(f"Found localized text in base game en: {localized_text}")
             
             if is_localized_key:
-                logging.debug(f"Creating localized text widget for key: {value_str}")
+                print(f"Creating localized text widget for key: {value_str}")
                 # Create a container with both localized text and editable fields
                 container = QWidget()
                 layout = QVBoxLayout(container)
@@ -2457,7 +2455,7 @@ class EntityToolGUI(QMainWindow):
     def load_referenced_entity(self, entity_id: str, entity_type: str):
         """Load a referenced entity file and display it in the appropriate panel"""
         if not isinstance(entity_id, str):
-            logging.error(f"Invalid entity_id type: {type(entity_id)}. Expected string.")
+            print(f"Invalid entity_id type: {type(entity_id)}. Expected string.")
             QMessageBox.warning(self, "Error", f"Invalid entity ID: {entity_id}")
             return
             
@@ -2474,29 +2472,29 @@ class EntityToolGUI(QMainWindow):
             # Check if we have data in the command stack first
             entity_data = self.command_stack.get_file_data(entity_file)
             if entity_data is not None:
-                logging.info(f"Using data from command stack for {entity_file}")
+                print(f"Using data from command stack for {entity_file}")
                 is_base_game = False
             else:
                 # Try mod folder first
                 if entity_file.exists():
-                    logging.info(f"Loading referenced entity from mod folder: {entity_file}")
+                    print(f"Loading referenced entity from mod folder: {entity_file}")
                     with open(entity_file, 'r', encoding='utf-8') as f:
                         entity_data = json.load(f)
                         is_base_game = False
-                    logging.info(f"Successfully loaded data for {entity_file}")
-                    logging.debug(f"Initial data for {entity_file}: {entity_data}")
+                    print(f"Successfully loaded data for {entity_file}")
+                    print(f"Initial data for {entity_file}: {entity_data}")
                 
                 # Try base game folder if not found in mod folder
                 elif self.base_game_folder:
                     base_game_file = self.base_game_folder / "entities" / f"{entity_id}.{entity_type}"
                     if base_game_file.exists():
-                        logging.info(f"Loading referenced entity from base game: {base_game_file}")
+                        print(f"Loading referenced entity from base game: {base_game_file}")
                         with open(base_game_file, 'r', encoding='utf-8') as f:
                             entity_data = json.load(f)
                             is_base_game = True
                         entity_file = base_game_file
-                        logging.info(f"Successfully loaded base game data for {entity_file}")
-                        logging.debug(f"Initial base game data for {entity_file}: {entity_data}")
+                        print(f"Successfully loaded base game data for {entity_file}")
+                        print(f"Initial base game data for {entity_file}: {entity_data}")
                 
             if not entity_data:
                 error_msg = f"Could not find {entity_type} file: {entity_id}\n\n"
@@ -2505,12 +2503,12 @@ class EntityToolGUI(QMainWindow):
                 else:
                     error_msg += f"Looked in:\n- {entity_file}\n- {self.base_game_folder}/entities/{entity_id}.{entity_type}"
                 QMessageBox.warning(self, "Error", error_msg)
-                logging.error(f"{entity_type} file not found: {entity_id}")
+                print(f"{entity_type} file not found: {entity_id}")
                 return
                 
             # Store data in command stack if it wasn't already there
             if entity_file not in self.command_stack.file_data:
-                logging.info(f"Storing initial data in command stack for {entity_file}")
+                print(f"Storing initial data in command stack for {entity_file}")
                 self.command_stack.update_file_data(entity_file, entity_data)
             
             # Handle different entity types and switch to appropriate tab
@@ -2528,7 +2526,7 @@ class EntityToolGUI(QMainWindow):
                 schema_view = self.create_schema_view("weapon", entity_data, is_base_game, entity_file)
                 self.weapon_details_layout.addWidget(schema_view)
                 self.weapon_file = entity_file  # Store file path
-                logging.info(f"Created weapon schema view for {entity_file}")
+                print(f"Created weapon schema view for {entity_file}")
 
             elif entity_type == "research_subject":
                 # Switch to Research tab
@@ -2552,7 +2550,7 @@ class EntityToolGUI(QMainWindow):
                 schema_view = self.create_schema_view("unit-skin", entity_data, is_base_game, entity_file)
                 self.skin_details_layout.addWidget(schema_view)
                 self.skin_file = entity_file  # Store file path
-                logging.info(f"Created unit skin schema view for {entity_file}")
+                print(f"Created unit skin schema view for {entity_file}")
                 
             elif entity_type == "ability":
                 # Switch to Abilities/Buffs tab
@@ -2574,7 +2572,7 @@ class EntityToolGUI(QMainWindow):
                 schema_view = self.create_schema_view("ability", entity_data, is_base_game, entity_file)
                 self.ability_details_layout.addWidget(schema_view)
                 self.ability_file = entity_file  # Store file path
-                logging.info(f"Created ability schema view for {entity_file}")
+                print(f"Created ability schema view for {entity_file}")
                 
             elif entity_type == "unit_item":
                 # Switch to Unit Items tab
@@ -2784,13 +2782,13 @@ class EntityToolGUI(QMainWindow):
                 
             else:
                 QMessageBox.warning(self, "Error", f"Unknown entity type: {entity_type}")
-                logging.error(f"Unknown entity type: {entity_type}")
+                print(f"Unknown entity type: {entity_type}")
                 return
                 
         except Exception as e:
             error_msg = f"Error loading {entity_type} file {entity_id}:\n{str(e)}"
             QMessageBox.warning(self, "Error", error_msg)
-            logging.error(f"Error loading {entity_type} file {entity_id}: {str(e)}")
+            print(f"Error loading {entity_type} file {entity_id}: {str(e)}")
             return
     
     def load_research_subject(self, subject_id: str):
@@ -2810,13 +2808,13 @@ class EntityToolGUI(QMainWindow):
                 # Load from file if not in command stack
                 subject_data, is_base_game = self.load_file(subject_file)
                 if not subject_data:
-                    logging.error(f"Research subject file not found: {subject_file}")
+                    print(f"Research subject file not found: {subject_file}")
                     return
                     
                 # Store initial data in command stack
                 self.command_stack.update_file_data(subject_file, subject_data)
             else:
-                logging.info(f"Using data from command stack for {subject_file}")
+                print(f"Using data from command stack for {subject_file}")
             
             # Clear any existing details
             while self.research_details_layout.count():
@@ -2829,7 +2827,7 @@ class EntityToolGUI(QMainWindow):
             self.research_details_layout.addWidget(schema_view)
             
         except Exception as e:
-            logging.error(f"Error loading research subject {subject_id}: {str(e)}")
+            print(f"Error loading research subject {subject_id}: {str(e)}")
             
     def save_config(self):
         """Save configuration to file"""
@@ -2839,7 +2837,7 @@ class EntityToolGUI(QMainWindow):
                 json.dump(self.config, f, indent=4)
             logging.info("Configuration saved successfully")
         except Exception as e:
-            logging.error(f"Error saving config: {str(e)}")
+            print(f"Error saving config: {str(e)}")
 
     def load_stylesheet(self):
         """Load and apply the dark theme stylesheet from QSS file"""
@@ -2855,7 +2853,7 @@ class EntityToolGUI(QMainWindow):
             self.setStyleSheet(style)
             logging.info("Loaded stylesheet")
         except Exception as e:
-            logging.error(f"Error loading stylesheet: {str(e)}")
+            print(f"Error loading stylesheet: {str(e)}")
 
     def on_player_selected(self, player_name: str):
         """Handle player selection from dropdown"""
@@ -2909,14 +2907,14 @@ class EntityToolGUI(QMainWindow):
         Returns:
             A QWidget containing the schema view
         """
-        logging.debug(f"Creating schema view for {file_type}")
-        logging.debug(f"Is base game: {is_base_game}")
-        logging.debug(f"File path: {file_path}")
+        print(f"Creating schema view for {file_type}")
+        print(f"Is base game: {is_base_game}")
+        print(f"File path: {file_path}")
         
         # Only initialize command stack data if it doesn't exist
         if file_path is not None and not self.command_stack.get_file_data(file_path):
             self.command_stack.update_file_data(file_path, file_data)
-            logging.info(f"Initialized command stack data for {file_path}")
+            print(f"Initialized command stack data for {file_path}")
         
         # Get the current data from command stack if available
         display_data = self.command_stack.get_file_data(file_path) if file_path else file_data
@@ -2925,12 +2923,12 @@ class EntityToolGUI(QMainWindow):
         if file_type == "uniform":
             # Convert from snake_case to kebab-case and append -uniforms-schema
             schema_name = file_path.stem.replace("_", "-") + "-uniforms-schema"
-            logging.debug(f"Looking for uniform schema: {schema_name}")
+            print(f"Looking for uniform schema: {schema_name}")
         else:
             schema_name = f"{file_type}-schema"
             
         if schema_name not in self.schemas:
-            logging.info(f"Schema not found for {schema_name}, using generic schema")
+            print(f"Schema not found for {schema_name}, using generic schema")
             # Create a generic schema based on the data structure
             def create_schema_for_value(value):
                 if isinstance(value, dict):
@@ -2964,7 +2962,7 @@ class EntityToolGUI(QMainWindow):
             # Create the root schema
             self.current_schema = create_schema_for_value(display_data)
         else:
-            logging.debug(f"Found schema: {schema_name}")
+            print(f"Found schema: {schema_name}")
             # Get the schema and resolve any top-level references
             schema = self.schemas[schema_name]
             if isinstance(schema, dict) and "$ref" in schema:
@@ -3047,7 +3045,7 @@ class EntityToolGUI(QMainWindow):
                 
                 # Create the main details widget using the schema
                 title = f"{file_type.replace('-', ' ').title()} Details (Base Game)" if is_base_game else f"{file_type.replace('-', ' ').title()} Details"
-                logging.debug(f"Creating details group with title: {title}")
+                print(f"Creating details group with title: {title}")
                 details_group = QGroupBox(title)
                 if is_base_game:
                     details_group.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
@@ -3137,7 +3135,7 @@ class EntityToolGUI(QMainWindow):
                     # Regular value update
                     target_widget = find_widget_by_path(content, data_path)
                     if target_widget is not None and target_widget is not source_widget:
-                        logging.debug(f"Found widget to update: {target_widget}")
+                        print(f"Found widget to update: {target_widget}")
                         # Update widget value based on its type
                         if isinstance(target_widget, QLineEdit):
                             print(f"Updating QLineEdit with value: {value}")
@@ -3290,31 +3288,29 @@ class EntityToolGUI(QMainWindow):
             
         # Get all modified files
         modified_files = self.command_stack.get_modified_files()
-        logging.info(f"Found {len(modified_files)} modified files to save")
-        logging.debug(f"Modified files list: {modified_files}")
+        print(f"Found {len(modified_files)} modified files to save")
+        print(f"Modified files list: {modified_files}")
         
         success = True
         for file_path in modified_files:
-            logging.info(f"Processing file for save: {file_path}")
+            print(f"Processing file for save: {file_path}")
             
             # Get the latest data from the command stack
             data = self.command_stack.get_file_data(file_path)
-            logging.debug(f"Retrieved data from command stack for {file_path}: {data}")
             
             if not data:
-                logging.error(f"No data found in command stack for file: {file_path}")
+                print(f"No data found in command stack for file: {file_path}")
                 success = False
                 continue
                     
             # Save the file
-            logging.info(f"Attempting to save file: {file_path}")
+            print(f"Attempting to save file: {file_path}")
             try:
                 with open(file_path, 'w', encoding='utf-8') as f:
                     json.dump(data, f, indent=4)
-                logging.info(f"Successfully saved file: {file_path}")
-                logging.debug(f"Saved data for {file_path}: {data}")
+                print(f"Successfully saved file: {file_path}")
             except Exception as e:
-                logging.error(f"Failed to save file {file_path}: {str(e)}")
+                print(f"Failed to save file {file_path}: {str(e)}")
                 success = False
                 continue
                 
@@ -3334,7 +3330,7 @@ class EntityToolGUI(QMainWindow):
         
         # Update save button state
         self.update_save_button()
-        logging.info(f"Save button enabled: {self.command_stack.has_unsaved_changes()}")
+        print(f"Save button enabled: {self.command_stack.has_unsaved_changes()}")
 
         return success
         
@@ -3364,10 +3360,10 @@ class EntityToolGUI(QMainWindow):
         if self.current_folder:
             # Load .localized_text files (JSON format)
             localized_text_folder = self.current_folder / "localized_text"
-            logging.debug(f"Checking mod localized_text folder: {localized_text_folder}")
+            print(f"Checking mod localized_text folder: {localized_text_folder}")
             if localized_text_folder.exists():
                 for text_file in localized_text_folder.glob("*.localized_text"):
-                    logging.debug(f"Loading mod localized text from: {text_file}")
+                    print(f"Loading mod localized text from: {text_file}")
                     try:
                         with open(text_file, 'r', encoding='utf-8') as f:
                             json_data = json.load(f)
@@ -3379,9 +3375,9 @@ class EntityToolGUI(QMainWindow):
                             self.all_localized_strings['mod'][language].update(json_data)
                             # Initialize command stack with this data
                             self.command_stack.update_file_data(text_file, json_data)
-                            logging.debug(f"Loaded {len(json_data)} strings for language {language} from {text_file}")
+                            print(f"Loaded {len(json_data)} strings for language {language} from {text_file}")
                     except Exception as e:
-                        logging.error(f"Error loading localized text file {text_file}: {str(e)}")
+                        print(f"Error loading localized text file {text_file}: {str(e)}")
                         # Initialize with empty data on error
                         self.command_stack.update_file_data(text_file, {})
             else:
@@ -3397,10 +3393,10 @@ class EntityToolGUI(QMainWindow):
         if self.base_game_folder:
             # Load .localized_text files (JSON format)
             localized_text_folder = self.base_game_folder / "localized_text"
-            logging.debug(f"Checking base game localized_text folder: {localized_text_folder}")
+            print(f"Checking base game localized_text folder: {localized_text_folder}")
             if localized_text_folder.exists():
                 for text_file in localized_text_folder.glob("*.localized_text"):
-                    logging.debug(f"Loading base game localized text from: {text_file}")
+                    print(f"Loading base game localized text from: {text_file}")
                     try:
                         with open(text_file, 'r', encoding='utf-8') as f:
                             json_data = json.load(f)
@@ -3410,9 +3406,9 @@ class EntityToolGUI(QMainWindow):
                                 self.all_localized_strings['base_game'][language] = {}
                             # Add strings for this language
                             self.all_localized_strings['base_game'][language].update(json_data)
-                            logging.debug(f"Loaded {len(json_data)} strings for language {language} from {text_file}")
+                            print(f"Loaded {len(json_data)} strings for language {language} from {text_file}")
                     except Exception as e:
-                        logging.error(f"Error loading localized text file {text_file}: {str(e)}")
+                        print(f"Error loading localized text file {text_file}: {str(e)}")
             else:
                 logging.debug("No base game localized_text folder found")
                         
@@ -3420,12 +3416,12 @@ class EntityToolGUI(QMainWindow):
         for source in ['mod', 'base_game']:
             for language in self.all_localized_strings[source]:
                 count = len(self.all_localized_strings[source][language])
-                logging.info(f"Total {source} strings for {language}: {count}")
+                print(f"Total {source} strings for {language}: {count}")
                 if count > 0:
                     # Log a few example strings
-                    logging.debug(f"Example strings for {source} {language}:")
+                    print(f"Example strings for {source} {language}:")
                     for i, (key, value) in enumerate(list(self.all_localized_strings[source][language].items())[:3]):
-                        logging.debug(f"  {key} = {value}")
+                        print(f"  {key} = {value}")
                         if i >= 2:
                             break
     
@@ -3446,7 +3442,7 @@ class EntityToolGUI(QMainWindow):
                 for texture_file in textures_folder.glob("*.*"):
                     if texture_file.suffix.lower() in ['.png', '.dds']:
                         self.all_texture_files['mod'].add(texture_file.stem)
-                logging.info(f"Found {len(self.all_texture_files['mod'])} texture files in mod")
+                print(f"Found {len(self.all_texture_files['mod'])} texture files in mod")
         
         # Load base game textures
         if self.base_game_folder:
@@ -3455,7 +3451,7 @@ class EntityToolGUI(QMainWindow):
                 for texture_file in textures_folder.glob("*.*"):
                     if texture_file.suffix.lower() in ['.png', '.dds']:
                         self.all_texture_files['base_game'].add(texture_file.stem)
-                logging.info(f"Found {len(self.all_texture_files['base_game'])} texture files in base game")
+                print(f"Found {len(self.all_texture_files['base_game'])} texture files in base game")
 
     def load_base_game_manifest_files(self) -> None:
         """Load manifest files from base game into memory"""
@@ -3465,14 +3461,14 @@ class EntityToolGUI(QMainWindow):
         self.manifest_data['base_game'] = {}
         
         if self.base_game_folder:
-            logging.debug(f"Using base game folder: {self.base_game_folder}")
+            print(f"Using base game folder: {self.base_game_folder}")
             entities_folder = self.base_game_folder / "entities"
             if entities_folder.exists():
-                logging.debug(f"Found base game entities folder: {entities_folder}")
+                print(f"Found base game entities folder: {entities_folder}")
                 for manifest_file in entities_folder.glob("*.entity_manifest"):
                     try:
                         manifest_type = manifest_file.stem  # e.g., 'player', 'weapon'
-                        logging.debug(f"Loading base game manifest: {manifest_file}")
+                        print(f"Loading base game manifest: {manifest_file}")
                         with open(manifest_file, 'r', encoding='utf-8') as f:
                             manifest_data = json.load(f)
                             
@@ -3487,24 +3483,23 @@ class EntityToolGUI(QMainWindow):
                                     with open(entity_file, 'r', encoding='utf-8') as f:
                                         entity_data = json.load(f)
                                         self.manifest_data['base_game'][manifest_type][entity_id] = entity_data
-                                        logging.debug(f"Loaded base game {manifest_type} data for {entity_id}")
                                 else:
-                                    logging.warning(f"Referenced base game entity file not found: {entity_file}")
+                                    print(f"Referenced base game entity file not found: {entity_file}")
                                         
-                        logging.info(f"Loaded base game manifest {manifest_type} with {len(manifest_data.get('ids', []))} entries")
+                        print(f"Loaded base game manifest {manifest_type} with {len(manifest_data.get('ids', []))} entries")
                     except Exception as e:
-                        logging.error(f"Error loading base game manifest file {manifest_file}: {str(e)}")
+                        print(f"Error loading base game manifest file {manifest_file}: {str(e)}")
             else:
-                logging.warning(f"Base game entities folder not found: {entities_folder}")
+                print(f"Base game entities folder not found: {entities_folder}")
         else:
             logging.warning("No base game folder configured")
                         
         # Log summary
         for manifest_type in self.manifest_data['base_game']:
             count = len(self.manifest_data['base_game'][manifest_type])
-            logging.info(f"Total base game {manifest_type} entries: {count}")
+            print(f"Total base game {manifest_type} entries: {count}")
             if count > 0:
-                logging.debug(f"Example {manifest_type} entries: {list(self.manifest_data['base_game'][manifest_type].keys())[:3]}")
+                print(f"Example {manifest_type} entries: {list(self.manifest_data['base_game'][manifest_type].keys())[:3]}")
 
     def load_mod_manifest_files(self) -> None:
         """Load manifest files from mod folder into memory"""
@@ -3514,14 +3509,14 @@ class EntityToolGUI(QMainWindow):
         self.manifest_data['mod'] = {}
         
         if self.current_folder:
-            logging.debug(f"Using mod folder: {self.current_folder}")
+            print(f"Using mod folder: {self.current_folder}")
             entities_folder = self.current_folder / "entities"
             if entities_folder.exists():
-                logging.debug(f"Found mod entities folder: {entities_folder}")
+                print(f"Found mod entities folder: {entities_folder}")
                 for manifest_file in entities_folder.glob("*.entity_manifest"):
                     try:
                         manifest_type = manifest_file.stem  # e.g., 'player', 'weapon'
-                        logging.debug(f"Loading mod manifest: {manifest_file}")
+                        print(f"Loading mod manifest: {manifest_file}")
                         with open(manifest_file, 'r', encoding='utf-8') as f:
                             manifest_data = json.load(f)
                             
@@ -3536,24 +3531,24 @@ class EntityToolGUI(QMainWindow):
                                     with open(entity_file, 'r', encoding='utf-8') as f:
                                         entity_data = json.load(f)
                                         self.manifest_data['mod'][manifest_type][entity_id] = entity_data
-                                        logging.debug(f"Loaded mod {manifest_type} data for {entity_id}")
+                                        print(f"Loaded mod {manifest_type} data for {entity_id}")
                                 else:
-                                    logging.warning(f"Referenced mod entity file not found: {entity_file}")
+                                    print(f"Referenced mod entity file not found: {entity_file}")
                                         
-                        logging.info(f"Loaded mod manifest {manifest_type} with {len(manifest_data.get('ids', []))} entries")
+                        print(f"Loaded mod manifest {manifest_type} with {len(manifest_data.get('ids', []))} entries")
                     except Exception as e:
-                        logging.error(f"Error loading mod manifest file {manifest_file}: {str(e)}")
+                        print(f"Error loading mod manifest file {manifest_file}: {str(e)}")
             else:
-                logging.warning(f"Mod entities folder not found: {entities_folder}")
+                print(f"Mod entities folder not found: {entities_folder}")
         else:
             logging.warning("No mod folder loaded")
                         
         # Log summary
         for manifest_type in self.manifest_data['mod']:
             count = len(self.manifest_data['mod'][manifest_type])
-            logging.info(f"Total mod {manifest_type} entries: {count}")
+            print(f"Total mod {manifest_type} entries: {count}")
             if count > 0:
-                logging.debug(f"Example {manifest_type} entries: {list(self.manifest_data['mod'][manifest_type].keys())[:3]}")
+                print(f"Example {manifest_type} entries: {list(self.manifest_data['mod'][manifest_type].keys())[:3]}")
 
     def on_item_selected(self, item):
         """Handle unit item selection from the list"""
@@ -3568,7 +3563,7 @@ class EntityToolGUI(QMainWindow):
             # Load from file
             item_data, _ = self.load_file(item_file, try_base_game=False)  # Don't try base game again
             if not item_data:
-                logging.error(f"Item file not found: {item_file}")
+                print(f"Item file not found: {item_file}")
                 return
                 
             # Clear existing details
@@ -3579,7 +3574,7 @@ class EntityToolGUI(QMainWindow):
             self.item_details_layout.addWidget(schema_view)
             
         except Exception as e:
-            logging.error(f"Error loading item {item_id}: {str(e)}")
+            print(f"Error loading item {item_id}: {str(e)}")
             error_label = QLabel(f"Error loading item: {str(e)}")
             error_label.setStyleSheet("color: red;")
             self.item_details_layout.addWidget(error_label)
@@ -3597,7 +3592,7 @@ class EntityToolGUI(QMainWindow):
             # Load from file
             ability_data, _ = self.load_file(ability_file, try_base_game=False)  # Don't try base game again
             if not ability_data:
-                logging.error(f"Ability file not found: {ability_file}")
+                print(f"Ability file not found: {ability_file}")
                 return
                 
             # Clear existing details
@@ -3608,7 +3603,7 @@ class EntityToolGUI(QMainWindow):
             self.ability_details_layout.addWidget(schema_view)
             
         except Exception as e:
-            logging.error(f"Error loading ability {ability_id}: {str(e)}")
+            print(f"Error loading ability {ability_id}: {str(e)}")
             error_label = QLabel(f"Error loading ability: {str(e)}")
             error_label.setStyleSheet("color: red;")
             self.ability_details_layout.addWidget(error_label)
@@ -3626,7 +3621,7 @@ class EntityToolGUI(QMainWindow):
             # Load from file
             action_data, _ = self.load_file(action_file, try_base_game=False)  # Don't try base game again
             if not action_data:
-                logging.error(f"Action data source file not found: {action_file}")
+                print(f"Action data source file not found: {action_file}")
                 return
                 
             # Clear existing details
@@ -3637,7 +3632,7 @@ class EntityToolGUI(QMainWindow):
             self.action_details_layout.addWidget(schema_view)
             
         except Exception as e:
-            logging.error(f"Error loading action data source {action_id}: {str(e)}")
+            print(f"Error loading action data source {action_id}: {str(e)}")
             error_label = QLabel(f"Error loading action data source: {str(e)}")
             error_label.setStyleSheet("color: red;")
             self.action_details_layout.addWidget(error_label)
@@ -3655,7 +3650,7 @@ class EntityToolGUI(QMainWindow):
             # Load from file
             buff_data, _ = self.load_file(buff_file, try_base_game=False)  # Don't try base game again
             if not buff_data:
-                logging.error(f"Buff file not found: {buff_file}")
+                print(f"Buff file not found: {buff_file}")
                 return
                 
             # Clear existing details
@@ -3666,7 +3661,7 @@ class EntityToolGUI(QMainWindow):
             self.buff_details_layout.addWidget(schema_view)
             
         except Exception as e:
-            logging.error(f"Error loading buff {buff_id}: {str(e)}")
+            print(f"Error loading buff {buff_id}: {str(e)}")
             error_label = QLabel(f"Error loading buff: {str(e)}")
             error_label.setStyleSheet("color: red;")
             self.buff_details_layout.addWidget(error_label)
@@ -3684,7 +3679,7 @@ class EntityToolGUI(QMainWindow):
             # Load from file
             formation_data, _ = self.load_file(formation_file, try_base_game=False)  # Don't try base game again
             if not formation_data:
-                logging.error(f"Formation file not found: {formation_file}")
+                print(f"Formation file not found: {formation_file}")
                 return
                 
             # Clear existing details
@@ -3695,7 +3690,7 @@ class EntityToolGUI(QMainWindow):
             self.formation_details_layout.addWidget(schema_view)
             
         except Exception as e:
-            logging.error(f"Error loading formation {formation_id}: {str(e)}")
+            print(f"Error loading formation {formation_id}: {str(e)}")
             error_label = QLabel(f"Error loading formation: {str(e)}")
             error_label.setStyleSheet("color: red;")
             self.formation_details_layout.addWidget(error_label)
@@ -3713,7 +3708,7 @@ class EntityToolGUI(QMainWindow):
             # Load from file
             pattern_data, _ = self.load_file(pattern_file, try_base_game=False)  # Don't try base game again
             if not pattern_data:
-                logging.error(f"Flight pattern file not found: {pattern_file}")
+                print(f"Flight pattern file not found: {pattern_file}")
                 return
                 
             # Clear existing details
@@ -3724,7 +3719,7 @@ class EntityToolGUI(QMainWindow):
             self.pattern_details_layout.addWidget(schema_view)
             
         except Exception as e:
-            logging.error(f"Error loading flight pattern {pattern_id}: {str(e)}")
+            print(f"Error loading flight pattern {pattern_id}: {str(e)}")
             error_label = QLabel(f"Error loading flight pattern: {str(e)}")
             error_label.setStyleSheet("color: red;")
             self.pattern_details_layout.addWidget(error_label)
@@ -3742,7 +3737,7 @@ class EntityToolGUI(QMainWindow):
             # Load from file
             reward_data, _ = self.load_file(reward_file, try_base_game=False)  # Don't try base game again
             if not reward_data:
-                logging.error(f"NPC reward file not found: {reward_file}")
+                print(f"NPC reward file not found: {reward_file}")
                 return
                 
             # Clear existing details
@@ -3753,7 +3748,7 @@ class EntityToolGUI(QMainWindow):
             self.reward_details_layout.addWidget(schema_view)
             
         except Exception as e:
-            logging.error(f"Error loading NPC reward {reward_id}: {str(e)}")
+            print(f"Error loading NPC reward {reward_id}: {str(e)}")
             error_label = QLabel(f"Error loading NPC reward: {str(e)}")
             error_label.setStyleSheet("color: red;")
             self.reward_details_layout.addWidget(error_label)
@@ -3771,7 +3766,7 @@ class EntityToolGUI(QMainWindow):
             # Load from file
             exotic_data, _ = self.load_file(exotic_file, try_base_game=False)  # Don't try base game again
             if not exotic_data:
-                logging.error(f"Exotic file not found: {exotic_file}")
+                print(f"Exotic file not found: {exotic_file}")
                 return
                 
             # Clear existing details
@@ -3782,7 +3777,7 @@ class EntityToolGUI(QMainWindow):
             self.exotic_details_layout.addWidget(schema_view)
             
         except Exception as e:
-            logging.error(f"Error loading exotic {exotic_id}: {str(e)}")
+            print(f"Error loading exotic {exotic_id}: {str(e)}")
             error_label = QLabel(f"Error loading exotic: {str(e)}")
             error_label.setStyleSheet("color: red;")
             self.exotic_details_layout.addWidget(error_label)
@@ -3800,7 +3795,7 @@ class EntityToolGUI(QMainWindow):
             # Load from file
             uniform_data, _ = self.load_file(uniform_file, try_base_game=False)  # Don't try base game again
             if not uniform_data:
-                logging.error(f"Uniform file not found: {uniform_file}")
+                print(f"Uniform file not found: {uniform_file}")
                 return
                 
             # Clear existing details
@@ -3811,7 +3806,7 @@ class EntityToolGUI(QMainWindow):
             self.uniform_details_layout.addWidget(schema_view)
             
         except Exception as e:
-            logging.error(f"Error loading uniform {uniform_id}: {str(e)}")
+            print(f"Error loading uniform {uniform_id}: {str(e)}")
             error_label = QLabel(f"Error loading uniform: {str(e)}")
             error_label.setStyleSheet("color: red;")
             self.uniform_details_layout.addWidget(error_label)
@@ -4231,7 +4226,7 @@ class EntityToolGUI(QMainWindow):
 
     def show_context_menu(self, widget, position, current_value):
         """Show the context menu at the given position"""
-        logging.debug(f"show_context_menu called for widget: {widget}, position: {position}, current_value: {current_value}")
+        print(f"show_context_menu called for widget: {widget}, position: {position}")
         menu = self.create_context_menu(widget, current_value)
         if menu:
             logging.debug("Menu created, about to show")
@@ -4387,7 +4382,7 @@ class EntityToolGUI(QMainWindow):
                             
                     tree.expandToDepth(0)  # Expand first level by default
             except Exception as e:
-                logging.error(f"Error loading uniforms file: {str(e)}")
+                print(f"Error loading uniforms file: {str(e)}")
         
         def on_item_selected():
             item = tree.currentItem()
@@ -4610,10 +4605,10 @@ class EntityToolGUI(QMainWindow):
             data[key] = value
             self.command_stack.update_file_data(file_path, data)
             
-            logging.info(f"Updated localized text {key} in memory")
-            logging.debug(f"New value: {value}")
+            print(f"Updated localized text {key} in memory")
+            print(f"New value: {value}")
         except Exception as e:
-            logging.error(f"Error updating localized text in memory: {str(e)}")
+            print(f"Error updating localized text in memory: {str(e)}")
 
     def on_text_edit_timer_timeout(self):
         if self.current_text_edit and not self.current_text_edit.property("is_updating"):
@@ -4871,7 +4866,7 @@ class EntityToolGUI(QMainWindow):
                     threading.Thread(target=check_playback, daemon=True).start()
                     
                 except Exception as e:
-                    logging.error(f"Error playing sound: {str(e)}")
+                    print(f"Error playing sound: {str(e)}")
                     audio_state['playing'] = False
                     play_button.setEnabled(True)
                     stop_button.setEnabled(False)
@@ -5100,5 +5095,5 @@ class EntityToolGUI(QMainWindow):
             self.update_save_button()  # Update save/undo/redo button states
             
         except Exception as e:
-            logging.error(f"Error deleting property: {str(e)}")
+            print(f"Error deleting property: {str(e)}")
 
