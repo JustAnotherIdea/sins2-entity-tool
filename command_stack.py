@@ -941,7 +941,141 @@ class DeletePropertyCommand(Command):
     def redo(self):
         """Redo the property deletion"""
         try:
-            return self.execute()
+            # Update the data first
+            if self.data_path is not None:
+                print(f"Redoing deletion at path: {self.data_path}")
+                self.gui.update_data_value(self.data_path, self.new_value)
+            
+            # Find the schema view by searching all widgets
+            schema_view = None
+            for widget in self.gui.findChildren(QWidget):
+                if (hasattr(widget, 'property') and 
+                    widget.property("file_path") == str(self.file_path)):
+                    schema_view = widget
+                    break
+
+            if not schema_view:
+                print("Could not find schema view")
+                return
+
+            # For array items, we need to replace the entire array widget
+            if isinstance(self.data_path[-1], int):
+                array_path = self.data_path[:-1]  # ['planet_levels']
+                print(f"Looking for array widget with path: {array_path}")
+                
+                # Find the array's collapsible section by looking for a QToolButton with the array name
+                array_button = None
+                for widget in schema_view.findChildren(QToolButton):
+                    btn_text = widget.text()
+                    print(f"Found button with text: {btn_text}")
+                    
+                    # Remove count suffix if present (e.g., "Planet Levels (4)" -> "Planet Levels")
+                    btn_text = btn_text.split(" (")[0]
+                    
+                    # Try different text formats
+                    possible_texts = [
+                        array_path[0],  # planet_levels
+                        array_path[0].replace("_", " "),  # planet levels
+                        array_path[0].replace("_", " ").title(),  # Planet Levels
+                        array_path[0].replace("_", " ").lower(),  # planet levels
+                        array_path[0].lower(),  # planetlevels
+                        array_path[0].title()  # PlanetLevels
+                    ]
+                    if any(text == btn_text for text in possible_texts):
+                        print(f"Found array button: {btn_text}")
+                        array_button = widget
+                        break
+                
+                if not array_button:
+                    print("Could not find array button")
+                    print("Available buttons:")
+                    for widget in schema_view.findChildren(QToolButton):
+                        print(f"  {widget.text()}")
+                    return
+                
+                # Get the collapsible widget (parent of the array button)
+                collapsible_widget = array_button.parent()
+                if not collapsible_widget:
+                    print("Could not find collapsible widget")
+                    return
+                
+                # Get the parent of the collapsible widget
+                parent = collapsible_widget.parent()
+                if not parent:
+                    print("Could not find parent of collapsible widget")
+                    return
+                
+                parent_layout = parent.layout()
+                if not parent_layout:
+                    print("Could not find parent layout")
+                    return
+                
+                # Find the collapsible widget's index in its parent's layout
+                widget_index = -1
+                for i in range(parent_layout.count()):
+                    if parent_layout.itemAt(i).widget() == collapsible_widget:
+                        widget_index = i
+                        break
+                
+                if widget_index == -1:
+                    print("Could not find widget index")
+                    return
+                
+                # Get schema and create new array widget
+                array_schema = self.gui.get_schema_for_path(array_path)
+                if not array_schema:
+                    print("Could not find array schema")
+                    return
+                
+                # Get the current array data from the command stack
+                current_data = self.gui.command_stack.get_file_data(self.file_path)
+                if not current_data:
+                    print("Could not get current data")
+                    return
+                
+                # Navigate to the array
+                array_data = current_data
+                for part in array_path:
+                    if isinstance(array_data, (dict, list)):
+                        array_data = array_data[part]
+                
+                print(f"Array data for widget creation: {array_data}")
+                
+                # Create new widget for the array
+                new_widget = self.gui.create_widget_for_schema(
+                    array_data,  # Use the full array data
+                    array_schema,
+                    False,  # is_base_game
+                    array_path
+                )
+                
+                if new_widget:
+                    print("Created new array widget")
+                    # First hide the old widget
+                    collapsible_widget.hide()
+                    
+                    # Remove it from the layout
+                    old_item = parent_layout.takeAt(widget_index)
+                    if old_item:
+                        old_widget = old_item.widget()
+                        if old_widget:
+                            old_widget.setParent(None)
+                            old_widget.deleteLater()
+                    
+                    # Add new widget at the same position
+                    parent_layout.insertWidget(widget_index, new_widget)
+                    
+                    # Find and click the toggle button to expand the array
+                    new_layout = new_widget.layout()
+                    if new_layout and new_layout.count() > 0:
+                        toggle_btn = new_layout.itemAt(0).widget()
+                        if isinstance(toggle_btn, QToolButton):
+                            toggle_btn.setChecked(True)  # This will expand the array
+                            print("Expanded array section")
+            else:
+                # For regular properties, just execute normally
+                return self.execute()
+                
         except Exception as e:
             print(f"Error redoing delete property command: {str(e)}")
             import traceback
