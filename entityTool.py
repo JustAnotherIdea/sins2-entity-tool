@@ -348,6 +348,26 @@ class EntityToolGUI(QMainWindow):
         """Update a value in the data structure using its path"""
         logging.info(f"Updating data value at path {data_path} to {new_value}")
         logging.debug(f"Current data before update: {self.current_data}")
+
+        if not data_path:
+            # Empty path - replace entire data structure
+            self.current_data = new_value
+            logging.debug(f"Replaced entire data structure with new value")
+            return
+        
+        if len(data_path) == 1:
+            # Single path element - modify root property
+            if isinstance(self.current_data, dict):
+                if new_value is None:
+                    # Remove property if new_value is None
+                    if data_path[0] in self.current_data:
+                        del self.current_data[data_path[0]]
+                        logging.debug(f"Removed root property {data_path[0]}")
+                else:
+                    # Add or update property
+                    self.current_data[data_path[0]] = new_value
+                    logging.debug(f"Updated root property {data_path[0]} to {new_value}")
+            return
         
         current = self.current_data
         for i, key in enumerate(data_path[:-1]):

@@ -617,4 +617,111 @@ class DeleteArrayItemCommand(Command):
             return self.execute()
         except Exception as e:
             logging.error(f"Error redoing delete array item command: {str(e)}")
+            return None
+
+class DeletePropertyCommand(Command):
+    """Command for deleting a property from an object"""
+    def __init__(self, gui, property_widget, property_name, parent_data):
+        # Store the old and new object values
+        old_data = parent_data.copy()
+        new_data = parent_data.copy()
+        if property_name in new_data:
+            del new_data[property_name]
+        
+        super().__init__(None, None, old_data, new_data)  # File path and data path set later
+        self.gui = gui
+        self.property_widget = property_widget
+        self.property_name = property_name
+        
+    def execute(self):
+        """Execute the property deletion"""
+        try:
+            # Update the data
+            if self.data_path is not None:
+                self.gui.update_data_value(self.data_path, self.new_value)
+            
+            # Remove the widget
+            if self.property_widget:
+                self.property_widget.hide()
+                self.property_widget.setParent(None)
+                self.property_widget.deleteLater()
+            
+        except Exception as e:
+            logging.error(f"Error executing delete property command: {str(e)}")
+            return None
+            
+    def undo(self):
+        """Undo the property deletion"""
+        try:
+            # Update the data
+            if self.data_path is not None:
+                self.gui.update_data_value(self.data_path, self.old_value)
+            
+            # Find the parent object widget
+            parent_widget = None
+            schema_view = self.gui.find_parent_schema_view(self.property_widget)
+            if schema_view:
+                # For top-level properties
+                parent_widget = schema_view
+            else:
+                # For nested properties, find the parent object widget
+                current = self.property_widget.parent()
+                while current:
+                    layout = current.layout()
+                    if layout and layout.count() > 0:
+                        first_item = layout.itemAt(0)
+                        if first_item.widget() and isinstance(first_item.widget(), QToolButton):
+                            parent_widget = current
+                            break
+                    current = current.parent()
+            
+            if not parent_widget:
+                logging.error("Could not find parent widget")
+                return
+                
+            # Get the parent's layout
+            parent_layout = parent_widget.layout()
+            if not parent_layout:
+                return
+            
+            # Get schema and create new property widget
+            schema = self.gui.get_schema_for_path(self.data_path[:-1])  # Get parent object's schema
+            if not schema or "properties" not in schema or self.property_name not in schema["properties"]:
+                return
+                
+            prop_schema = schema["properties"][self.property_name]
+            prop_value = self.old_value[self.property_name]
+            
+            # Create new widget for the property
+            new_widget = self.gui.create_widget_for_property(
+                self.property_name,
+                prop_value,
+                prop_schema,
+                False,  # is_base_game
+                self.data_path[:-1]  # Parent's path
+            )
+            
+            if new_widget:
+                # Add the widget back to the parent layout
+                parent_layout.addWidget(new_widget)
+                
+                # If it's a collapsible widget (object/array), expand it
+                new_layout = new_widget.layout()
+                if new_layout and new_layout.count() > 0:
+                    first_item = new_layout.itemAt(0)
+                    if first_item.widget() and isinstance(first_item.widget(), QToolButton):
+                        first_item.widget().setChecked(True)
+                
+                # Update our reference
+                self.property_widget = new_widget
+                
+        except Exception as e:
+            logging.error(f"Error undoing delete property command: {str(e)}")
+            
+    def redo(self):
+        """Redo the property deletion"""
+        try:
+            return self.execute()
+        except Exception as e:
+            logging.error(f"Error redoing delete property command: {str(e)}")
             return None 
