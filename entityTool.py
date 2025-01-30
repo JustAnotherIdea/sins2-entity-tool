@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 from research_view import ResearchTreeView
 import os
-from command_stack import CommandStack, EditValueCommand, AddPropertyCommand, DeleteArrayItemCommand
+from command_stack import CommandStack, EditValueCommand, AddPropertyCommand, DeleteArrayItemCommand, DeletePropertyCommand
 from typing import List, Any
 import sounddevice as sd
 import soundfile as sf
@@ -1678,6 +1678,13 @@ class EntityToolGUI(QMainWindow):
                             # Make label bold if property is required
                             if prop_name in required_props:
                                 label.setStyleSheet("QLabel { font-weight: bold; }")
+                            
+                            # Add context menu to label
+                            label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                            label.setProperty("data_path", prop_path)
+                            label.customContextMenuRequested.connect(
+                                lambda pos, w=label, v=value: self.show_context_menu(w, pos, v)
+                            )
                             
                             row_layout.addWidget(label)
                             row_layout.addWidget(widget)
@@ -3817,7 +3824,7 @@ class EntityToolGUI(QMainWindow):
         schema = None
         data_path = widget.property("data_path")
         print(f"Creating context menu for path: {data_path}, current value: {current_value}")
-        
+            
         if data_path is not None:  # Changed from 'if data_path:' to handle empty lists
             # Find the schema for this path
             schema = self.get_schema_for_path(data_path)
@@ -3828,6 +3835,57 @@ class EntityToolGUI(QMainWindow):
                 schema = self.resolve_schema_references(schema)
                 print(f"Resolved top-level schema reference: {schema}")
         
+        # Add Delete Property option if this is a property widget
+        property_name = None
+        
+        # Try to find property name from various widget types and layouts
+        def find_property_name_in_layout(layout):
+            if layout and layout.count() > 0:
+                first_widget = layout.itemAt(0).widget()
+                if isinstance(first_widget, QLabel):
+                    return first_widget.text().replace(":", "").replace(" ", "_").lower()
+                elif isinstance(first_widget, QToolButton):
+                    return first_widget.text().replace(" ", "_").lower()
+            return None
+            
+        def find_property_name_in_hierarchy(widget):
+            # Check if widget itself is a QToolButton (collapsible header)
+            if isinstance(widget, QToolButton):
+                return widget.text().replace(" ", "_").lower()
+                
+            # Check widget's direct parent
+            if widget.parent():
+                parent = widget.parent()
+                
+                # Try parent's layout
+                if parent.layout():
+                    name = find_property_name_in_layout(parent.layout())
+                    if name:
+                        return name
+                        
+                # If parent is a container widget, try its parent
+                if parent.parent():
+                    grandparent = parent.parent()
+                    if grandparent.layout():
+                        name = find_property_name_in_layout(grandparent.layout())
+                        if name:
+                            return name
+            return None
+            
+        # Try to find property name
+        property_name = find_property_name_in_hierarchy(widget)
+        
+        if property_name and data_path:
+            # Don't allow deletion of required properties
+            parent_schema = self.get_schema_for_path(data_path[:-1])  # Get parent object's schema
+            if not parent_schema or "required" not in parent_schema or property_name not in parent_schema["required"]:
+                if len(menu.actions()) > 0:
+                    menu.addSeparator()
+                action = menu.addAction("Delete Property")
+                action.triggered.connect(
+                    lambda checked, w=widget, n=property_name: self.delete_property(w, n)
+                )
+                
         # Add property/item menu if this is an object or array
         if schema and isinstance(current_value, (dict, list)):
             add_menu = menu.addMenu("Add..." if isinstance(current_value, dict) else "Add Item")
@@ -3844,7 +3902,7 @@ class EntityToolGUI(QMainWindow):
                 used_props = set(current_value.keys())
                 print(f"Used properties: {used_props}")
                 print(f"Available properties: {properties.keys()}")
-
+                
                 # Add menu items for each available property
                 has_available_props = False
                 for prop_name, prop_schema in sorted(properties.items()):
@@ -3858,13 +3916,13 @@ class EntityToolGUI(QMainWindow):
                             lambda checked, n=prop_name, s=prop_schema: 
                             self.add_property(widget, n, s)
                         )
-                
+                    
                 # If no available properties, add a disabled message
                 if not has_available_props:
                     print("No available properties found")
                     action = add_menu.addAction("No available properties")
                     action.setEnabled(False)
-                    
+        
             elif isinstance(current_value, list):
                 # Get item schema and resolve references
                 items_schema = schema.get("items", {})
@@ -3874,7 +3932,7 @@ class EntityToolGUI(QMainWindow):
                     action.triggered.connect(
                         lambda checked: self.add_array_item(widget, items_schema)
                     )
-        
+                    
         # Only add selection menu for non-container values (not objects or arrays)
         if not isinstance(current_value, (dict, list)):
             select_menu = menu.addMenu("Select from...")
@@ -4993,4 +5051,54 @@ class EntityToolGUI(QMainWindow):
         
         self.command_stack.push(command)
         self.update_save_button()
+
+    def delete_property(self, widget: QWidget, property_name: str):
+        """Delete a property from an object"""
+        try:
+            # Get the data path
+            data_path = widget.property("data_path")
+            if data_path is None:  # Changed from 'if not data_path:' to handle empty lists
+                return
+                
+            # Get the parent widget (where we'll remove this property from)
+            parent_widget = None
+            if isinstance(widget, QToolButton):
+                # For collapsible sections, widget is the toggle button
+                parent_widget = widget.parent()
+            else:
+                # For simple properties, widget is the value widget
+                parent_widget = widget.parent()
+            
+            if not parent_widget:
+                return
+                
+            # Get the current data
+            file_path = self.get_schema_view_file_path(widget)
+            if not file_path:
+                return
+                
+            parent_data = self.command_stack.get_file_data(file_path)
+            if not parent_data:
+                return
+                
+            # Navigate to the parent object
+            current = parent_data
+            if len(data_path) > 1:  # If not a root property
+                for key in data_path[:-1]:  # Exclude property name
+                    if isinstance(current, dict):
+                        current = current.get(key, {})
+                    elif isinstance(current, list):
+                        current = current[key] if 0 <= key < len(current) else {}
+            
+            # Create and execute the delete command
+            command = DeletePropertyCommand(self, parent_widget, property_name, current)
+            command.file_path = file_path
+            command.data_path = data_path[:-1] if len(data_path) > 0 else []  # Empty list for root properties
+            self.command_stack.push(command)
+            
+            # Update UI state
+            self.update_save_button()  # Update save/undo/redo button states
+            
+        except Exception as e:
+            logging.error(f"Error deleting property: {str(e)}")
 

@@ -127,25 +127,29 @@ class CommandStack:
         
         # Update the stored data
         print("updating stored data")
-        current = data
-        for i, key in enumerate(command.data_path[:-1]):
-            if isinstance(current, dict):
-                if key not in current:
-                    current[key] = {} if isinstance(command.data_path[i + 1], str) else []
-                current = current[key]
-            elif isinstance(current, list):
-                while len(current) <= key:
-                    current.append({} if isinstance(command.data_path[i + 1], str) else [])
-                current = current[key]
-        
-        print("updating stored data")
-        if command.data_path:
-            if isinstance(current, dict):
-                current[command.data_path[-1]] = command.new_value
-            elif isinstance(current, list):
-                while len(current) <= command.data_path[-1]:
-                    current.append(None)
-                current[command.data_path[-1]] = command.new_value
+        if not command.data_path:  # Root level update
+            # For root level changes, use the new_value directly
+            data = command.new_value.copy() if isinstance(command.new_value, dict) else command.new_value
+        else:
+            # For nested changes, navigate to the correct location
+            current = data
+            for i, key in enumerate(command.data_path[:-1]):
+                if isinstance(current, dict):
+                    if key not in current:
+                        current[key] = {} if isinstance(command.data_path[i + 1], str) else []
+                    current = current[key]
+                elif isinstance(current, list):
+                    while len(current) <= key:
+                        current.append({} if isinstance(command.data_path[i + 1], str) else [])
+                    current = current[key]
+            
+            if command.data_path:
+                if isinstance(current, dict):
+                    current[command.data_path[-1]] = command.new_value
+                elif isinstance(current, list):
+                    while len(current) <= command.data_path[-1]:
+                        current.append(None)
+                    current[command.data_path[-1]] = command.new_value
                 
         # Store updated data and notify listeners
         print("storing updated data")
@@ -428,6 +432,13 @@ class AddPropertyCommand(Command):
                         if self.prop_name in parent_schema["required"]:
                             label.setStyleSheet("QLabel { font-weight: bold; }")
                     
+                    # Add context menu to label
+                    label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                    label.setProperty("data_path", self.data_path + [self.prop_name])
+                    label.customContextMenuRequested.connect(
+                        lambda pos, w=label, v=default_value: self.gui.show_context_menu(w, pos, v)
+                    )
+                    
                     row_layout.addWidget(label)
                     
                     value_widget = self.gui.create_widget_for_value(
@@ -628,7 +639,7 @@ class DeletePropertyCommand(Command):
         if property_name in new_data:
             del new_data[property_name]
         
-        super().__init__(None, None, old_data, new_data)  # File path and data path set later
+        super().__init__(None, None, old_data, new_value=new_data)  # File path and data path set later
         self.gui = gui
         self.property_widget = property_widget
         self.property_name = property_name
@@ -638,13 +649,37 @@ class DeletePropertyCommand(Command):
         try:
             # Update the data
             if self.data_path is not None:
-                self.gui.update_data_value(self.data_path, self.new_value)
+                if not self.data_path:  # Empty list means root property
+                    # For root properties, we need to update the entire data structure
+                    current_data = self.gui.command_stack.get_file_data(self.file_path)
+                    if current_data and self.property_name in current_data:
+                        new_data = current_data.copy()
+                        del new_data[self.property_name]
+                        self.gui.update_data_value([], new_data)
+                else:
+                    # For nested properties, update the parent object
+                    self.gui.update_data_value(self.data_path, self.new_value)
             
             # Remove the widget
             if self.property_widget:
-                self.property_widget.hide()
-                self.property_widget.setParent(None)
-                self.property_widget.deleteLater()
+                # For collapsible sections, we need to remove the entire group widget
+                if isinstance(self.property_widget, QWidget) and self.property_widget.layout():
+                    layout = self.property_widget.layout()
+                    if layout.count() > 0:
+                        first_item = layout.itemAt(0)
+                        if first_item and isinstance(first_item.widget(), QToolButton):
+                            # This is a collapsible section, remove the entire widget
+                            self.property_widget.hide()
+                            self.property_widget.setParent(None)
+                            self.property_widget.deleteLater()
+                            return
+                
+                # For simple properties, we need to remove the row widget (parent of the value widget)
+                parent = self.property_widget.parent()
+                if parent:
+                    parent.hide()
+                    parent.setParent(None)
+                    parent.deleteLater()
             
         except Exception as e:
             logging.error(f"Error executing delete property command: {str(e)}")
@@ -655,7 +690,16 @@ class DeletePropertyCommand(Command):
         try:
             # Update the data
             if self.data_path is not None:
-                self.gui.update_data_value(self.data_path, self.old_value)
+                if not self.data_path:  # Empty list means root property
+                    # For root properties, we need to update the entire data structure
+                    current_data = self.gui.command_stack.get_file_data(self.file_path)
+                    if current_data and self.property_name in current_data:
+                        new_data = current_data.copy()
+                        new_data[self.property_name] = self.old_value
+                        self.gui.update_data_value([], new_data)
+                else:
+                    # For nested properties, update the parent object
+                    self.gui.update_data_value(self.data_path, self.old_value)
             
             # Find the parent object widget
             parent_widget = None
@@ -685,7 +729,7 @@ class DeletePropertyCommand(Command):
                 return
             
             # Get schema and create new property widget
-            schema = self.gui.get_schema_for_path(self.data_path[:-1])  # Get parent object's schema
+            schema = self.gui.get_schema_for_path(self.data_path)  # For root properties, this will get root schema
             if not schema or "properties" not in schema or self.property_name not in schema["properties"]:
                 return
                 
@@ -698,7 +742,7 @@ class DeletePropertyCommand(Command):
                 prop_value,
                 prop_schema,
                 False,  # is_base_game
-                self.data_path[:-1]  # Parent's path
+                self.data_path  # For root properties, this will be an empty list
             )
             
             if new_widget:
