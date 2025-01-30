@@ -748,13 +748,13 @@ class DeletePropertyCommand(Command):
                 print("Could not find schema view")
                 return
 
-            # For array items, first find the array's collapsible section
+            # For array items, we need to replace the entire array widget
             if isinstance(self.data_path[-1], int):
                 array_path = self.data_path[:-1]  # ['planet_levels']
-                array_widget = None
                 print(f"Looking for array widget with path: {array_path}")
                 
                 # Find the array's collapsible section by looking for a QToolButton with the array name
+                array_button = None
                 for widget in schema_view.findChildren(QToolButton):
                     btn_text = widget.text()
                     print(f"Found button with text: {btn_text}")
@@ -773,36 +773,95 @@ class DeletePropertyCommand(Command):
                     ]
                     if any(text == btn_text for text in possible_texts):
                         print(f"Found array button: {btn_text}")
-                        # Get the collapsible section's content widget
-                        parent = widget.parent()
-                        if parent and parent.layout() and parent.layout().count() > 1:
-                            content_widget = parent.layout().itemAt(1).widget()
-                            if content_widget:
-                                array_widget = content_widget
-                                widget.setChecked(True)  # Expand the section
-                                print(f"Found array widget: {array_widget}")
-                                break
+                        array_button = widget
+                        break
                 
-                if not array_widget:
-                    print("Could not find array widget")
+                if not array_button:
+                    print("Could not find array button")
                     print("Available buttons:")
                     for widget in schema_view.findChildren(QToolButton):
                         print(f"  {widget.text()}")
                     return
-                    
-                # Now find the specific array item's widget
-                item_index = self.data_path[-1]
-                parent_widget = None
                 
-                # Look for a QLabel with the array index
-                for label in array_widget.findChildren(QLabel):
-                    label_text = label.text()
-                    print(f"Checking label text: {label_text}")
-                    if label_text == f"[{item_index}]":
-                        # Found the index label, use its parent widget
-                        parent_widget = label.parent()
-                        print(f"Found array item container: {parent_widget}")
+                # Get the collapsible widget (parent of the array button)
+                collapsible_widget = array_button.parent()
+                if not collapsible_widget:
+                    print("Could not find collapsible widget")
+                    return
+                
+                # Get the parent of the collapsible widget
+                parent = collapsible_widget.parent()
+                if not parent:
+                    print("Could not find parent of collapsible widget")
+                    return
+                
+                parent_layout = parent.layout()
+                if not parent_layout:
+                    print("Could not find parent layout")
+                    return
+                
+                # Find the collapsible widget's index in its parent's layout
+                widget_index = -1
+                for i in range(parent_layout.count()):
+                    if parent_layout.itemAt(i).widget() == collapsible_widget:
+                        widget_index = i
                         break
+                
+                if widget_index == -1:
+                    print("Could not find widget index")
+                    return
+                
+                # Get schema and create new array widget
+                array_schema = self.gui.get_schema_for_path(array_path)
+                if not array_schema:
+                    print("Could not find array schema")
+                    return
+                
+                # Get the current array data from the command stack
+                current_data = self.gui.command_stack.get_file_data(self.file_path)
+                if not current_data:
+                    print("Could not get current data")
+                    return
+                
+                # Navigate to the array
+                array_data = current_data
+                for part in array_path:
+                    if isinstance(array_data, (dict, list)):
+                        array_data = array_data[part]
+                
+                print(f"Array data for widget creation: {array_data}")
+                
+                # Create new widget for the array
+                new_widget = self.gui.create_widget_for_schema(
+                    array_data,  # Use the full array data
+                    array_schema,
+                    False,  # is_base_game
+                    array_path
+                )
+                
+                if new_widget:
+                    print("Created new array widget")
+                    # First hide the old widget
+                    collapsible_widget.hide()
+                    
+                    # Remove it from the layout
+                    old_item = parent_layout.takeAt(widget_index)
+                    if old_item:
+                        old_widget = old_item.widget()
+                        if old_widget:
+                            old_widget.setParent(None)
+                            old_widget.deleteLater()
+                    
+                    # Add new widget at the same position
+                    parent_layout.insertWidget(widget_index, new_widget)
+                    
+                    # Find and click the toggle button to expand the array
+                    new_layout = new_widget.layout()
+                    if new_layout and new_layout.count() > 0:
+                        toggle_btn = new_layout.itemAt(0).widget()
+                        if isinstance(toggle_btn, QToolButton):
+                            toggle_btn.setChecked(True)  # This will expand the array
+                            print("Expanded array section")
             else:
                 # For regular properties, find a widget with matching data path
                 parent_widget = None
@@ -813,73 +872,66 @@ class DeletePropertyCommand(Command):
                         if parent_widget.layout():
                             break
 
-            if not parent_widget or not parent_widget.layout():
-                print("Could not find parent widget with layout")
-                return
+                if not parent_widget or not parent_widget.layout():
+                    print("Could not find parent widget with layout")
+                    return
+                    
+                # Get the schema for this property
+                schema = self.gui.get_schema_for_path(self.data_path)
+                if not schema:
+                    print("Could not find schema for path")
+                    return
                 
-            # Get the schema for this property
-            # First get the array schema
-            array_schema = self.gui.get_schema_for_path(array_path)
-            if not array_schema:
-                print("Could not find array schema")
-                return
+                if "properties" not in schema or self.property_name not in schema["properties"]:
+                    print("Could not find schema for property")
+                    print(f"Schema: {schema}")
+                    print(f"Property name: {self.property_name}")
+                    return
+                    
+                prop_schema = schema["properties"][self.property_name]
+                prop_value = self.old_value[self.property_name] if self.property_name in self.old_value else None
                 
-            # Then get the items schema
-            schema = array_schema.get("items", {})
-            if not schema:
-                print("Could not find items schema")
-                return
-            
-            if "properties" not in schema or self.property_name not in schema["properties"]:
-                print("Could not find schema for property")
-                print(f"Schema: {schema}")
-                print(f"Property name: {self.property_name}")
-                return
+                print(f"Creating widget for property {self.property_name} with value {prop_value}")
+                print(f"Parent widget: {parent_widget}")
+                print(f"Schema: {prop_schema}")
                 
-            prop_schema = schema["properties"][self.property_name]
-            prop_value = self.old_value[self.property_name] if self.property_name in self.old_value else None
-            
-            print(f"Creating widget for property {self.property_name} with value {prop_value}")
-            print(f"Parent widget: {parent_widget}")
-            print(f"Schema: {prop_schema}")
-            
-            # Create new widget for the property
-            row_widget = QWidget()
-            row_layout = QHBoxLayout(row_widget)
-            row_layout.setContentsMargins(0, 2, 0, 2)
-            
-            # Create label
-            display_name = self.property_name.replace("_", " ").title()
-            label = QLabel(f"{display_name}:")
-            
-            # Make label bold if property is required
-            if "required" in schema and self.property_name in schema["required"]:
-                label.setStyleSheet("QLabel { font-weight: bold; }")
-            
-            # Add context menu to label
-            label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            label.setProperty("data_path", self.full_path)  # Use full path including property name
-            label.customContextMenuRequested.connect(
-                lambda pos, w=label, v=prop_value: self.gui.show_context_menu(w, pos, v)
-            )
-            
-            row_layout.addWidget(label)
-            
-            # Create value widget
-            value_widget = self.gui.create_widget_for_value(
-                prop_value,
-                prop_schema,
-                False,  # is_base_game
-                self.full_path  # Use full path including property name
-            )
-            
-            if value_widget:
-                row_layout.addWidget(value_widget)
-                row_layout.addStretch()
+                # Create new widget for the property
+                row_widget = QWidget()
+                row_layout = QHBoxLayout(row_widget)
+                row_layout.setContentsMargins(0, 2, 0, 2)
                 
-                print("Adding new widget to parent layout")
-                parent_widget.layout().addWidget(row_widget)
-                self.property_widget = row_widget
+                # Create label
+                display_name = self.property_name.replace("_", " ").title()
+                label = QLabel(f"{display_name}:")
+                
+                # Make label bold if property is required
+                if "required" in schema and self.property_name in schema["required"]:
+                    label.setStyleSheet("QLabel { font-weight: bold; }")
+                
+                # Add context menu to label
+                label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                label.setProperty("data_path", self.full_path)  # Use full path including property name
+                label.customContextMenuRequested.connect(
+                    lambda pos, w=label, v=prop_value: self.gui.show_context_menu(w, pos, v)
+                )
+                
+                row_layout.addWidget(label)
+                
+                # Create value widget
+                value_widget = self.gui.create_widget_for_value(
+                    prop_value,
+                    prop_schema,
+                    False,  # is_base_game
+                    self.full_path  # Use full path including property name
+                )
+                
+                if value_widget:
+                    row_layout.addWidget(value_widget)
+                    row_layout.addStretch()
+                    
+                    print("Adding new widget to parent layout")
+                    parent_widget.layout().addWidget(row_widget)
+                    self.property_widget = row_widget
                 
         except Exception as e:
             print(f"Error undoing delete property command: {str(e)}")
