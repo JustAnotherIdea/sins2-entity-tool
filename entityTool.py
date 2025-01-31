@@ -94,19 +94,61 @@ class TransformWidgetCommand:
         return new_widget
         
     def execute(self):
-        """Execute the transformation"""
+        """Execute the widget transformation"""
         try:
-            if self.is_array_item and self.schema:
-                # Handle array item addition
-                if self.array_data is not None and self.new_array is not None:
-                    self.gui.update_data_value(self.data_path[:-1], self.new_array)
-                new_widget = self.gui.create_widget_for_schema(self.new_value, self.schema, False, self.data_path)
-            else:
-                # Handle normal widget transformation
-                new_widget = self.gui.create_widget_for_value(self.new_value, {"type": "string"}, self.is_base_game, self.data_path)
-            return self.replace_widget(new_widget)
+            # Get schema and create new widget
+            schema = self.gui.get_schema_for_path(self.data_path)
+            if not schema:
+                return None
+                
+            # Create new widget
+            new_widget = self.gui.create_widget_for_value(
+                self.new_value,
+                schema,
+                False,  # is_base_game
+                self.data_path
+            )
+            
+            if new_widget:
+                # If this is an array item, add an index label
+                if self.data_path and isinstance(self.data_path[-1], int):
+                    container = QWidget()
+                    container_layout = QHBoxLayout(container)
+                    container_layout.setContentsMargins(0, 0, 0, 0)
+                    container_layout.setSpacing(4)
+                    
+                    # Add index label first
+                    index_label = QLabel(f"[{self.data_path[-1]}]")
+                    index_label.setProperty("data_path", self.data_path)
+                    index_label.setStyleSheet("QLabel { color: gray; }")
+
+                    # Connect index label to context menu if more than 1 item in data path
+                    if len(self.data_path) > 1:
+                        index_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                        index_label.customContextMenuRequested.connect(
+                            lambda pos, w=index_label: self.gui.show_array_item_menu(w, pos)
+                        )
+
+                    container_layout.addWidget(index_label)
+                    
+
+
+                    # Then add the new widget
+                    container_layout.addWidget(new_widget)
+                    container_layout.addStretch()
+                    
+                    # Replace with our container
+                    self.replace_widget(container)
+                else:
+                    # Just replace the widget normally
+                    self.replace_widget(new_widget)
+                
+                return new_widget
+                
         except Exception as e:
-            print(f"Error executing transform command: {str(e)}")
+            print(f"Error executing transform widget command: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return None
         
     def undo(self):
