@@ -234,24 +234,28 @@ class CommandStack:
             command.redo()
             
             # Update the stored data
-            current = data
-            for i, key in enumerate(command.data_path[:-1]):
-                if isinstance(current, dict):
-                    if key not in current:
-                        current[key] = {} if isinstance(command.data_path[i + 1], str) else []
-                    current = current[key]
-                elif isinstance(current, list):
-                    while len(current) <= key:
-                        current.append({} if isinstance(command.data_path[i + 1], str) else [])
-                    current = current[key]
-            
-            if command.data_path:
-                if isinstance(current, dict):
-                    current[command.data_path[-1]] = command.new_value
-                elif isinstance(current, list):
-                    while len(current) <= command.data_path[-1]:
-                        current.append(None)
-                    current[command.data_path[-1]] = command.new_value
+            if not command.data_path:  # Root level update
+                # For root level changes, use the new_value directly
+                data = command.new_value.copy() if isinstance(command.new_value, dict) else command.new_value
+            else:
+                current = data
+                for i, key in enumerate(command.data_path[:-1]):
+                    if isinstance(current, dict):
+                        if key not in current:
+                            current[key] = {} if isinstance(command.data_path[i + 1], str) else []
+                        current = current[key]
+                    elif isinstance(current, list):
+                        while len(current) <= key:
+                            current.append({} if isinstance(command.data_path[i + 1], str) else [])
+                        current = current[key]
+                
+                if command.data_path:
+                    if isinstance(current, dict):
+                        current[command.data_path[-1]] = command.new_value
+                    elif isinstance(current, list):
+                        while len(current) <= command.data_path[-1]:
+                            current.append(None)
+                        current[command.data_path[-1]] = command.new_value
                     
             # Store updated data and notify listeners
             self.update_file_data(command.file_path, data)
