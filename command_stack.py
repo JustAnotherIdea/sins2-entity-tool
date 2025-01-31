@@ -970,22 +970,22 @@ class DeletePropertyCommand(Command):
                 
                 if new_widget:
                     print("Created new dictionary widget")
-                    # First hide the old content
-                    content_widget.hide()
+                    # Get the content widget's layout
+                    content_layout = content_widget.layout()
+                    if not content_layout:
+                        content_layout = QVBoxLayout(content_widget)
+                        content_layout.setContentsMargins(0, 0, 0, 0)
+                        content_layout.setSpacing(4)
                     
-                    # Remove it from the layout
-                    for i in range(collapsible_layout.count()):
-                        if collapsible_layout.itemAt(i).widget() == content_widget:
-                            old_item = collapsible_layout.takeAt(i)
-                            if old_item:
-                                old_widget = old_item.widget()
-                                if old_widget:
-                                    old_widget.setParent(None)
-                                    old_widget.deleteLater()
-                            break
+                    # Clear the old layout
+                    while content_layout.count():
+                        item = content_layout.takeAt(0)
+                        if item.widget():
+                            item.widget().hide()
+                            item.widget().deleteLater()
                     
-                    # Add new widget after the button
-                    collapsible_layout.addWidget(new_widget)
+                    # Add new widget to the content layout
+                    content_layout.addWidget(new_widget)
                     
                     # Make sure the section is expanded
                     if isinstance(parent_button, QToolButton):
