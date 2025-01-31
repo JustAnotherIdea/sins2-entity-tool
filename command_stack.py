@@ -705,26 +705,138 @@ class DeletePropertyCommand(Command):
             print(f"Executing delete property command for {self.property_name}")
             print(f"Full path: {self.full_path}")
             print(f"Parent path for update: {self.data_path}")
-            print(f"Property widget: {self.property_widget}")
             
             # Update the data
             if self.data_path is not None:
                 print(f"Updating data value at path: {self.data_path}")
                 self.gui.update_data_value(self.data_path, self.new_value)
             
-            # Remove the widget
-            if self.property_widget:
-                print("Removing widget")
-                parent = self.property_widget.parent()
-                if parent:
-                    print(f"Found parent widget: {parent}")
-                    parent.hide()
-                    parent.setParent(None)
-                    parent.deleteLater()
-                else:
-                    print("No parent widget found")
-            else:
-                print("No property widget to remove")
+            # Find the schema view by searching all widgets
+            schema_view = None
+            for widget in self.gui.findChildren(QWidget):
+                if (hasattr(widget, 'property') and 
+                    widget.property("file_path") == str(self.file_path)):
+                    schema_view = widget
+                    break
+
+            if not schema_view:
+                print("Could not find schema view")
+                return
+
+            # For regular nested properties, first try to find the parent object's button
+            parent_button = None
+            parent_path = self.data_path  # ['asteroid_extraction_rates']
+            print(f"Looking for parent object button with path: {parent_path}")
+            
+            for widget in schema_view.findChildren(QToolButton):
+                btn_text = widget.text()
+                print(f"Found button with text: {btn_text}")
+                
+                # Remove count suffix if present (e.g., "Planet Levels (4)" -> "Planet Levels")
+                btn_text = btn_text.split(" (")[0]
+                
+                # Try different text formats for the last part of the path
+                if parent_path:
+                    possible_texts = [
+                        parent_path[-1],  # asteroid_extraction_rates
+                        parent_path[-1].replace("_", " "),  # asteroid extraction rates
+                        parent_path[-1].replace("_", " ").title(),  # Asteroid Extraction Rates
+                        parent_path[-1].replace("_", " ").lower(),  # asteroid extraction rates
+                        parent_path[-1].lower(),  # asteroidextractionrates
+                        parent_path[-1].title()  # AsteroidExtractionRates
+                    ]
+                    if any(text == btn_text for text in possible_texts):
+                        print(f"Found parent button: {btn_text}")
+                        parent_button = widget
+                        break
+
+            if not parent_button:
+                print("Could not find parent button")
+                return
+
+            # Get the collapsible widget (parent of the button)
+            collapsible_widget = parent_button.parent()
+            if not collapsible_widget:
+                print("Could not find collapsible widget")
+                return
+            
+            # Find the content widget (sibling of the button)
+            content_widget = None
+            collapsible_layout = collapsible_widget.layout()
+            if collapsible_layout:
+                for i in range(collapsible_layout.count()):
+                    widget = collapsible_layout.itemAt(i).widget()
+                    if widget != parent_button:
+                        content_widget = widget
+                        break
+
+            if not content_widget:
+                print("Could not find content widget")
+                return
+
+            # Get schema and create new dictionary widget
+            dict_schema = self.gui.get_schema_for_path(self.data_path)
+            if not dict_schema:
+                print("Could not find dictionary schema")
+                return
+            
+            # Handle schema references
+            if "$ref" in dict_schema:
+                ref_path = dict_schema["$ref"]
+                print(f"Following schema reference: {ref_path}")
+                # Remove the #/ prefix if present
+                if ref_path.startswith("#/"):
+                    ref_path = ref_path[2:]
+                # Split the path and navigate through the root schema
+                parts = ref_path.split("/")
+                ref_schema = self.gui.get_schema_for_path([])  # Get root schema
+                for part in parts:
+                    if part in ref_schema:
+                        ref_schema = ref_schema[part]
+                dict_schema = ref_schema
+                print(f"Resolved schema: {dict_schema}")
+            
+            # Get the current dictionary data
+            current_data = self.gui.command_stack.get_file_data(self.file_path)
+            if not current_data:
+                print("Could not get current data")
+                return
+            
+            # Navigate to the dictionary and use new_value for the dictionary data
+            dict_data = self.new_value
+            print(f"Dictionary data for widget creation (from new_value): {dict_data}")
+            
+            # Create new widget for the dictionary
+            new_widget = self.gui.create_widget_for_schema(
+                dict_data,  # Use the new value which has the property removed
+                dict_schema,
+                False,  # is_base_game
+                self.data_path
+            )
+            
+            if new_widget:
+                print("Created new dictionary widget")
+                # Get the content widget's layout
+                content_layout = content_widget.layout()
+                if not content_layout:
+                    content_layout = QVBoxLayout(content_widget)
+                    content_layout.setContentsMargins(0, 0, 0, 0)
+                    content_layout.setSpacing(4)
+                
+                # Clear the old layout
+                while content_layout.count():
+                    item = content_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().hide()
+                        item.widget().deleteLater()
+                
+                # Add new widget to the content layout
+                content_layout.addWidget(new_widget)
+                
+                # Make sure the section is expanded
+                if isinstance(parent_button, QToolButton):
+                    parent_button.setChecked(True)  # This will expand the section
+                    print("Expanded dictionary section")
             
         except Exception as e:
             print(f"Error executing delete property command: {str(e)}")
