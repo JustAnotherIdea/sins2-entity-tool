@@ -4195,6 +4195,9 @@ class EntityToolGUI(QMainWindow):
         """Refresh the schema view for a file"""
         # Get the current data
         data = self.command_stack.get_file_data(file_path)
+        if isinstance(data, (Path, str)):  # If data is a path (like for root properties), load the actual data
+            data = self.old_value  # Use the backed up data from the command
+
         if not data:
             return
             
@@ -5115,3 +5118,51 @@ class EntityToolGUI(QMainWindow):
             import traceback
             traceback.print_exc()
 
+    def refresh_schema_view(self, file_path: str):
+        """Refresh the schema view for the given file path"""
+        # Find the schema view by searching all widgets
+        for widget in self.findChildren(QWidget):
+            if (hasattr(widget, 'property') and 
+                widget.property("file_path") == str(file_path)):
+                
+                # Get current data from command stack
+                current_data = self.current_data
+                if not current_data:
+                    return
+                    
+                # Get the parent layout
+                parent = widget.parent()
+                if not parent or not parent.layout():
+                    return
+                    
+                parent_layout = parent.layout()
+                
+                # Find widget index
+                widget_index = parent_layout.indexOf(widget)
+                if widget_index == -1:
+                    return
+                    
+                file_type = Path(file_path).suffix[1:]  # Get extension without the dot
+                # Create new schema view
+                new_widget = self.create_schema_view(
+                    file_type,
+                    current_data,
+                    False,
+                    file_path
+                )
+
+                if new_widget:
+                    # Hide old widget
+
+                    widget.hide()
+                    
+                    # Remove old widget
+                    old_item = parent_layout.takeAt(widget_index)
+                    if old_item:
+                        old_widget = old_item.widget()
+                        if old_widget:
+                            old_widget.setParent(None)
+                            old_widget.deleteLater()
+                    
+                    # Add new widget
+                    parent_layout.insertWidget(widget_index, new_widget)

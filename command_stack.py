@@ -743,6 +743,7 @@ class DeletePropertyCommand(Command):
             if not self.data_path:
                 print("Root property deletion - forcing schema view update")
                 # TODO: Force a refresh of the schema view
+                self.refresh_views()
                 return
             
             # Find the schema view by searching all widgets
@@ -1093,3 +1094,8 @@ class DeletePropertyCommand(Command):
             import traceback
             traceback.print_exc()
             return None 
+        
+    def refresh_views(self):
+        """Refresh any schema views affected by this command"""
+        if hasattr(self, 'file_path') and self.file_path:
+            self.gui.refresh_schema_view(self.file_path)
