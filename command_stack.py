@@ -732,12 +732,12 @@ class DeletePropertyCommand(Command):
         """Undo the property deletion"""
         try:
             # Update the data first
-            if self.data_path is not None:
+            if self.data_path != []:
                 print(f"Undoing deletion at path: {self.data_path}")
                 self.gui.update_data_value(self.data_path, self.old_value)
             else:
                 print("Undoing root property deletion")
-                self.gui.update_data_value([], self.old_value)
+                self.gui.command_stack.update_file_data(self.file_path, self.old_value)
             
             # For root properties, we need to force a schema view update first
             if not self.data_path:

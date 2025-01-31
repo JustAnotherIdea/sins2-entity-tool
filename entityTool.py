@@ -5152,6 +5152,7 @@ class EntityToolGUI(QMainWindow):
                 )
 
                 if new_widget:
+                    print(f"Content widget data: {new_widget.widget().property('data')}")
                     # Hide old widget
 
                     widget.hide()
