@@ -952,12 +952,34 @@ class DeletePropertyCommand(Command):
         """Redo the property deletion"""
         try:
             # Update the data first
-            if self.data_path is not None:
+            if self.data_path != []:
                 print(f"Redoing deletion at path: {self.data_path}")
                 self.gui.update_data_value(self.data_path, self.new_value)
             else:
                 print("Redoing root property deletion")
-                self.gui.update_data_value([], self.new_value)
+                self.gui.command_stack.update_file_data(self.file_path, self.new_value)
+                
+                # Find the widget for the root property
+                schema_view = None
+                for widget in self.gui.findChildren(QWidget):
+                    if (hasattr(widget, 'property') and 
+                        widget.property("file_path") == str(self.file_path)):
+                        schema_view = widget
+                        break
+                    
+                if schema_view:
+                    # Find widget with matching property name
+                    for widget in schema_view.findChildren(QWidget):
+                        if (hasattr(widget, 'property') and 
+                            widget.property("data_path") and 
+                            widget.property("data_path")[-1] == self.property_name):
+                            parent = widget.parent()
+                            if parent:
+                                parent.hide()
+                                parent.setParent(None)
+                                parent.deleteLater()
+                            break
+                return True
             
             # For root properties and regular nested properties, just execute normally
             if not self.data_path or not isinstance(self.data_path[-1], int):
