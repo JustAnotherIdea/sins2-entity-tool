@@ -120,19 +120,17 @@ class TransformWidgetCommand:
                     # Add index label first
                     index_label = QLabel(f"[{self.data_path[-1]}]")
                     index_label.setProperty("data_path", self.data_path)
+                    index_label.setProperty("array_data", self.array_data)
                     index_label.setStyleSheet("QLabel { color: gray; }")
-
-                    # Connect index label to context menu if more than 1 item in data path
-                    if len(self.data_path) > 1:
-                        index_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-                        index_label.customContextMenuRequested.connect(
-                            lambda pos, w=index_label: self.gui.show_array_item_menu(w, pos)
-                        )
-
+                    
+                    # Add context menu to index label
+                    index_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                    index_label.customContextMenuRequested.connect(
+                        lambda pos, w=index_label: self.gui.show_array_item_menu(w, pos)
+                    )
+                    
                     container_layout.addWidget(index_label)
                     
-
-
                     # Then add the new widget
                     container_layout.addWidget(new_widget)
                     container_layout.addStretch()
@@ -5032,6 +5030,7 @@ class EntityToolGUI(QMainWindow):
 
     def show_array_item_menu(self, widget: QWidget, pos):
         """Show context menu for array item indices"""
+        print("Showing array item menu")
         menu = QMenu()
         
         # Get data path and array data
