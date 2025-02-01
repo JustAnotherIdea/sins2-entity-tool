@@ -505,8 +505,7 @@ class AddArrayItemCommand(TransformWidgetCommand):
                     schema,
                     False,  # is_base_game
                     self.data_path
-
-            )
+                )
             
             if new_widget:
                 # If this is an array item, add an index label
@@ -516,10 +515,18 @@ class AddArrayItemCommand(TransformWidgetCommand):
                     container_layout.setContentsMargins(0, 0, 0, 0)
                     container_layout.setSpacing(4)
                     
+                    # Create updated array data that includes the new item
+                    updated_array = self.array_data.copy()
+                    if len(updated_array) <= self.data_path[-1]:
+                        # Extend array if needed
+                        while len(updated_array) <= self.data_path[-1]:
+                            updated_array.append(None)
+                    updated_array[self.data_path[-1]] = self.new_value
+                    
                     # Add index label first
                     index_label = QLabel(f"[{self.data_path[-1]}]")
                     index_label.setProperty("data_path", self.data_path)
-                    index_label.setProperty("array_data", self.array_data)
+                    index_label.setProperty("array_data", updated_array)  # Use updated array data
                     index_label.setStyleSheet("QLabel { color: gray; }")
                     
                     # Add context menu to index label
