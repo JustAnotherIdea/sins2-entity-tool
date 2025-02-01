@@ -489,13 +489,23 @@ class AddArrayItemCommand(TransformWidgetCommand):
             schema = self.gui.get_schema_for_path(self.data_path)
             if not schema:
                 return None
-                
-            # Create new widget
-            new_widget = self.gui.create_widget_for_value(
-                self.new_value,
-                schema,
-                False,  # is_base_game
-                self.data_path
+            
+            # If complex type, use create_widget_for_schema
+            if schema.get("type") == "object" or schema.get("type") == "array":
+                new_widget = self.gui.create_widget_for_schema(
+                    self.new_value,
+                    schema,
+                    False,  # is_base_game
+                    self.data_path
+                )
+            else:
+                # Create new widget
+                new_widget = self.gui.create_widget_for_value(
+                    self.new_value,
+                    schema,
+                    False,  # is_base_game
+                    self.data_path
+
             )
             
             if new_widget:
