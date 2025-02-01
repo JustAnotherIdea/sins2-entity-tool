@@ -19,37 +19,7 @@ class Command:
         
     def redo(self) -> None:
         raise NotImplementedError
-        
-class EditValueCommand(Command):
-    """Command for editing a value in a data structure"""
-    def __init__(self, file_path: Path, data_path: list, old_value: any, new_value: any, 
-                 update_widget_func: Callable, update_data_func: Callable):
-        super().__init__(file_path, data_path, old_value, new_value)
-        self.update_widget_func = update_widget_func
-        self.update_data_func = update_data_func
-        print(f"Created EditValueCommand for {file_path} at path {data_path}")
-        print(f"Old value: {old_value}, New value: {new_value}")
-        
-    def update_widget_safely(self, value: any):
-        """Try to update widget, but don't fail if widget is gone"""
-        try:
-            self.update_widget_func(value)
-        except RuntimeError as e:
-            # Widget was deleted, just log and continue
-            print(f"Widget was deleted, skipping UI update: {str(e)}")
-        
-    def undo(self):
-        """Restore the old value"""
-        print(f"Undoing EditValueCommand for {self.file_path} at path {self.data_path}")
-        self.update_widget_safely(self.old_value)
-        self.update_data_func(self.data_path, self.old_value)
-        
-    def redo(self):
-        """Apply the new value"""
-        print(f"Redoing EditValueCommand for {self.file_path} at path {self.data_path}")
-        self.update_widget_safely(self.new_value)
-        self.update_data_func(self.data_path, self.new_value)
-
+   
 class CommandStack:
     """Manages undo/redo operations"""
     def __init__(self):
@@ -318,6 +288,402 @@ class CommandStack:
     def clear_modified_state(self, file_path: Path) -> None:
         """Clear the modified state for a file without saving"""
         self.modified_files.discard(file_path)
+        
+class CompositeCommand:
+    """Command that combines multiple commands into one atomic operation"""
+    def __init__(self, commands):
+        self.commands = commands
+        # For logging purposes, use the first command's attributes
+        if commands and hasattr(commands[0], 'file_path'):
+            try:
+                self.file_path = commands[0].file_path
+                self.data_path = commands[0].data_path
+                self.old_value = commands[0].old_value
+                self.new_value = commands[0].new_value
+                self.source_widget = commands[0].source_widget if hasattr(commands[0], 'source_widget') else None
+            except Exception as e:
+                print(f"Error initializing composite command: {str(e)}")
+        
+    def redo(self):
+        """Execute the command (called by command stack)"""
+        try:
+            # Execute transform command first to create new widget
+            if len(self.commands) > 1:
+                self.commands[1].execute()
+            # Then update the value
+            if self.commands:
+                self.commands[0].redo()
+        except Exception as e:
+            print(f"Error executing composite command redo: {str(e)}")
+        
+    def undo(self):
+        """Undo the command (called by command stack)"""
+        try:
+            # Undo in reverse order
+            for cmd in reversed(self.commands):
+                cmd.undo()
+        except Exception as e:
+            print(f"Error executing composite command undo: {str(e)}")
+      
+class TransformWidgetCommand:
+    """Command for transforming a widget from one type to another"""
+    def __init__(self, gui, widget, old_value, new_value):
+        self.gui = gui
+        self.old_value = old_value
+        self.new_value = new_value
+        
+        # Store widget properties and references
+        self.parent = widget.parent()
+        self.parent_layout = self.parent.layout()
+        if not self.parent_layout:
+            self.parent_layout = QVBoxLayout(self.parent)
+            self.parent_layout.setContentsMargins(0, 0, 0, 0)
+            self.parent_layout.setSpacing(4)
+            
+        # Create a container widget to hold our transformed widgets
+        self.container = QWidget(self.parent)
+        self.container_layout = QVBoxLayout(self.container)
+        self.container_layout.setContentsMargins(0, 0, 0, 0)
+        self.container_layout.setSpacing(0)
+        
+        # Store original widget index and properties
+        self.widget_index = self.parent_layout.indexOf(widget)
+        self.data_path = widget.property("data_path")
+        self.is_base_game = widget.property("is_base_game") or False
+        
+        # For array items, we'll add to the existing layout instead of replacing
+        self.is_array_item = old_value is None and isinstance(widget, QWidget) and widget.layout() is not None
+        if not self.is_array_item:
+            # Move the original widget into our container
+            widget.setParent(self.container)
+            self.container_layout.addWidget(widget)
+            
+            # Add container to parent layout
+            self.parent_layout.insertWidget(self.widget_index, self.container)
+        else:
+            # For array items, we'll use the existing widget and layout
+            self.container = widget
+            self.container_layout = widget.layout()
+            
+        # Additional properties for array items
+        self.file_path = None
+        self.source_widget = None
+        self.schema = None
+        self.array_data = None
+        self.new_array = None
+        self.added_widget = None
+        
+    def replace_widget(self, new_widget):
+        """Replace all widgets in container with new widget"""
+        if not self.container_layout or not new_widget:
+            return None
+            
+        if not self.is_array_item:
+            # Clear all widgets from container
+            while self.container_layout.count():
+                item = self.container_layout.takeAt(0)
+                if item.widget():
+                    item.widget().hide()
+                    item.widget().deleteLater()
+                    
+            # Add new widget to container
+            self.container_layout.addWidget(new_widget)
+        else:
+            # For array items, just add the new widget to the existing layout
+            self.container_layout.addWidget(new_widget)
+            self.added_widget = new_widget  # Track the added widget for array items
+            
+        return new_widget
+        
+    def execute(self):
+        """Execute the widget transformation"""
+        try:
+            # Get schema and create new widget
+            schema = self.gui.get_schema_for_path(self.data_path)
+            if not schema:
+                return None
+                
+            # Create new widget
+            new_widget = self.gui.create_widget_for_value(
+                self.new_value,
+                schema,
+                False,  # is_base_game
+                self.data_path
+            )
+            
+            if new_widget:
+                self.replace_widget(new_widget)
+                
+                return new_widget
+                
+        except Exception as e:
+            print(f"Error executing transform widget command: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return None
+        
+    def undo(self):
+        """Undo the transformation"""
+        try:
+            if not self.is_array_item:
+                # Handle normal widget transformation
+                new_widget = self.gui.create_widget_for_value(self.old_value, {"type": "string"}, self.is_base_game, self.data_path)
+                return self.replace_widget(new_widget)
+            else:
+                # Handle array item removal
+                if self.array_data is not None:
+                    self.gui.update_data_value(self.data_path[:-1], self.array_data)
+                if self.container_layout.count() > 0:
+                    item = self.container_layout.takeAt(self.container_layout.count() - 1)
+                    if item.widget():
+                        item.widget().hide()
+                        item.widget().deleteLater()
+                        self.added_widget = None
+        except Exception as e:
+            print(f"Error undoing transform command: {str(e)}")
+        
+    def redo(self):
+        """Redo the transformation (same as execute)"""
+        try:
+            return self.execute()
+        except Exception as e:
+            print(f"Error redoing transform command: {str(e)}")
+            return None
+
+class EditValueCommand(Command):
+    """Command for editing a value in a data structure"""
+    def __init__(self, file_path: Path, data_path: list, old_value: any, new_value: any, 
+                 update_widget_func: Callable, update_data_func: Callable):
+        super().__init__(file_path, data_path, old_value, new_value)
+        self.update_widget_func = update_widget_func
+        self.update_data_func = update_data_func
+        print(f"Created EditValueCommand for {file_path} at path {data_path}")
+        print(f"Old value: {old_value}, New value: {new_value}")
+        
+    def update_widget_safely(self, value: any):
+        """Try to update widget, but don't fail if widget is gone"""
+        try:
+            self.update_widget_func(value)
+        except RuntimeError as e:
+            # Widget was deleted, just log and continue
+            print(f"Widget was deleted, skipping UI update: {str(e)}")
+        
+    def undo(self):
+        """Restore the old value"""
+        print(f"Undoing EditValueCommand for {self.file_path} at path {self.data_path}")
+        self.update_widget_safely(self.old_value)
+        self.update_data_func(self.data_path, self.old_value)
+        
+    def redo(self):
+        """Apply the new value"""
+        print(f"Redoing EditValueCommand for {self.file_path} at path {self.data_path}")
+        self.update_widget_safely(self.new_value)
+        self.update_data_func(self.data_path, self.new_value)
+
+class AddArrayItemCommand(TransformWidgetCommand):
+           
+    def execute(self):
+        """Execute the widget transformation"""
+        try:
+            # Get schema and create new widget
+            schema = self.gui.get_schema_for_path(self.data_path)
+            if not schema:
+                return None
+                
+            # Create new widget
+            new_widget = self.gui.create_widget_for_value(
+                self.new_value,
+                schema,
+                False,  # is_base_game
+                self.data_path
+            )
+            
+            if new_widget:
+                # If this is an array item, add an index label
+                if self.data_path and isinstance(self.data_path[-1], int):
+                    container = QWidget()
+                    container_layout = QHBoxLayout(container)
+                    container_layout.setContentsMargins(0, 0, 0, 0)
+                    container_layout.setSpacing(4)
+                    
+                    # Add index label first
+                    index_label = QLabel(f"[{self.data_path[-1]}]")
+                    index_label.setProperty("data_path", self.data_path)
+                    index_label.setProperty("array_data", self.array_data)
+                    index_label.setStyleSheet("QLabel { color: gray; }")
+                    
+                    # Add context menu to index label
+                    index_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                    index_label.customContextMenuRequested.connect(
+                        lambda pos, w=index_label: self.gui.show_array_item_menu(w, pos)
+                    )
+                    
+                    container_layout.addWidget(index_label)
+                    
+                    # Then add the new widget
+                    container_layout.addWidget(new_widget)
+                    container_layout.addStretch()
+                    
+                    # Replace with our container
+                    self.replace_widget(container)
+                else:
+                    # Just replace the widget normally
+                    self.replace_widget(new_widget)
+                
+                return new_widget
+                
+        except Exception as e:
+            print(f"Error executing transform widget command: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+class DeleteArrayItemCommand(Command):
+    """Command for deleting an item from an array"""
+    def __init__(self, gui, array_widget, array_data, item_index):
+        # Store the old and new array values
+        old_array = array_data.copy()
+        new_array = array_data.copy()
+        new_array.pop(item_index)
+        
+        super().__init__(None, None, old_array, new_array)  # File path and data path set later
+        self.gui = gui
+        self.array_widget = array_widget
+        self.item_index = item_index
+        
+    def execute(self):
+        """Execute the array item deletion"""
+        try:
+            # Update the data
+            if self.data_path is not None:
+                self.gui.update_data_value(self.data_path, self.new_value)
+            
+            # Get the array's content layout
+            content_layout = self.array_widget.layout()
+            if not content_layout:
+                return
+            
+            # Remove the item widget at the specified index
+            if content_layout.count() > self.item_index:
+                item = content_layout.takeAt(self.item_index)
+                if item.widget():
+                    item.widget().hide()
+                    item.widget().deleteLater()
+            
+            # Update remaining indices
+            for i in range(self.item_index, content_layout.count()):
+                item_container = content_layout.itemAt(i).widget()
+                if item_container:
+                    item_layout = item_container.layout()
+                    if item_layout and item_layout.count() > 0:
+                        # First widget should be the index label
+                        index_label = item_layout.itemAt(0).widget()
+                        if isinstance(index_label, QLabel):
+                            index_label.setText(f"[{i}]")
+                            # Update data path property
+                            data_path = index_label.property("data_path")
+                            if data_path:
+                                data_path = data_path[:-1] + [i]  # Update index
+                                index_label.setProperty("data_path", data_path)
+            
+        except Exception as e:
+            print(f"Error executing delete array item command: {str(e)}")
+            return None
+            
+    def undo(self):
+        """Undo the array item deletion"""
+        try:
+            # Update the data
+            if self.data_path is not None:
+                self.gui.update_data_value(self.data_path, self.old_value)
+            
+            # Find the collapsible widget (parent of our array widget)
+            collapsible_widget = None
+            current = self.array_widget
+            while current:
+                # Look for a widget that has a QToolButton as its first child
+                layout = current.layout()
+                if layout and layout.count() > 0:
+                    first_item = layout.itemAt(0)
+                    if first_item.widget() and isinstance(first_item.widget(), QToolButton):
+                        collapsible_widget = current
+                        break
+                current = current.parent()
+            
+            if not collapsible_widget:
+                print("Could not find collapsible widget")
+                return
+                
+            # Get the parent of the collapsible widget
+            parent = collapsible_widget.parent()
+            if not parent:
+                return
+                
+            parent_layout = parent.layout()
+            if not parent_layout:
+                return
+                
+            # Find the collapsible widget's index in its parent's layout
+            widget_index = -1
+            for i in range(parent_layout.count()):
+                if parent_layout.itemAt(i).widget() == collapsible_widget:
+                    widget_index = i
+                    break
+                    
+            if widget_index == -1:
+                return
+                
+            # Get schema and create new array widget
+            schema = self.gui.get_schema_for_path(self.data_path)
+            if not schema:
+                return
+                
+            # Create new widget for the array
+            new_widget = self.gui.create_widget_for_schema(
+                self.old_value,
+                schema,
+                False,  # is_base_game
+                self.data_path
+            )
+            
+            if new_widget:
+                # First hide the old widget
+                collapsible_widget.hide()
+                
+                # Remove it from the layout
+                old_item = parent_layout.takeAt(widget_index)
+                if old_item:
+                    old_widget = old_item.widget()
+                    if old_widget:
+                        old_widget.setParent(None)
+                        old_widget.deleteLater()
+                
+                # Add new widget at the same position
+                parent_layout.insertWidget(widget_index, new_widget)
+                
+                # Find and click the toggle button to open the array
+                new_layout = new_widget.layout()
+                if new_layout and new_layout.count() > 0:
+                    toggle_btn = new_layout.itemAt(0).widget()
+                    if isinstance(toggle_btn, QToolButton):
+                        toggle_btn.setChecked(True)  # This will trigger the toggled signal and open the array
+                
+                # Update our reference to point to the content widget of the new array
+                if new_layout and new_layout.count() > 1:  # Should have toggle button and content
+                    content_widget = new_layout.itemAt(1).widget()
+                    if content_widget:
+                        self.array_widget = content_widget
+                
+        except Exception as e:
+            print(f"Error undoing delete array item command: {str(e)}")
+            
+    def redo(self):
+        """Redo the array item deletion"""
+        try:
+            return self.execute()
+        except Exception as e:
+            print(f"Error redoing delete array item command: {str(e)}")
+            return None
 
 class AddPropertyCommand(Command):
     """Command for adding a property to an object"""
@@ -489,153 +855,6 @@ class AddPropertyCommand(Command):
             return self.execute()
         except Exception as e:
             print(f"Error redoing add property command: {str(e)}")
-            return None
-
-class DeleteArrayItemCommand(Command):
-    """Command for deleting an item from an array"""
-    def __init__(self, gui, array_widget, array_data, item_index):
-        # Store the old and new array values
-        old_array = array_data.copy()
-        new_array = array_data.copy()
-        new_array.pop(item_index)
-        
-        super().__init__(None, None, old_array, new_array)  # File path and data path set later
-        self.gui = gui
-        self.array_widget = array_widget
-        self.item_index = item_index
-        
-    def execute(self):
-        """Execute the array item deletion"""
-        try:
-            # Update the data
-            if self.data_path is not None:
-                self.gui.update_data_value(self.data_path, self.new_value)
-            
-            # Get the array's content layout
-            content_layout = self.array_widget.layout()
-            if not content_layout:
-                return
-            
-            # Remove the item widget at the specified index
-            if content_layout.count() > self.item_index:
-                item = content_layout.takeAt(self.item_index)
-                if item.widget():
-                    item.widget().hide()
-                    item.widget().deleteLater()
-            
-            # Update remaining indices
-            for i in range(self.item_index, content_layout.count()):
-                item_container = content_layout.itemAt(i).widget()
-                if item_container:
-                    item_layout = item_container.layout()
-                    if item_layout and item_layout.count() > 0:
-                        # First widget should be the index label
-                        index_label = item_layout.itemAt(0).widget()
-                        if isinstance(index_label, QLabel):
-                            index_label.setText(f"[{i}]")
-                            # Update data path property
-                            data_path = index_label.property("data_path")
-                            if data_path:
-                                data_path = data_path[:-1] + [i]  # Update index
-                                index_label.setProperty("data_path", data_path)
-            
-        except Exception as e:
-            print(f"Error executing delete array item command: {str(e)}")
-            return None
-            
-    def undo(self):
-        """Undo the array item deletion"""
-        try:
-            # Update the data
-            if self.data_path is not None:
-                self.gui.update_data_value(self.data_path, self.old_value)
-            
-            # Find the collapsible widget (parent of our array widget)
-            collapsible_widget = None
-            current = self.array_widget
-            while current:
-                # Look for a widget that has a QToolButton as its first child
-                layout = current.layout()
-                if layout and layout.count() > 0:
-                    first_item = layout.itemAt(0)
-                    if first_item.widget() and isinstance(first_item.widget(), QToolButton):
-                        collapsible_widget = current
-                        break
-                current = current.parent()
-            
-            if not collapsible_widget:
-                print("Could not find collapsible widget")
-                return
-                
-            # Get the parent of the collapsible widget
-            parent = collapsible_widget.parent()
-            if not parent:
-                return
-                
-            parent_layout = parent.layout()
-            if not parent_layout:
-                return
-                
-            # Find the collapsible widget's index in its parent's layout
-            widget_index = -1
-            for i in range(parent_layout.count()):
-                if parent_layout.itemAt(i).widget() == collapsible_widget:
-                    widget_index = i
-                    break
-                    
-            if widget_index == -1:
-                return
-                
-            # Get schema and create new array widget
-            schema = self.gui.get_schema_for_path(self.data_path)
-            if not schema:
-                return
-                
-            # Create new widget for the array
-            new_widget = self.gui.create_widget_for_schema(
-                self.old_value,
-                schema,
-                False,  # is_base_game
-                self.data_path
-            )
-            
-            if new_widget:
-                # First hide the old widget
-                collapsible_widget.hide()
-                
-                # Remove it from the layout
-                old_item = parent_layout.takeAt(widget_index)
-                if old_item:
-                    old_widget = old_item.widget()
-                    if old_widget:
-                        old_widget.setParent(None)
-                        old_widget.deleteLater()
-                
-                # Add new widget at the same position
-                parent_layout.insertWidget(widget_index, new_widget)
-                
-                # Find and click the toggle button to open the array
-                new_layout = new_widget.layout()
-                if new_layout and new_layout.count() > 0:
-                    toggle_btn = new_layout.itemAt(0).widget()
-                    if isinstance(toggle_btn, QToolButton):
-                        toggle_btn.setChecked(True)  # This will trigger the toggled signal and open the array
-                
-                # Update our reference to point to the content widget of the new array
-                if new_layout and new_layout.count() > 1:  # Should have toggle button and content
-                    content_widget = new_layout.itemAt(1).widget()
-                    if content_widget:
-                        self.array_widget = content_widget
-                
-        except Exception as e:
-            print(f"Error undoing delete array item command: {str(e)}")
-            
-    def redo(self):
-        """Redo the array item deletion"""
-        try:
-            return self.execute()
-        except Exception as e:
-            print(f"Error redoing delete array item command: {str(e)}")
             return None
 
 class DeletePropertyCommand(Command):

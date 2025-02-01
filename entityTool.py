@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 from research_view import ResearchTreeView
 import os
-from command_stack import CommandStack, EditValueCommand, AddPropertyCommand, DeleteArrayItemCommand, DeletePropertyCommand
+from command_stack import CommandStack, EditValueCommand, AddPropertyCommand, DeleteArrayItemCommand, DeletePropertyCommand, CompositeCommand, TransformWidgetCommand, AddArrayItemCommand
 from typing import List, Any
 import sounddevice as sd
 import soundfile as sf
@@ -20,198 +20,9 @@ import threading
 import pygame.mixer
 import ast
 
+
 # add debug logging
 logging.basicConfig(level=logging.DEBUG)
-
-class TransformWidgetCommand:
-    """Command for transforming a widget from one type to another"""
-    def __init__(self, gui, widget, old_value, new_value):
-        self.gui = gui
-        self.old_value = old_value
-        self.new_value = new_value
-        
-        # Store widget properties and references
-        self.parent = widget.parent()
-        self.parent_layout = self.parent.layout()
-        if not self.parent_layout:
-            self.parent_layout = QVBoxLayout(self.parent)
-            self.parent_layout.setContentsMargins(0, 0, 0, 0)
-            self.parent_layout.setSpacing(4)
-            
-        # Create a container widget to hold our transformed widgets
-        self.container = QWidget(self.parent)
-        self.container_layout = QVBoxLayout(self.container)
-        self.container_layout.setContentsMargins(0, 0, 0, 0)
-        self.container_layout.setSpacing(0)
-        
-        # Store original widget index and properties
-        self.widget_index = self.parent_layout.indexOf(widget)
-        self.data_path = widget.property("data_path")
-        self.is_base_game = widget.property("is_base_game") or False
-        
-        # For array items, we'll add to the existing layout instead of replacing
-        self.is_array_item = old_value is None and isinstance(widget, QWidget) and widget.layout() is not None
-        if not self.is_array_item:
-            # Move the original widget into our container
-            widget.setParent(self.container)
-            self.container_layout.addWidget(widget)
-            
-            # Add container to parent layout
-            self.parent_layout.insertWidget(self.widget_index, self.container)
-        else:
-            # For array items, we'll use the existing widget and layout
-            self.container = widget
-            self.container_layout = widget.layout()
-            
-        # Additional properties for array items
-        self.file_path = None
-        self.source_widget = None
-        self.schema = None
-        self.array_data = None
-        self.new_array = None
-        self.added_widget = None
-        
-    def replace_widget(self, new_widget):
-        """Replace all widgets in container with new widget"""
-        if not self.container_layout or not new_widget:
-            return None
-            
-        if not self.is_array_item:
-            # Clear all widgets from container
-            while self.container_layout.count():
-                item = self.container_layout.takeAt(0)
-                if item.widget():
-                    item.widget().hide()
-                    item.widget().deleteLater()
-                    
-            # Add new widget to container
-            self.container_layout.addWidget(new_widget)
-        else:
-            # For array items, just add the new widget to the existing layout
-            self.container_layout.addWidget(new_widget)
-            self.added_widget = new_widget  # Track the added widget for array items
-            
-        return new_widget
-        
-    def execute(self):
-        """Execute the widget transformation"""
-        try:
-            # Get schema and create new widget
-            schema = self.gui.get_schema_for_path(self.data_path)
-            if not schema:
-                return None
-                
-            # Create new widget
-            new_widget = self.gui.create_widget_for_value(
-                self.new_value,
-                schema,
-                False,  # is_base_game
-                self.data_path
-            )
-            
-            if new_widget:
-                # If this is an array item, add an index label
-                if self.data_path and isinstance(self.data_path[-1], int):
-                    container = QWidget()
-                    container_layout = QHBoxLayout(container)
-                    container_layout.setContentsMargins(0, 0, 0, 0)
-                    container_layout.setSpacing(4)
-                    
-                    # Add index label first
-                    index_label = QLabel(f"[{self.data_path[-1]}]")
-                    index_label.setProperty("data_path", self.data_path)
-                    index_label.setProperty("array_data", self.array_data)
-                    index_label.setStyleSheet("QLabel { color: gray; }")
-                    
-                    # Add context menu to index label
-                    index_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-                    index_label.customContextMenuRequested.connect(
-                        lambda pos, w=index_label: self.gui.show_array_item_menu(w, pos)
-                    )
-                    
-                    container_layout.addWidget(index_label)
-                    
-                    # Then add the new widget
-                    container_layout.addWidget(new_widget)
-                    container_layout.addStretch()
-                    
-                    # Replace with our container
-                    self.replace_widget(container)
-                else:
-                    # Just replace the widget normally
-                    self.replace_widget(new_widget)
-                
-                return new_widget
-                
-        except Exception as e:
-            print(f"Error executing transform widget command: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return None
-        
-    def undo(self):
-        """Undo the transformation"""
-        try:
-            if not self.is_array_item:
-                # Handle normal widget transformation
-                new_widget = self.gui.create_widget_for_value(self.old_value, {"type": "string"}, self.is_base_game, self.data_path)
-                return self.replace_widget(new_widget)
-            else:
-                # Handle array item removal
-                if self.array_data is not None:
-                    self.gui.update_data_value(self.data_path[:-1], self.array_data)
-                if self.container_layout.count() > 0:
-                    item = self.container_layout.takeAt(self.container_layout.count() - 1)
-                    if item.widget():
-                        item.widget().hide()
-                        item.widget().deleteLater()
-                        self.added_widget = None
-        except Exception as e:
-            print(f"Error undoing transform command: {str(e)}")
-        
-    def redo(self):
-        """Redo the transformation (same as execute)"""
-        try:
-            return self.execute()
-        except Exception as e:
-            print(f"Error redoing transform command: {str(e)}")
-            return None
-
-class CompositeCommand:
-    """Command that combines multiple commands into one atomic operation"""
-    def __init__(self, commands):
-        self.commands = commands
-        # For logging purposes, use the first command's attributes
-        if commands and hasattr(commands[0], 'file_path'):
-            try:
-                self.file_path = commands[0].file_path
-                self.data_path = commands[0].data_path
-                self.old_value = commands[0].old_value
-                self.new_value = commands[0].new_value
-                self.source_widget = commands[0].source_widget if hasattr(commands[0], 'source_widget') else None
-            except Exception as e:
-                print(f"Error initializing composite command: {str(e)}")
-        
-    def redo(self):
-        """Execute the command (called by command stack)"""
-        try:
-            # Execute transform command first to create new widget
-            if len(self.commands) > 1:
-                self.commands[1].execute()
-            # Then update the value
-            if self.commands:
-                self.commands[0].redo()
-        except Exception as e:
-            print(f"Error executing composite command redo: {str(e)}")
-        
-    def undo(self):
-        """Undo the command (called by command stack)"""
-        try:
-            # Undo in reverse order
-            for cmd in reversed(self.commands):
-                cmd.undo()
-        except Exception as e:
-            print(f"Error executing composite command undo: {str(e)}")
 
 class GUILogHandler(logging.Handler):
     def __init__(self, log_widget):
@@ -359,81 +170,29 @@ class EntityToolGUI(QMainWindow):
                 self.loading.close()
                 self.loading = None
             raise  # Re-raise the exception for proper error handling
-    
-    def setup_shortcuts(self):
-        """Setup keyboard shortcuts"""
-        # Save shortcut (Ctrl+S)
-        save_shortcut = QShortcut(QKeySequence.StandardKey.Save, self)
-        save_shortcut.activated.connect(self.save_changes)
         
-        # Undo shortcut (Ctrl+Z)
-        undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
-        undo_shortcut.activated.connect(self.undo)
+    def setup_logging(self):
+        """Setup logging configuration"""
+        # Create log list widget if not already created in init_ui
+        if not hasattr(self, 'log_widget'):
+            self.log_widget = QListWidget()
+            self.log_widget.setMaximumHeight(100)
+            
+        # Create and configure the log handler
+        handler = GUILogHandler(self.log_widget)
+        handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
         
-        # Redo shortcut (Ctrl+Y or Ctrl+Shift+Z)
-        redo_shortcut = QShortcut(QKeySequence.StandardKey.Redo, self)
-        redo_shortcut.activated.connect(self.redo)
-    
-    def undo(self):
-        """Undo the last command"""
-        self.command_stack.undo()
-        self.update_save_button()  # Update button states
-    
-    def redo(self):
-        """Redo the last undone command"""
-        self.command_stack.redo()
-        self.update_save_button()  # Update button states
-    
-    def update_data_value(self, data_path: list, new_value: any):
-        """Update a value in the data structure using its path"""
-        print(f"Updating data value at path {data_path} to {new_value}")
+        # Get the root logger and add our handler
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+        
+        # Remove any existing handlers to avoid duplicates
+        for existing_handler in root_logger.handlers[:]:
+            root_logger.removeHandler(existing_handler)
+            
+        root_logger.addHandler(handler)
+        logging.info("Logging system initialized")
 
-        if not data_path:
-            # Empty path - replace entire data structure
-            self.current_data = new_value
-            print(f"Replaced entire data structure with new value")
-            return
-        
-        if len(data_path) == 1:
-            # Single path element - modify root property
-            if isinstance(self.current_data, dict):
-                if new_value is None:
-                    # Remove property if new_value is None
-                    if data_path[0] in self.current_data:
-                        del self.current_data[data_path[0]]
-                        print(f"Removed root property {data_path[0]}")
-                else:
-                    # Add or update property
-                    self.current_data[data_path[0]] = new_value
-                    print(f"Updated root property {data_path[0]} to {new_value}")
-            return
-        
-        current = self.current_data
-        for i, key in enumerate(data_path[:-1]):
-            print(f"Traversing path element {i}: {key}")
-            if isinstance(current, dict):
-                if key not in current:
-                    current[key] = {} if isinstance(data_path[i + 1], str) else []
-                    print(f"Created new dict/list for key {key}")
-                current = current[key]
-            elif isinstance(current, list):
-                while len(current) <= key:
-                    current.append({} if isinstance(data_path[i + 1], str) else [])
-                    print(f"Extended list to accommodate index {key}")
-                current = current[key]
-        
-        if data_path:
-            if isinstance(current, dict):
-                print(f"Setting dict key {data_path[-1]} to {new_value}")
-                current[data_path[-1]] = new_value
-            elif isinstance(current, list):
-                while len(current) <= data_path[-1]:
-                    current.append(None)
-                    print(f"Extended list to accommodate final index {data_path[-1]}")
-                print(f"Setting list index {data_path[-1]} to {new_value}")
-                current[data_path[-1]] = new_value
-                
-    
     def init_ui(self):
         self.setWindowTitle('Sins 2 Entity Tool')
         
@@ -891,187 +650,83 @@ class EntityToolGUI(QMainWindow):
         
         # Enable drag and drop
         self.setAcceptDrops(True)
+            
+    def setup_shortcuts(self):
+        """Setup keyboard shortcuts"""
+        # Save shortcut (Ctrl+S)
+        save_shortcut = QShortcut(QKeySequence.StandardKey.Save, self)
+        save_shortcut.activated.connect(self.save_changes)
+        
+        # Undo shortcut (Ctrl+Z)
+        undo_shortcut = QShortcut(QKeySequence.StandardKey.Undo, self)
+        undo_shortcut.activated.connect(self.undo)
+        
+        # Redo shortcut (Ctrl+Y or Ctrl+Shift+Z)
+        redo_shortcut = QShortcut(QKeySequence.StandardKey.Redo, self)
+        redo_shortcut.activated.connect(self.redo)
     
-    def show_settings_dialog(self):
-        """Show settings dialog"""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Settings")
-        layout = QVBoxLayout(dialog)
-        
-        # Schema folder selection
-        schema_layout = QHBoxLayout()
-        schema_label = QLabel("Schema Folder:")
-        schema_path = QLineEdit(self.config.get("schema_folder", ""))
-        schema_path.setReadOnly(True)
-        schema_btn = QPushButton("Browse...")
-        
-        def select_schema_folder():
-            folder = QFileDialog.getExistingDirectory(self, "Select Schema Folder")
-            if folder:
-                schema_path.setText(folder)
-                self.config["schema_folder"] = folder
-                self.save_config()
-                self.load_schemas()  # Reload schemas with new path
-        
-        schema_btn.clicked.connect(select_schema_folder)
-        schema_layout.addWidget(schema_label)
-        schema_layout.addWidget(schema_path)
-        schema_layout.addWidget(schema_btn)
-        
-        # Base game folder selection
-        base_game_layout = QHBoxLayout()
-        base_game_label = QLabel("Base Game Folder:")
-        base_game_path = QLineEdit(self.config.get("base_game_folder", ""))
-        base_game_path.setReadOnly(True)
-        base_game_btn = QPushButton("Browse...")
-        
-        def select_base_game_folder():
-            folder = QFileDialog.getExistingDirectory(self, "Select Base Game Folder")
-            if folder:
-                base_game_path.setText(folder)
-                self.config["base_game_folder"] = folder
-                self.base_game_folder = Path(folder)  # Update base_game_folder path
-                self.save_config()
-                self.load_all_localized_strings()  # Reload localized strings with new path
-                self.load_all_texture_files()  # Reload texture files with new path
-                self.load_base_game_manifest_files()  # Reload base game manifest files
-        
-        base_game_btn.clicked.connect(select_base_game_folder)
-        base_game_layout.addWidget(base_game_label)
-        base_game_layout.addWidget(base_game_path)
-        base_game_layout.addWidget(base_game_btn)
-        
-        # Add layouts to dialog
-        layout.addLayout(schema_layout)
-        layout.addLayout(base_game_layout)
-        
-        # Close button
-        close_btn = QPushButton("Close")
-        close_btn.clicked.connect(dialog.accept)
-        layout.addWidget(close_btn)
-        
-        dialog.exec()
-    
-    def update_player_display(self):
-        """Update the display with player data"""
-        if not self.current_data:
-            return
-            
-        # Clear existing content
-        self.clear_layout(self.player_layout)
-        
-        # Create schema view for player data
-        schema_view = self.create_schema_view("player", self.current_data, False, self.current_file)
-        self.player_layout.addWidget(schema_view)
-        
-        # Units Tab
-        # Clear the lists
-        self.units_list.clear()
-        self.strikecraft_list.clear()
-        # Don't clear all_units_list as it's populated from folder load
-            
-        # Add buildable units
-        if "buildable_units" in self.current_data:
-            for unit_id in sorted(self.current_data["buildable_units"]):
-                item = QListWidgetItem(unit_id)
-                # Check if unit exists in mod folder first
-                mod_file = self.current_folder / "entities" / f"{unit_id}.unit"
-                # Style as base game if it doesn't exist in mod folder
-                if (not mod_file.exists() and self.base_game_folder and 
-                    unit_id in self.manifest_data['base_game'].get('unit', {})):
-                    item.setForeground(QColor(150, 150, 150))
-                    font = item.font()
-                    font.setItalic(True)
-                    item.setFont(font)
-                self.units_list.addItem(item)
-        
-        # Add buildable strikecraft
-        if "buildable_strikecraft" in self.current_data:
-            for unit_id in sorted(self.current_data["buildable_strikecraft"]):
-                item = QListWidgetItem(unit_id)
-                self.strikecraft_list.addItem(item)
-            
-            # Clear all detail panels
-            self.clear_layout(self.unit_details_layout)
-            self.clear_layout(self.weapon_details_layout)
-            self.clear_layout(self.skin_details_layout)
-            self.clear_layout(self.ability_details_layout)
-        
-        # Research Tab
-        if "research" in self.current_data:
-            # Clear existing research view
-            self.clear_layout(self.research_layout)
-            # Create and add new research view
-            research_view = self.create_research_view(self.current_data["research"])
-            self.research_layout.addWidget(research_view)
-        
-        self.tab_widget.setCurrentIndex(0)  # Show first tab
-    
-    def on_unit_selected(self, item):
-        """Handle unit selection from the list"""
-        if not self.current_folder:
-            return
-            
-        unit_id = item.text()
-        unit_file = self.current_folder / "entities" / f"{unit_id}.unit"
-        
+    def load_stylesheet(self):
+        """Load and apply the dark theme stylesheet from QSS file"""
         try:
-            # Check if we have data in the command stack first
-            unit_data = self.command_stack.get_file_data(unit_file)
-            is_base_game = False
+            style_path = Path(__file__).parent / "style.qss"
+            if not style_path.exists():
+                logging.error("Style file not found")
+                return
+                
+            with open(style_path, 'r') as f:
+                style = f.read()
+                
+            self.setStyleSheet(style)
+            logging.info("Loaded stylesheet")
+        except Exception as e:
+            print(f"Error loading stylesheet: {str(e)}")
+    
+    def load_schemas(self):
+        """Load schema files from the schema folder"""
+        schema_folder = self.config.get("schema_folder")
+        if not schema_folder:
+            logging.warning("No schema folder configured")
+            return
             
-            if unit_data is None:
-                # Load from file if not in command stack
-                unit_data, is_base_game = self.load_file(unit_file)
-                if not unit_data:
-                    print(f"Unit file not found: {unit_file}")
-                    return
+        schema_path = Path(schema_folder)
+        if not schema_path.exists():
+            print(f"Schema folder does not exist: {schema_path}")
+            return
+            
+        try:
+            # Clear existing extensions and schemas
+            self.schema_extensions = set()
+            self.schemas = {}
+            
+            # Process each schema file
+            schema_files = list(schema_path.glob("*-schema.json"))  # Changed pattern to match actual filenames
+            print(f"Found {len(schema_files)} schema files")
+            
+            for file_path in schema_files:
+                try:
+                    with open(file_path, encoding='utf-8') as f:
+                        schema = json.load(f)
+                        
+                    # Get schema name from filename (e.g. "unit-schema.json" -> "unit-schema")
+                    schema_name = file_path.stem  # This will be e.g. "unit-schema"
+                    self.schemas[schema_name] = schema
                     
-                # Store initial data in command stack
-                self.command_stack.update_file_data(unit_file, unit_data)
-            else:
-                print(f"Using data from command stack for {unit_file}")
-                
-            # Update current file and data
-            self.current_file = unit_file
-            self.current_data = unit_data
-                
-            # Clear existing details in all panels
-            self.clear_layout(self.unit_details_layout)
-            self.clear_layout(self.weapon_details_layout)
-            self.clear_layout(self.skin_details_layout)
-            self.clear_layout(self.ability_details_layout)
+                    # Add file extension if specified in schema
+                    if 'fileExtension' in schema:
+                        print(f"Adding schema extension: {schema['fileExtension']}")
+                        ext = schema['fileExtension']
+                        if not ext.startswith('.'):
+                            ext = '.' + ext
+                        self.schema_extensions.add(ext)
+                        
+                    print(f"Loaded schema: {schema_name}")
+                except Exception as e:
+                    print(f"Error loading schema {file_path}: {str(e)}")
             
-            # Create and add the schema view for unit details
-            schema_view = self.create_schema_view("unit", unit_data, is_base_game, unit_file)
-            self.unit_details_layout.addWidget(schema_view)
+            print(f"Successfully loaded {len(self.schemas)} schemas")
             
         except Exception as e:
-            print(f"Error loading unit {unit_id}: {str(e)}")
-            error_label = QLabel(f"Error loading unit: {str(e)}")
-            error_label.setStyleSheet("color: red;")
-            self.unit_details_layout.addWidget(error_label)
-    
-    def clear_layout(self, layout):
-        """Clear a layout and all its widgets"""
-        if layout is not None:
-            while layout.count():
-                item = layout.takeAt(0)
-                widget = item.widget()
-                if widget is not None:
-                    widget.deleteLater()
-                else:
-                    self.clear_layout(item.layout())
-    
-    def open_folder_dialog(self):
-        """Open directory dialog to select mod folder"""
-        dir_path = QFileDialog.getExistingDirectory(
-            self,
-            "Select Mod Folder",
-            str(self.current_folder) if self.current_folder else ""
-        )
-        if dir_path:
-            self.load_folder(Path(dir_path))
+            print(f"Error loading schemas: {str(e)}")
     
     def load_folder(self, folder_path: Path):
         """Load all files from the mod folder"""
@@ -1242,131 +897,7 @@ class EntityToolGUI(QMainWindow):
         except Exception as e:
             print(f"Error loading file {file_path}: {str(e)}")
             return None, False
-        
-    def dragEnterEvent(self, event: QDragEnterEvent):
-        if event.mimeData().hasUrls():
-            event.accept()
-        else:
-            event.ignore()
-    
-    def dropEvent(self, event: QDropEvent):
-        files = [Path(u.toLocalFile()) for u in event.mimeData().urls()]
-        for path in files:
-            if path.is_dir():
-                self.load_folder(path)
-            elif path.is_file():
-                self.load_file(path)
-            break  # Only load the first item
-    
-    def load_schemas(self):
-        """Load schema files from the schema folder"""
-        schema_folder = self.config.get("schema_folder")
-        if not schema_folder:
-            logging.warning("No schema folder configured")
-            return
-            
-        schema_path = Path(schema_folder)
-        if not schema_path.exists():
-            print(f"Schema folder does not exist: {schema_path}")
-            return
-            
-        try:
-            # Clear existing extensions and schemas
-            self.schema_extensions = set()
-            self.schemas = {}
-            
-            # Process each schema file
-            schema_files = list(schema_path.glob("*-schema.json"))  # Changed pattern to match actual filenames
-            print(f"Found {len(schema_files)} schema files")
-            
-            for file_path in schema_files:
-                try:
-                    with open(file_path, encoding='utf-8') as f:
-                        schema = json.load(f)
-                        
-                    # Get schema name from filename (e.g. "unit-schema.json" -> "unit-schema")
-                    schema_name = file_path.stem  # This will be e.g. "unit-schema"
-                    self.schemas[schema_name] = schema
-                    
-                    # Add file extension if specified in schema
-                    if 'fileExtension' in schema:
-                        print(f"Adding schema extension: {schema['fileExtension']}")
-                        ext = schema['fileExtension']
-                        if not ext.startswith('.'):
-                            ext = '.' + ext
-                        self.schema_extensions.add(ext)
-                        
-                    print(f"Loaded schema: {schema_name}")
-                except Exception as e:
-                    print(f"Error loading schema {file_path}: {str(e)}")
-            
-            print(f"Successfully loaded {len(self.schemas)} schemas")
-            
-        except Exception as e:
-            print(f"Error loading schemas: {str(e)}")
-        
-    def get_localized_text(self, text_key: str) -> tuple[str, bool]:
-        """Get localized text for a key and whether it's from base game.
-        Returns tuple of (text, is_from_base_game)"""
-
-        if not text_key:
-            return "", False
-
-        # Check if text_key is a dictionary and extract the 'group' if it is
-        if isinstance(text_key, dict) and 'group' in text_key:
-            text_key = text_key['group']
-
-        if text_key.startswith(":"):  # Raw string
-            return text_key[1:], False
-        
-        # Try current language in mod folder first
-        if self.current_language in self.all_localized_strings['mod']:
-            if text_key in self.all_localized_strings['mod'][self.current_language]:
-                return self.all_localized_strings['mod'][self.current_language][text_key], False
-        
-        # Try English in mod folder
-        if "en" in self.all_localized_strings['mod']:
-            if text_key in self.all_localized_strings['mod']["en"]:
-                return self.all_localized_strings['mod']["en"][text_key], False
-        
-        # Try base game current language
-        if self.current_language in self.all_localized_strings['base_game']:
-            if text_key in self.all_localized_strings['base_game'][self.current_language]:
-                return self.all_localized_strings['base_game'][self.current_language][text_key], True
-        
-        # Try base game English
-        if "en" in self.all_localized_strings['base_game']:
-            if text_key in self.all_localized_strings['base_game']["en"]:
-                return self.all_localized_strings['base_game']["en"][text_key], True
-        
-        return text_key, False  # Return key if no translation found
-        
-    def load_player_file(self, file_path: Path):
-        """Load a player file into the application"""
-        try:
-            with open(file_path, encoding='utf-8') as f:
-                data = json.load(f)
-                
-            self.current_file = file_path
-            self.current_data = data
-            
-            # If it's a player file, update the display,otherwise error
-            if file_path.suffix == '.player':
-                self.update_player_display()
-            else:
-                raise ValueError(f"File is not a player file: {file_path}")
-            
-            # Log data details
-            print(f"Successfully loaded: {file_path}")
-            print(f"Data type: {type(self.current_data)}")
-            if isinstance(self.current_data, dict):
-                print(f"Top-level keys: {list(self.current_data.keys())}")
-                
-        except Exception as e:
-            print(f"Error loading file {file_path}: {str(e)}")
-            self.current_file = None
-            self.current_data = None
-    
+         
     def load_texture(self, texture_name: str) -> tuple[QPixmap, bool]:
         """Load a texture from mod or base game folder.
         Returns tuple of (pixmap, is_from_base_game)"""
@@ -1416,28 +947,1328 @@ class EntityToolGUI(QMainWindow):
         
         # Return empty pixmap if texture not found
         return QPixmap(), False
-    
-    def create_texture_label(self, texture_name: str, max_size: int = 128) -> QLabel:
-        """Create a QLabel with a texture, scaled to max_size"""
-        pixmap, is_base_game = self.load_texture(texture_name)
+ 
+    def load_base_game_manifest_files(self) -> None:
+        """Load manifest files from base game into memory"""
+        logging.info("Loading base game manifest files...")
         
-        label = QLabel()
-        if not pixmap.isNull():
-            # Scale pixmap while maintaining aspect ratio
-            scaled_pixmap = pixmap.scaled(max_size, max_size, 
-                                        Qt.AspectRatioMode.KeepAspectRatio, 
-                                        Qt.TransformationMode.SmoothTransformation)
-            label.setPixmap(scaled_pixmap)
-            if is_base_game:
-                label.setStyleSheet("QLabel { background-color: #f0f0f0; padding: 4px; font-style: italic; }")
-                label.setToolTip(f"Base game texture: {texture_name}")
+        # Clear existing base game manifest data
+        self.manifest_data['base_game'] = {}
+        
+        if self.base_game_folder:
+            print(f"Using base game folder: {self.base_game_folder}")
+            entities_folder = self.base_game_folder / "entities"
+            if entities_folder.exists():
+                print(f"Found base game entities folder: {entities_folder}")
+                for manifest_file in entities_folder.glob("*.entity_manifest"):
+                    try:
+                        manifest_type = manifest_file.stem  # e.g., 'player', 'weapon'
+                        print(f"Loading base game manifest: {manifest_file}")
+                        with open(manifest_file, 'r', encoding='utf-8') as f:
+                            manifest_data = json.load(f)
+                            
+                        if manifest_type not in self.manifest_data['base_game']:
+                            self.manifest_data['base_game'][manifest_type] = {}
+                            
+                        # Load each referenced entity file
+                        if 'ids' in manifest_data:
+                            for entity_id in manifest_data['ids']:
+                                entity_file = entities_folder / f"{entity_id}.{manifest_type}"
+                                if entity_file.exists():
+                                    with open(entity_file, 'r', encoding='utf-8') as f:
+                                        entity_data = json.load(f)
+                                        self.manifest_data['base_game'][manifest_type][entity_id] = entity_data
+                                else:
+                                    print(f"Referenced base game entity file not found: {entity_file}")
+                                        
+                        print(f"Loaded base game manifest {manifest_type} with {len(manifest_data.get('ids', []))} entries")
+                    except Exception as e:
+                        print(f"Error loading base game manifest file {manifest_file}: {str(e)}")
             else:
-                label.setToolTip(f"Mod texture: {texture_name}")
+                print(f"Base game entities folder not found: {entities_folder}")
         else:
-            label.setText(f"[Texture not found: {texture_name}]")
-            label.setStyleSheet("QLabel { color: #666666; font-style: italic; }")
+            logging.warning("No base game folder configured")
+                        
+        # Log summary
+        for manifest_type in self.manifest_data['base_game']:
+            count = len(self.manifest_data['base_game'][manifest_type])
+            print(f"Total base game {manifest_type} entries: {count}")
+            if count > 0:
+                print(f"Example {manifest_type} entries: {list(self.manifest_data['base_game'][manifest_type].keys())[:3]}")
+                   
+    def load_mod_manifest_files(self) -> None:
+        """Load manifest files from mod folder into memory"""
+        logging.info("Loading mod manifest files...")
         
-        return label
+        # Clear existing mod manifest data
+        self.manifest_data['mod'] = {}
+        
+        if self.current_folder:
+            print(f"Using mod folder: {self.current_folder}")
+            entities_folder = self.current_folder / "entities"
+            if entities_folder.exists():
+                print(f"Found mod entities folder: {entities_folder}")
+                for manifest_file in entities_folder.glob("*.entity_manifest"):
+                    try:
+                        manifest_type = manifest_file.stem  # e.g., 'player', 'weapon'
+                        print(f"Loading mod manifest: {manifest_file}")
+                        with open(manifest_file, 'r', encoding='utf-8') as f:
+                            manifest_data = json.load(f)
+                            
+                        if manifest_type not in self.manifest_data['mod']:
+                            self.manifest_data['mod'][manifest_type] = {}
+                            
+                        # Load each referenced entity file
+                        if 'ids' in manifest_data:
+                            for entity_id in manifest_data['ids']:
+                                entity_file = entities_folder / f"{entity_id}.{manifest_type}"
+                                if entity_file.exists():
+                                    with open(entity_file, 'r', encoding='utf-8') as f:
+                                        entity_data = json.load(f)
+                                        self.manifest_data['mod'][manifest_type][entity_id] = entity_data
+                                        print(f"Loaded mod {manifest_type} data for {entity_id}")
+                                else:
+                                    print(f"Referenced mod entity file not found: {entity_file}")
+                                        
+                        print(f"Loaded mod manifest {manifest_type} with {len(manifest_data.get('ids', []))} entries")
+                    except Exception as e:
+                        print(f"Error loading mod manifest file {manifest_file}: {str(e)}")
+            else:
+                print(f"Mod entities folder not found: {entities_folder}")
+        else:
+            logging.warning("No mod folder loaded")
+                        
+        # Log summary
+        for manifest_type in self.manifest_data['mod']:
+            count = len(self.manifest_data['mod'][manifest_type])
+            print(f"Total mod {manifest_type} entries: {count}")
+            if count > 0:
+                print(f"Example {manifest_type} entries: {list(self.manifest_data['mod'][manifest_type].keys())[:3]}")
+                         
+    def load_all_localized_strings(self) -> None:
+        """Load all localized strings from both mod and base game into memory"""
+        logging.info("Loading all localized strings...")
+        
+        # Initialize dictionaries to store all strings
+        self.all_localized_strings = {
+            'mod': {},  # {language: {key: text}}
+            'base_game': {}  # {language: {key: text}}
+        }
+        
+        # Load mod strings
+        if self.current_folder:
+            # Load .localized_text files (JSON format)
+            localized_text_folder = self.current_folder / "localized_text"
+            print(f"Checking mod localized_text folder: {localized_text_folder}")
+            if localized_text_folder.exists():
+                for text_file in localized_text_folder.glob("*.localized_text"):
+                    print(f"Loading mod localized text from: {text_file}")
+                    try:
+                        with open(text_file, 'r', encoding='utf-8') as f:
+                            json_data = json.load(f)
+                            # Initialize language dictionary if needed
+                            language = text_file.stem
+                            if language not in self.all_localized_strings['mod']:
+                                self.all_localized_strings['mod'][language] = {}
+                            # Add strings for this language
+                            self.all_localized_strings['mod'][language].update(json_data)
+                            # Initialize command stack with this data
+                            self.command_stack.update_file_data(text_file, json_data)
+                            print(f"Loaded {len(json_data)} strings for language {language} from {text_file}")
+                    except Exception as e:
+                        print(f"Error loading localized text file {text_file}: {str(e)}")
+                        # Initialize with empty data on error
+                        self.command_stack.update_file_data(text_file, {})
+            else:
+                logging.debug("No mod localized_text folder found")
+                # Create the folder
+                localized_text_folder.mkdir(parents=True, exist_ok=True)
+                # Initialize empty files for current language and English
+                for lang in [self.current_language, "en"]:
+                    text_file = localized_text_folder / f"{lang}.localized_text"
+                    self.command_stack.update_file_data(text_file, {})
+        
+        # Load base game strings
+        if self.base_game_folder:
+            # Load .localized_text files (JSON format)
+            localized_text_folder = self.base_game_folder / "localized_text"
+            print(f"Checking base game localized_text folder: {localized_text_folder}")
+            if localized_text_folder.exists():
+                for text_file in localized_text_folder.glob("*.localized_text"):
+                    print(f"Loading base game localized text from: {text_file}")
+                    try:
+                        with open(text_file, 'r', encoding='utf-8') as f:
+                            json_data = json.load(f)
+                            # Initialize language dictionary if needed
+                            language = text_file.stem
+                            if language not in self.all_localized_strings['base_game']:
+                                self.all_localized_strings['base_game'][language] = {}
+                            # Add strings for this language
+                            self.all_localized_strings['base_game'][language].update(json_data)
+                            print(f"Loaded {len(json_data)} strings for language {language} from {text_file}")
+                    except Exception as e:
+                        print(f"Error loading localized text file {text_file}: {str(e)}")
+            else:
+                logging.debug("No base game localized_text folder found")
+                        
+        # Log summary
+        for source in ['mod', 'base_game']:
+            for language in self.all_localized_strings[source]:
+                count = len(self.all_localized_strings[source][language])
+                print(f"Total {source} strings for {language}: {count}")
+                if count > 0:
+                    # Log a few example strings
+                    print(f"Example strings for {source} {language}:")
+                    for i, (key, value) in enumerate(list(self.all_localized_strings[source][language].items())[:3]):
+                        print(f"  {key} = {value}")
+                        if i >= 2:
+                            break
+    
+    def load_all_texture_files(self) -> None:
+        """Load list of all texture files from both mod and base game into memory"""
+        logging.info("Loading all texture files...")
+        
+        # Initialize lists to store texture file paths
+        self.all_texture_files = {
+            'mod': set(),  # Set of texture file names without extension
+            'base_game': set()  # Set of texture file names without extension
+        }
+        
+        # Load mod textures
+        if self.current_folder:
+            textures_folder = self.current_folder / "textures"
+            if textures_folder.exists():
+                for texture_file in textures_folder.glob("*.*"):
+                    if texture_file.suffix.lower() in ['.png', '.dds']:
+                        self.all_texture_files['mod'].add(texture_file.stem)
+                print(f"Found {len(self.all_texture_files['mod'])} texture files in mod")
+        
+        # Load base game textures
+        if self.base_game_folder:
+            textures_folder = self.base_game_folder / "textures"
+            if textures_folder.exists():
+                for texture_file in textures_folder.glob("*.*"):
+                    if texture_file.suffix.lower() in ['.png', '.dds']:
+                        self.all_texture_files['base_game'].add(texture_file.stem)
+                print(f"Found {len(self.all_texture_files['base_game'])} texture files in base game")
+
+    def load_player_file(self, file_path: Path):
+        """Load a player file into the application"""
+        try:
+            with open(file_path, encoding='utf-8') as f:
+                data = json.load(f)
+                
+            self.current_file = file_path
+            self.current_data = data
+            
+            # If it's a player file, update the display,otherwise error
+            if file_path.suffix == '.player':
+                self.update_player_display()
+            else:
+                raise ValueError(f"File is not a player file: {file_path}")
+            
+            # Log data details
+            print(f"Successfully loaded: {file_path}")
+            print(f"Data type: {type(self.current_data)}")
+            if isinstance(self.current_data, dict):
+                print(f"Top-level keys: {list(self.current_data.keys())}")
+                
+        except Exception as e:
+            print(f"Error loading file {file_path}: {str(e)}")
+            self.current_file = None
+            self.current_data = None
+          
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            event.accept()
+        else:
+            event.ignore()
+    
+    def dropEvent(self, event: QDropEvent):
+        files = [Path(u.toLocalFile()) for u in event.mimeData().urls()]
+        for path in files:
+            if path.is_dir():
+                self.load_folder(path)
+            elif path.is_file():
+                self.load_file(path)
+            break  # Only load the first item
+    
+    def closeEvent(self, event):
+        """Handle window close event"""
+        if self.command_stack.has_unsaved_changes():
+            reply = QMessageBox.question(
+                self,
+                'Unsaved Changes',
+                'You have unsaved changes. Do you want to save before closing?',
+                QMessageBox.StandardButton.Save | 
+                QMessageBox.StandardButton.Discard | 
+                QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Save
+            )
+            
+            if reply == QMessageBox.StandardButton.Save:
+                # Try to save changes
+                if self.save_changes():
+                    event.accept()
+                else:
+                    # If save failed, ask if they want to discard or cancel
+                    reply = QMessageBox.question(
+                        self,
+                        'Save Failed',
+                        'Failed to save changes. Do you want to discard changes and close anyway?',
+                        QMessageBox.StandardButton.Discard | 
+                        QMessageBox.StandardButton.Cancel,
+                        QMessageBox.StandardButton.Cancel
+                    )
+                    if reply == QMessageBox.StandardButton.Discard:
+                        event.accept()
+                    else:
+                        event.ignore()
+            elif reply == QMessageBox.StandardButton.Discard:
+                event.accept()
+            else:  # Cancel
+                event.ignore()
+        else:
+            event.accept()
+
+    def open_folder_dialog(self):
+        """Open directory dialog to select mod folder"""
+        dir_path = QFileDialog.getExistingDirectory(
+            self,
+            "Select Mod Folder",
+            str(self.current_folder) if self.current_folder else ""
+        )
+        if dir_path:
+            self.load_folder(Path(dir_path))
+
+    def show_settings_dialog(self):
+        """Show settings dialog"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Settings")
+        layout = QVBoxLayout(dialog)
+        
+        # Schema folder selection
+        schema_layout = QHBoxLayout()
+        schema_label = QLabel("Schema Folder:")
+        schema_path = QLineEdit(self.config.get("schema_folder", ""))
+        schema_path.setReadOnly(True)
+        schema_btn = QPushButton("Browse...")
+        
+        def select_schema_folder():
+            folder = QFileDialog.getExistingDirectory(self, "Select Schema Folder")
+            if folder:
+                schema_path.setText(folder)
+                self.config["schema_folder"] = folder
+                self.save_config()
+                self.load_schemas()  # Reload schemas with new path
+        
+        schema_btn.clicked.connect(select_schema_folder)
+        schema_layout.addWidget(schema_label)
+        schema_layout.addWidget(schema_path)
+        schema_layout.addWidget(schema_btn)
+        
+        # Base game folder selection
+        base_game_layout = QHBoxLayout()
+        base_game_label = QLabel("Base Game Folder:")
+        base_game_path = QLineEdit(self.config.get("base_game_folder", ""))
+        base_game_path.setReadOnly(True)
+        base_game_btn = QPushButton("Browse...")
+        
+        def select_base_game_folder():
+            folder = QFileDialog.getExistingDirectory(self, "Select Base Game Folder")
+            if folder:
+                base_game_path.setText(folder)
+                self.config["base_game_folder"] = folder
+                self.base_game_folder = Path(folder)  # Update base_game_folder path
+                self.save_config()
+                self.load_all_localized_strings()  # Reload localized strings with new path
+                self.load_all_texture_files()  # Reload texture files with new path
+                self.load_base_game_manifest_files()  # Reload base game manifest files
+        
+        base_game_btn.clicked.connect(select_base_game_folder)
+        base_game_layout.addWidget(base_game_label)
+        base_game_layout.addWidget(base_game_path)
+        base_game_layout.addWidget(base_game_btn)
+        
+        # Add layouts to dialog
+        layout.addLayout(schema_layout)
+        layout.addLayout(base_game_layout)
+        
+        # Close button
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dialog.accept)
+        layout.addWidget(close_btn)
+        
+        dialog.exec()
+                
+    def save_config(self):
+        """Save configuration to file"""
+        config_path = Path(__file__).parent / "config.json"
+        try:
+            with open(config_path, 'w') as f:
+                json.dump(self.config, f, indent=4)
+            logging.info("Configuration saved successfully")
+        except Exception as e:
+            print(f"Error saving config: {str(e)}")
+
+    def show_context_menu(self, widget, position, current_value):
+        """Show the context menu at the given position"""
+        print(f"show_context_menu called for widget: {widget}, position: {position}")
+        menu = self.create_context_menu(widget, current_value)
+        if menu:
+            logging.debug("Menu created, about to show")
+            menu.exec(widget.mapToGlobal(position))
+        else:
+            logging.debug("No menu was created")
+
+    def create_context_menu(self, widget, current_value):
+        """Create a context menu for text fields and buttons"""
+        menu = QMenu(self)
+        
+        # Get schema and data path from widget or its container
+        schema = None
+        data_path = widget.property("data_path")
+        print(f"Creating context menu for path: {data_path}")
+            
+        if data_path is not None:  # Changed from 'if data_path:' to handle empty lists
+            # Find the schema for this path
+            schema = self.get_schema_for_path(data_path)
+            print(f"Got schema for path {data_path}: {schema}")
+            
+            # For top-level objects, we need to resolve references in the schema itself
+            if not data_path and schema and "$ref" in schema:
+                schema = self.resolve_schema_references(schema)
+                print(f"Resolved top-level schema reference: {schema}")
+        
+        # Add Delete Property option if this is a property widget
+        property_name = None
+        
+        # Try to find property name from various widget types and layouts
+        def find_property_name_in_layout(layout):
+            if layout and layout.count() > 0:
+                first_widget = layout.itemAt(0).widget()
+                if isinstance(first_widget, QLabel):
+                    return first_widget.text().replace(":", "").replace(" ", "_").lower()
+                elif isinstance(first_widget, QToolButton):
+                    return first_widget.text().replace(" ", "_").lower()
+            return None
+            
+        def find_property_name_in_hierarchy(widget):
+            # Check if widget itself is a QToolButton (collapsible header)
+            if isinstance(widget, QToolButton):
+                return widget.text().replace(" ", "_").lower()
+                
+            # Check widget's direct parent
+            if widget.parent():
+                parent = widget.parent()
+                
+                # Try parent's layout
+                if parent.layout():
+                    name = find_property_name_in_layout(parent.layout())
+                    if name:
+                        return name
+                        
+                # If parent is a container widget, try its parent
+                if parent.parent():
+                    grandparent = parent.parent()
+                    if grandparent.layout():
+                        name = find_property_name_in_layout(grandparent.layout())
+                        if name:
+                            return name
+            return None
+            
+        # Try to find property name
+        property_name = find_property_name_in_hierarchy(widget)
+        
+        if property_name and data_path:
+            # Don't allow deletion of required properties
+            parent_schema = self.get_schema_for_path(data_path[:-1])  # Get parent object's schema
+            if not parent_schema or "required" not in parent_schema or property_name not in parent_schema["required"]:
+                if len(menu.actions()) > 0:
+                    menu.addSeparator()
+                action = menu.addAction("Delete Property")
+                action.triggered.connect(
+                    lambda checked, w=widget, n=property_name: self.delete_property(w, n)
+                )
+                
+        # Add property/item menu if this is an object or array
+        if schema and isinstance(current_value, (dict, list)):
+            add_menu = menu.addMenu("Add..." if isinstance(current_value, dict) else "Add Item")
+            
+            if isinstance(current_value, dict):
+                # Resolve schema references before checking properties
+                schema = self.resolve_schema_references(schema)
+                print(f"Resolved schema for properties: {schema}")
+
+                # Get available properties from schema
+                properties = schema.get("properties", {})
+                required = schema.get("required", [])
+                # Get currently used properties
+                used_props = set(current_value.keys())
+                print(f"Used properties: {used_props}")
+                print(f"Available properties: {properties.keys()}")
+                
+                # Add menu items for each available property
+                has_available_props = False
+                for prop_name, prop_schema in sorted(properties.items()):
+                    if prop_name not in used_props:
+                        has_available_props = True
+                        action = add_menu.addAction(prop_name)
+                        is_required = prop_name in required
+                        if is_required:
+                            action.setText(f"{prop_name} (required)")
+                        action.triggered.connect(
+                            lambda checked, n=prop_name, s=prop_schema: 
+                            self.add_property(widget, n, s)
+                        )
+                    
+                # If no available properties, add a disabled message
+                if not has_available_props:
+                    print("No available properties found")
+                    action = add_menu.addAction("No available properties")
+                    action.setEnabled(False)
+        
+            elif isinstance(current_value, list):
+                # Get item schema and resolve references
+                items_schema = schema.get("items", {})
+                if items_schema:
+                    items_schema = self.resolve_schema_references(items_schema)
+                    action = add_menu.addAction("New Item")
+                    action.triggered.connect(
+                        lambda checked: self.add_array_item(widget, items_schema)
+                    )
+                    
+        # Only add selection menu for non-container values (not objects or arrays)
+        if not isinstance(current_value, (dict, list)):
+            select_menu = menu.addMenu("Select from...")
+            
+            # File selection action
+            file_action = select_menu.addAction("File...")
+            file_action.triggered.connect(lambda: self.show_file_selector(widget))
+            
+            # Uniforms selection action
+            uniforms_action = select_menu.addAction("Uniforms...")
+            uniforms_action.triggered.connect(lambda: self.show_uniforms_selector(widget))
+            
+            # Localized text selection action
+            text_action = select_menu.addAction("Localized Text...")
+            text_action.triggered.connect(lambda: self.show_localized_text_selector(widget))
+            
+            # Texture selection action
+            texture_action = select_menu.addAction("Texture...")
+            texture_action.triggered.connect(lambda: self.show_texture_selector(widget))
+            
+            # Sound selection action
+            sound_action = select_menu.addAction("Sounds...")
+            sound_action.triggered.connect(lambda: self.show_sound_selector(widget))
+            
+        return menu
+
+    def show_file_selector(self, target_widget):
+        """Show a dialog to select a file from mod or base game"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select File")
+        layout = QVBoxLayout(dialog)
+        
+        # File type selector
+        type_layout = QHBoxLayout()
+        type_label = QLabel("File Type:")
+        type_combo = QComboBox()
+        type_combo.addItems(sorted(set(self.manifest_data['mod'].keys()) | 
+                                 set(self.manifest_data['base_game'].keys())))
+        type_layout.addWidget(type_label)
+        type_layout.addWidget(type_combo)
+        layout.addLayout(type_layout)
+        
+        # File list
+        file_list = QListWidget()
+        layout.addWidget(file_list)
+        
+        def update_file_list():
+            file_list.clear()
+            file_type = type_combo.currentText()
+            # Add mod files first
+            for file_id in sorted(self.manifest_data['mod'].get(file_type, {})):
+                item = QListWidgetItem(file_id)
+                file_list.addItem(item)
+            # Then add base game files (grayed out)
+            for file_id in sorted(self.manifest_data['base_game'].get(file_type, {})):
+                if file_id not in self.manifest_data['mod'].get(file_type, {}):
+                    item = QListWidgetItem(file_id)
+                    item.setForeground(QColor(150, 150, 150))
+                    font = item.font()
+                    font.setItalic(True)
+                    item.setFont(font)
+                    file_list.addItem(item)
+        
+        type_combo.currentTextChanged.connect(update_file_list)
+        update_file_list()  # Initial population
+        
+        # Buttons
+        button_box = QHBoxLayout()
+        select_btn = QPushButton("Select")
+        cancel_btn = QPushButton("Cancel")
+        button_box.addWidget(select_btn)
+        button_box.addWidget(cancel_btn)
+        layout.addLayout(button_box)
+        
+        def on_select():
+            if file_list.currentItem():
+                new_value = file_list.currentItem().text()
+                self.on_select_value(target_widget, new_value)
+                dialog.accept()
+        
+        select_btn.clicked.connect(on_select)
+        cancel_btn.clicked.connect(dialog.reject)
+        file_list.itemDoubleClicked.connect(on_select)
+        
+        dialog.exec()
+
+    def show_uniforms_selector(self, target_widget):
+        """Show a dialog to select a uniform value"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Uniform Value")
+        dialog.resize(800, 600)
+        layout = QVBoxLayout(dialog)
+        
+        # Uniforms file selector
+        file_layout = QHBoxLayout()
+        file_label = QLabel("Uniforms File:")
+        file_combo = QComboBox()
+        # Add mod files first
+        mod_files = []
+        base_files = []
+        for item in self.uniforms_list.findItems("*", Qt.MatchFlag.MatchWildcard):
+            # Check if file exists in mod folder
+            mod_path = self.current_folder / "uniforms" / f"{item.text()}.uniforms"
+            if mod_path.exists():
+                mod_files.append(item.text())
+            else:
+                base_files.append(item.text())
+        
+        # Add mod files first
+        for file_id in sorted(mod_files):
+            file_combo.addItem(file_id)
+        # Then add base game files
+        for file_id in sorted(base_files):
+            file_combo.addItem(file_id)
+            # Style base game items
+            index = file_combo.count() - 1
+            file_combo.setItemData(index, QColor(150, 150, 150), Qt.ItemDataRole.ForegroundRole)
+            font = file_combo.itemData(index, Qt.ItemDataRole.FontRole) or QFont()
+            font.setItalic(True)
+            file_combo.setItemData(index, font, Qt.ItemDataRole.FontRole)
+        
+        file_layout.addWidget(file_label)
+        file_layout.addWidget(file_combo)
+        layout.addLayout(file_layout)
+        
+        # Tree widget for nested data
+        tree = QTreeWidget()
+        tree.setHeaderLabels(["Key", "Value"])
+        tree.setColumnWidth(0, 300)  # Give more space to the key column
+        layout.addWidget(tree)
+        
+        def add_item(parent, key, value, full_path=""):
+            """Recursively add items to the tree"""
+            if full_path:
+                new_path = f"{full_path}.{key}" if isinstance(key, str) else f"{full_path}[{key}]"
+            else:
+                new_path = str(key)
+                
+            item = QTreeWidgetItem(parent)
+            item.setText(0, str(key))
+            
+            if isinstance(value, dict):
+                item.setText(1, "{...}")
+                for k, v in sorted(value.items()):
+                    add_item(item, k, v, new_path)
+            elif isinstance(value, list):
+                item.setText(1, f"[{len(value)} items]")
+                for i, v in enumerate(value):
+                    add_item(item, i, v, new_path)
+            else:
+                item.setText(1, str(value))
+                # Store the full path and value for selection
+                item.setData(0, Qt.ItemDataRole.UserRole, (new_path, value))
+        
+        def update_tree():
+            tree.clear()
+            file_id = file_combo.currentText()
+            if not file_id:
+                return
+                
+            try:
+                # Try to load the uniforms file
+                file_path = self.current_folder / "uniforms" / f"{file_id}.uniforms"
+                if not file_path.exists() and self.base_game_folder:
+                    file_path = self.base_game_folder / "uniforms" / f"{file_id}.uniforms"
+                
+                if file_path.exists():
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        for key, value in sorted(data.items()):
+                            add_item(tree, key, value)
+                            
+                    tree.expandToDepth(0)  # Expand first level by default
+            except Exception as e:
+                print(f"Error loading uniforms file: {str(e)}")
+        
+        def on_item_selected():
+            item = tree.currentItem()
+            if not item:
+                return
+                
+            data = item.data(0, Qt.ItemDataRole.UserRole)
+            if data:  # Only leaf nodes have data
+                path, value = data
+                new_value = str(value) if not isinstance(value, (dict, list)) else path
+                self.on_select_value(target_widget, new_value)
+                dialog.accept()
+        
+        def on_item_double_clicked(item, column):
+            on_item_selected()
+        
+        file_combo.currentTextChanged.connect(update_tree)
+        tree.itemDoubleClicked.connect(on_item_double_clicked)
+        update_tree()  # Initial population
+        
+        # Buttons
+        button_box = QHBoxLayout()
+        select_btn = QPushButton("Select")
+        select_btn.setEnabled(False)  # Disabled until an item is selected
+        cancel_btn = QPushButton("Cancel")
+        button_box.addStretch()
+        button_box.addWidget(select_btn)
+        button_box.addWidget(cancel_btn)
+        layout.addLayout(button_box)
+        
+        # Enable select button when an item is selected
+        def on_current_item_changed(current, previous):
+            select_btn.setEnabled(current is not None and current.data(0, Qt.ItemDataRole.UserRole) is not None)
+        
+        tree.currentItemChanged.connect(on_current_item_changed)
+        select_btn.clicked.connect(on_item_selected)
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        dialog.exec()
+
+    def show_localized_text_selector(self, target_widget):
+        """Show a dialog to select localized text"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Localized Text")
+        dialog.resize(800, 600)  # Make the dialog larger
+        layout = QVBoxLayout(dialog)
+        
+        # Language selector
+        lang_layout = QHBoxLayout()
+        lang_label = QLabel("Language:")
+        lang_combo = QComboBox()
+        
+        # Get all available languages
+        all_languages = set()
+        for source in ['mod', 'base_game']:
+            all_languages.update(self.all_localized_strings[source].keys())
+        
+        lang_combo.addItems(sorted(all_languages))
+        # Set current language if available, otherwise default to English
+        current_index = lang_combo.findText(self.current_language)
+        if current_index >= 0:
+            lang_combo.setCurrentIndex(current_index)
+        elif lang_combo.findText("en") >= 0:
+            lang_combo.setCurrentIndex(lang_combo.findText("en"))
+            
+        lang_layout.addWidget(lang_label)
+        lang_layout.addWidget(lang_combo)
+        layout.addLayout(lang_layout)
+        
+        # Search box
+        search_box = QLineEdit()
+        search_box.setPlaceholderText("Search...")
+        layout.addWidget(search_box)
+        
+        # Text list
+        text_list = QListWidget()
+        layout.addWidget(text_list)
+        
+        def update_text_list(search=""):
+            text_list.clear()
+            search = search.lower()
+            current_lang = lang_combo.currentText()
+            
+            # Helper to add items with proper styling
+            def add_items(items, is_base_game=False):
+                for key, value in sorted(items.items()):
+                    if search in key.lower() or search in str(value).lower():
+                        item = QListWidgetItem(f"{key}: {value}")
+                        item.setData(Qt.ItemDataRole.UserRole, key)  # Store just the key
+                        if is_base_game:
+                            item.setForeground(QColor(150, 150, 150))
+                            font = item.font()
+                            font.setItalic(True)
+                            item.setFont(font)
+                        text_list.addItem(item)
+            
+            # Add mod texts first
+            if current_lang in self.all_localized_strings['mod']:
+                add_items(self.all_localized_strings['mod'][current_lang])
+            
+            # Then add base game texts
+            if current_lang in self.all_localized_strings['base_game']:
+                add_items(self.all_localized_strings['base_game'][current_lang], True)
+        
+        search_box.textChanged.connect(update_text_list)
+        lang_combo.currentTextChanged.connect(lambda: update_text_list(search_box.text()))
+        update_text_list()  # Initial population
+        
+        # Buttons
+        button_box = QHBoxLayout()
+        select_btn = QPushButton("Select")
+        select_btn.setEnabled(False)  # Disabled until an item is selected
+        cancel_btn = QPushButton("Cancel")
+        button_box.addStretch()
+        button_box.addWidget(select_btn)
+        button_box.addWidget(cancel_btn)
+        layout.addLayout(button_box)
+        
+        def on_item_selected():
+            item = text_list.currentItem()
+            if item:
+                new_value = item.data(Qt.ItemDataRole.UserRole)
+                self.on_select_value(target_widget, new_value)
+                dialog.accept()
+        
+        def on_item_double_clicked(item):
+            on_item_selected()
+        
+        # Enable select button when an item is selected
+        def on_current_item_changed(current, previous):
+            select_btn.setEnabled(current is not None)
+        
+        text_list.currentItemChanged.connect(on_current_item_changed)
+        text_list.itemDoubleClicked.connect(on_item_double_clicked)
+        select_btn.clicked.connect(on_item_selected)
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        dialog.exec()
+
+    def show_array_item_menu(self, widget: QWidget, pos):
+        """Show context menu for array item indices"""
+        print("Showing array item menu")
+        menu = QMenu()
+        
+        # Get data path and array data
+        data_path = widget.property("data_path")
+        array_data = widget.property("array_data")
+        
+        if data_path and array_data and len(array_data) > 1:
+            # Add delete action
+            delete_action = menu.addAction("Delete Item")
+            delete_action.triggered.connect(
+                lambda: self.delete_array_item(widget, data_path)
+            )
+        
+        menu.exec(widget.mapToGlobal(pos))
+        
+    def show_texture_selector(self, target_widget):
+        """Show a dialog to select a texture"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Texture")
+        dialog.resize(1000, 600)
+        layout = QHBoxLayout(dialog)
+        
+        # Left side with list
+        left_side = QWidget()
+        left_layout = QVBoxLayout(left_side)
+        layout.addWidget(left_side)
+        
+        # Add search box
+        search_box = QLineEdit()
+        search_box.setPlaceholderText("Search textures...")
+        left_layout.addWidget(search_box)
+        
+        # Create list widget for textures
+        texture_list = QListWidget()
+        left_layout.addWidget(texture_list)
+        
+        # Right side with preview
+        right_side = QWidget()
+        right_layout = QVBoxLayout(right_side)
+        layout.addWidget(right_side)
+        
+        # Preview label
+        preview_label = QLabel()
+        preview_label.setMinimumSize(300, 300)
+        preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        right_layout.addWidget(preview_label)
+        right_layout.addStretch()
+        
+        def update_texture_list(search=""):
+            texture_list.clear()
+            search = search.lower()
+            
+            def add_textures(textures, is_base_game=False):
+                for texture in sorted(textures):
+                    if search in texture.lower():
+                        item = QListWidgetItem(texture)
+                        if is_base_game:
+                            item.setForeground(QColor(150, 150, 150))
+                            font = item.font()
+                            font.setItalic(True)
+                            item.setFont(font)
+                        texture_list.addItem(item)
+            
+            # Add mod textures first
+            add_textures(self.all_texture_files['mod'])
+            # Then add base game textures
+            add_textures(self.all_texture_files['base_game'], True)
+        
+        # Connect search box
+        search_box.textChanged.connect(update_texture_list)
+        
+        # Buttons
+        button_box = QHBoxLayout()
+        select_btn = QPushButton("Select")
+        select_btn.setEnabled(False)
+        cancel_btn = QPushButton("Cancel")
+        button_box.addStretch()
+        button_box.addWidget(select_btn)
+        button_box.addWidget(cancel_btn)
+        left_layout.addLayout(button_box)
+        
+        def on_item_selected():
+            if texture_list.currentItem():
+                new_value = texture_list.currentItem().text()
+                self.on_select_value(target_widget, new_value)
+                dialog.accept()
+        
+        def on_item_double_clicked(item):
+            on_item_selected()
+        
+        def on_current_item_changed(current, previous):
+            select_btn.setEnabled(current is not None)
+            if current:
+                # Update preview
+                texture_name = current.text()
+                pixmap, _ = self.load_texture(texture_name)
+                if pixmap:
+                    # Scale pixmap to fit preview area while maintaining aspect ratio
+                    scaled_pixmap = pixmap.scaled(300, 300, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                    preview_label.setPixmap(scaled_pixmap)
+                else:
+                    preview_label.setText("No preview available")
+            else:
+                preview_label.clear()
+        
+        texture_list.currentItemChanged.connect(on_current_item_changed)
+        texture_list.itemDoubleClicked.connect(on_item_double_clicked)
+        select_btn.clicked.connect(on_item_selected)
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        # Initial population
+        update_texture_list()
+        dialog.exec()
+
+    def show_sound_selector(self, target_widget):
+        """Show a dialog to select a sound file"""
+        # Initialize pygame mixer
+        if not pygame.mixer.get_init():
+            pygame.mixer.init()
+        
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Sound")
+        dialog.resize(800, 500)
+        layout = QVBoxLayout(dialog)
+        
+        # Search box
+        search_box = QLineEdit()
+        search_box.setPlaceholderText("Search sounds...")
+        layout.addWidget(search_box)
+        
+        # Sound list
+        sound_list = QListWidget()
+        layout.addWidget(sound_list)
+        
+        # Playback controls
+        controls_layout = QHBoxLayout()
+        play_button = QPushButton("Play")
+        stop_button = QPushButton("Stop")
+        stop_button.setEnabled(False)
+        controls_layout.addWidget(play_button)
+        controls_layout.addWidget(stop_button)
+        layout.addLayout(controls_layout)
+        
+        # Audio playback state
+        audio_state = {
+            'playing': False,
+            'sound': None
+        }
+        
+        def get_sound_files():
+            """Get all .ogg files from mod and base game"""
+            sound_files = {'mod': set(), 'base_game': set()}
+            
+            # Get mod sounds
+            if self.current_folder:
+                sound_dir = self.current_folder / "sounds"
+                if sound_dir.exists():
+                    for file_path in sound_dir.rglob("*.ogg"):
+                        rel_path = file_path.relative_to(sound_dir)
+                        sound_files['mod'].add(str(rel_path).replace('\\', '/'))
+            
+            # Get base game sounds
+            if self.base_game_folder:
+                sound_dir = self.base_game_folder / "sounds"
+                if sound_dir.exists():
+                    for file_path in sound_dir.rglob("*.ogg"):
+                        rel_path = file_path.relative_to(sound_dir)
+                        rel_path_str = str(rel_path).replace('\\', '/')
+                        if rel_path_str not in sound_files['mod']:
+                            sound_files['base_game'].add(rel_path_str)
+            
+            return sound_files
+            
+        def update_sound_list(search=""):
+            sound_list.clear()
+            search = search.lower()
+            sound_files = get_sound_files()
+            
+            # Add mod sounds first
+            for sound in sorted(sound_files['mod']):
+                if search in sound.lower():
+                    # Strip .ogg extension for display
+                    display_name = str(Path(sound).with_suffix(''))
+                    item = QListWidgetItem(display_name)
+                    # Store full path with extension as data
+                    item.setData(Qt.ItemDataRole.UserRole, sound)
+                    sound_list.addItem(item)
+            
+            # Then add base game sounds
+            for sound in sorted(sound_files['base_game']):
+                if search in sound.lower():
+                    # Strip .ogg extension for display
+                    display_name = str(Path(sound).with_suffix(''))
+                    item = QListWidgetItem(display_name)
+                    # Store full path with extension as data
+                    item.setData(Qt.ItemDataRole.UserRole, sound)
+                    item.setForeground(QColor(150, 150, 150))
+                    font = item.font()
+                    font.setItalic(True)
+                    item.setFont(font)
+                    sound_list.addItem(item)
+        
+        def play_sound():
+            if not sound_list.currentItem():
+                return
+                
+            # Get full path with extension from item data
+            sound_path = sound_list.currentItem().data(Qt.ItemDataRole.UserRole)
+            is_base_game = sound_list.currentItem().foreground().color().getRgb()[:3] == (150, 150, 150)
+            
+            # Get full path
+            base_dir = self.base_game_folder if is_base_game else self.current_folder
+            full_path = base_dir / "sounds" / sound_path
+            
+            if full_path.exists():
+                try:
+                    # Stop any existing playback
+                    stop_sound()
+                    
+                    # Load and play the sound
+                    audio_state['sound'] = pygame.mixer.Sound(str(full_path))
+                    audio_state['sound'].play()
+                    audio_state['playing'] = True
+                    
+                    play_button.setEnabled(False)
+                    stop_button.setEnabled(True)
+                    
+                    # Start a timer to check when playback is done
+                    def check_playback():
+                        while audio_state['playing'] and pygame.mixer.get_busy():
+                            pygame.time.wait(100)
+                        if audio_state['playing']:  # If not stopped manually
+                            audio_state['playing'] = False
+                            play_button.setEnabled(True)
+                            stop_button.setEnabled(False)
+                    
+                    threading.Thread(target=check_playback, daemon=True).start()
+                    
+                except Exception as e:
+                    print(f"Error playing sound: {str(e)}")
+                    audio_state['playing'] = False
+                    play_button.setEnabled(True)
+                    stop_button.setEnabled(False)
+        
+        def stop_sound():
+            if audio_state['sound']:
+                audio_state['sound'].stop()
+            audio_state['playing'] = False
+            audio_state['sound'] = None
+            play_button.setEnabled(True)
+            stop_button.setEnabled(False)
+        
+        # Connect signals
+        search_box.textChanged.connect(update_sound_list)
+        play_button.clicked.connect(play_sound)
+        stop_button.clicked.connect(stop_sound)
+        
+        # Selection buttons
+        button_box = QHBoxLayout()
+        select_btn = QPushButton("Select")
+        select_btn.setEnabled(False)
+        cancel_btn = QPushButton("Cancel")
+        button_box.addStretch()
+        button_box.addWidget(select_btn)
+        button_box.addWidget(cancel_btn)
+        layout.addLayout(button_box)
+        
+        def on_item_selected():
+            if sound_list.currentItem():
+                stop_sound()  # Stop any playing sound
+                # Use display name (without extension) for selection
+                new_value = sound_list.currentItem().text()
+                self.on_select_value(target_widget, new_value)
+                dialog.accept()
+        
+        def on_item_double_clicked(item):
+            on_item_selected()
+        
+        def on_current_item_changed(current, previous):
+            select_btn.setEnabled(current is not None)
+            play_button.setEnabled(current is not None)
+        
+        # Connect selection signals
+        sound_list.currentItemChanged.connect(on_current_item_changed)
+        sound_list.itemDoubleClicked.connect(on_item_double_clicked)
+        select_btn.clicked.connect(on_item_selected)
+        cancel_btn.clicked.connect(dialog.reject)
+        
+        # Clean up on close
+        dialog.finished.connect(stop_sound)
+        
+        # Initial population
+        update_sound_list()
+        dialog.exec()
+        
+        # Clean up pygame mixer
+        pygame.mixer.quit()
+
+    def undo(self):
+        """Undo the last command"""
+        self.command_stack.undo()
+        self.update_save_button()  # Update button states
+    
+    def redo(self):
+        """Redo the last undone command"""
+        self.command_stack.redo()
+        self.update_save_button()  # Update button states
+    
+    def get_current_value_from_command_stack(self, file_path: Path, path: list, default_value: any) -> any:
+        """Get the current value from command stack if available, otherwise return default"""
+        if not file_path or not path:
+            return default_value
+            
+        data = self.command_stack.get_file_data(file_path)
+        if not data:
+            return default_value
+            
+        # Navigate through the path to get the value
+        current = data
+        try:
+            for key in path[:-1]:
+                if isinstance(current, dict):
+                    current = current.get(key, {})
+                elif isinstance(current, list) and isinstance(key, int) and key < len(current):
+                    current = current[key]
+                else:
+                    return default_value
+                    
+            if isinstance(current, dict):
+                return current.get(path[-1], default_value)
+            elif isinstance(current, list) and isinstance(path[-1], int) and path[-1] < len(current):
+                return current[path[-1]]
+            return default_value
+        except Exception:
+            return default_value
+
+    def save_changes(self):
+        """Save all changes and return True if successful"""
+        if not self.command_stack.has_unsaved_changes():
+            logging.info("No unsaved changes to save")
+            return True
+            
+        # Get all modified files
+        modified_files = self.command_stack.get_modified_files()
+        print(f"Found {len(modified_files)} modified files to save")
+        print(f"Modified files list: {modified_files}")
+        
+        success = True
+        for file_path in modified_files:
+            print(f"Processing file for save: {file_path}")
+            
+            # Get the latest data from the command stack
+            data = self.command_stack.get_file_data(file_path)
+            
+            if not data:
+                print(f"No data found in command stack for file: {file_path}")
+                success = False
+                continue
+                    
+            # Save the file
+            print(f"Attempting to save file: {file_path}")
+            try:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, indent=4)
+                print(f"Successfully saved file: {file_path}")
+            except Exception as e:
+                print(f"Failed to save file {file_path}: {str(e)}")
+                success = False
+                continue
+                
+        # Update UI and command stack state
+        if success:
+            self.status_label.setText("All changes saved")
+            self.status_label.setProperty("status", "success")
+            logging.info("All files saved successfully")
+            # Mark all changes as saved in command stack
+            self.command_stack.mark_all_saved()
+        else:
+            self.status_label.setText("Error saving some changes")
+            self.status_label.setProperty("status", "error")
+            logging.error("Some files failed to save")
+        self.status_label.style().unpolish(self.status_label)
+        self.status_label.style().polish(self.status_label)
+        
+        # Update save button state
+        self.update_save_button()
+        print(f"Save button enabled: {self.command_stack.has_unsaved_changes()}")
+
+        return success
+        
+    def update_save_button(self):
+        """Update save button enabled state"""
+        if hasattr(self, 'save_btn'):
+            has_changes = self.command_stack.has_unsaved_changes()
+            self.save_btn.setEnabled(has_changes)
+            
+        # Also update undo/redo buttons
+        if hasattr(self, 'undo_btn'):
+            self.undo_btn.setEnabled(self.command_stack.can_undo())
+        if hasattr(self, 'redo_btn'):
+            self.redo_btn.setEnabled(self.command_stack.can_redo())
+
+    def update_data_value(self, data_path: list, new_value: any):
+        """Update a value in the data structure using its path"""
+        print(f"Updating data value at path {data_path} to {new_value}")
+
+        if not data_path:
+            # Empty path - replace entire data structure
+            self.current_data = new_value
+            print(f"Replaced entire data structure with new value")
+            return
+        
+        if len(data_path) == 1:
+            # Single path element - modify root property
+            if isinstance(self.current_data, dict):
+                if new_value is None:
+                    # Remove property if new_value is None
+                    if data_path[0] in self.current_data:
+                        del self.current_data[data_path[0]]
+                        print(f"Removed root property {data_path[0]}")
+                else:
+                    # Add or update property
+                    self.current_data[data_path[0]] = new_value
+                    print(f"Updated root property {data_path[0]} to {new_value}")
+            return
+        
+        current = self.current_data
+        for i, key in enumerate(data_path[:-1]):
+            print(f"Traversing path element {i}: {key}")
+            if isinstance(current, dict):
+                if key not in current:
+                    current[key] = {} if isinstance(data_path[i + 1], str) else []
+                    print(f"Created new dict/list for key {key}")
+                current = current[key]
+            elif isinstance(current, list):
+                while len(current) <= key:
+                    current.append({} if isinstance(data_path[i + 1], str) else [])
+                    print(f"Extended list to accommodate index {key}")
+                current = current[key]
+        
+        if data_path:
+            if isinstance(current, dict):
+                print(f"Setting dict key {data_path[-1]} to {new_value}")
+                current[data_path[-1]] = new_value
+            elif isinstance(current, list):
+                while len(current) <= data_path[-1]:
+                    current.append(None)
+                    print(f"Extended list to accommodate final index {data_path[-1]}")
+                print(f"Setting list index {data_path[-1]} to {new_value}")
+                current[data_path[-1]] = new_value
+
+    def on_player_selected(self, player_name: str):
+        """Handle player selection from dropdown"""
+        if not player_name or not self.current_folder:
+            return
+            
+        # Find and load the selected player file
+        player_file = self.current_folder / "entities" / f"{player_name}.player"
+        self.load_player_file(player_file) 
+
+    def update_player_display(self):
+        """Update the display with player data"""
+        if not self.current_data:
+            return
+            
+        # Clear existing content
+        self.clear_layout(self.player_layout)
+        
+        # Create schema view for player data
+        schema_view = self.create_schema_view("player", self.current_data, False, self.current_file)
+        self.player_layout.addWidget(schema_view)
+        
+        # Units Tab
+        # Clear the lists
+        self.units_list.clear()
+        self.strikecraft_list.clear()
+        # Don't clear all_units_list as it's populated from folder load
+            
+        # Add buildable units
+        if "buildable_units" in self.current_data:
+            for unit_id in sorted(self.current_data["buildable_units"]):
+                item = QListWidgetItem(unit_id)
+                # Check if unit exists in mod folder first
+                mod_file = self.current_folder / "entities" / f"{unit_id}.unit"
+                # Style as base game if it doesn't exist in mod folder
+                if (not mod_file.exists() and self.base_game_folder and 
+                    unit_id in self.manifest_data['base_game'].get('unit', {})):
+                    item.setForeground(QColor(150, 150, 150))
+                    font = item.font()
+                    font.setItalic(True)
+                    item.setFont(font)
+                self.units_list.addItem(item)
+        
+        # Add buildable strikecraft
+        if "buildable_strikecraft" in self.current_data:
+            for unit_id in sorted(self.current_data["buildable_strikecraft"]):
+                item = QListWidgetItem(unit_id)
+                self.strikecraft_list.addItem(item)
+            
+            # Clear all detail panels
+            self.clear_layout(self.unit_details_layout)
+            self.clear_layout(self.weapon_details_layout)
+            self.clear_layout(self.skin_details_layout)
+            self.clear_layout(self.ability_details_layout)
+        
+        # Research Tab
+        if "research" in self.current_data:
+            # Clear existing research view
+            self.clear_layout(self.research_layout)
+            # Create and add new research view
+            research_view = self.create_research_view(self.current_data["research"])
+            self.research_layout.addWidget(research_view)
+        
+        self.tab_widget.setCurrentIndex(0)  # Show first tab
 
     def create_research_view(self, research_data: dict) -> QWidget:
         """Create a custom research view that mimics the game's UI"""
@@ -1540,6 +2371,66 @@ class EntityToolGUI(QMainWindow):
         layout.addWidget(split_widget)
         return container 
 
+    def load_research_subject(self, subject_id: str):
+        """Load a research subject file and display its details using the schema"""
+        if not self.current_folder or not hasattr(self, 'research_details_layout'):
+            return
+            
+        # Look for the research subject file in the entities folder
+        subject_file = self.current_folder / "entities" / f"{subject_id}.research_subject"
+        
+        try:
+            # Check if we have data in the command stack first
+            subject_data = self.command_stack.get_file_data(subject_file)
+            is_base_game = False
+            
+            if subject_data is None:
+                # Load from file if not in command stack
+                subject_data, is_base_game = self.load_file(subject_file)
+                if not subject_data:
+                    print(f"Research subject file not found: {subject_file}")
+                    return
+                    
+                # Store initial data in command stack
+                self.command_stack.update_file_data(subject_file, subject_data)
+            else:
+                print(f"Using data from command stack for {subject_file}")
+            
+            # Clear any existing details
+            while self.research_details_layout.count():
+                item = self.research_details_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+            
+            # Create and add the schema view
+            schema_view = self.create_schema_view("research-subject", subject_data, is_base_game, subject_file)
+            self.research_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            print(f"Error loading research subject {subject_id}: {str(e)}")
+
+    def create_texture_label(self, texture_name: str, max_size: int = 128) -> QLabel:
+        """Create a QLabel with a texture, scaled to max_size"""
+        pixmap, is_base_game = self.load_texture(texture_name)
+        
+        label = QLabel()
+        if not pixmap.isNull():
+            # Scale pixmap while maintaining aspect ratio
+            scaled_pixmap = pixmap.scaled(max_size, max_size, 
+                                        Qt.AspectRatioMode.KeepAspectRatio, 
+                                        Qt.TransformationMode.SmoothTransformation)
+            label.setPixmap(scaled_pixmap)
+            if is_base_game:
+                label.setStyleSheet("QLabel { background-color: #f0f0f0; padding: 4px; font-style: italic; }")
+                label.setToolTip(f"Base game texture: {texture_name}")
+            else:
+                label.setToolTip(f"Mod texture: {texture_name}")
+        else:
+            label.setText(f"[Texture not found: {texture_name}]")
+            label.setStyleSheet("QLabel { color: #666666; font-style: italic; }")
+        
+        return label
+
     def get_research_field_picture_path(self, domain: str, field_id: str) -> str:
         """Get the path to a research field's background picture."""
         # First check mod folder
@@ -1578,72 +2469,583 @@ class EntityToolGUI(QMainWindow):
         
         # Rest of existing code... 
 
-    def get_default_value(self, schema: dict) -> any:
-        """Get a default value for a schema"""
-        # Resolve any references first
-        schema = self.resolve_schema_references(schema)
+    def on_unit_selected(self, item):
+        """Handle unit selection from the list"""
+        if not self.current_folder:
+            return
+            
+        unit_id = item.text()
+        unit_file = self.current_folder / "entities" / f"{unit_id}.unit"
         
-        if not schema:
-            return None
+        try:
+            # Check if we have data in the command stack first
+            unit_data = self.command_stack.get_file_data(unit_file)
+            is_base_game = False
             
-        schema_type = schema.get("type")
-        
-        if schema_type == "string":
-            if "enum" in schema:
-                return schema["enum"][0]  # Return first enum value
-            return ""
+            if unit_data is None:
+                # Load from file if not in command stack
+                unit_data, is_base_game = self.load_file(unit_file)
+                if not unit_data:
+                    print(f"Unit file not found: {unit_file}")
+                    return
+                    
+                # Store initial data in command stack
+                self.command_stack.update_file_data(unit_file, unit_data)
+            else:
+                print(f"Using data from command stack for {unit_file}")
+                
+            # Update current file and data
+            self.current_file = unit_file
+            self.current_data = unit_data
+                
+            # Clear existing details in all panels
+            self.clear_layout(self.unit_details_layout)
+            self.clear_layout(self.weapon_details_layout)
+            self.clear_layout(self.skin_details_layout)
+            self.clear_layout(self.ability_details_layout)
             
-        elif schema_type == "number":
-            if "minimum" in schema:
-                return schema["minimum"]
-            return 0.0
+            # Create and add the schema view for unit details
+            schema_view = self.create_schema_view("unit", unit_data, is_base_game, unit_file)
+            self.unit_details_layout.addWidget(schema_view)
             
-        elif schema_type == "integer":
-            if "minimum" in schema:
-                return schema["minimum"]
-            return 0
-            
-        elif schema_type == "boolean":
-            return False
-            
-        elif schema_type == "array":
-            # Get the schema for array items
-            items_schema = schema.get("items", {})
-            min_items = schema.get("minItems", 1)  # Default to 1 item if not specified
-            max_items = schema.get("maxItems", None)  # No max by default
-            
-            if items_schema:
-                # Create the minimum required number of items
-                default_items = []
-                for _ in range(min_items):
-                    default_item = self.get_default_value(items_schema)
-                    default_items.append(default_item)
-                return default_items
-            return [""]  # Fallback for arrays with no items schema
-            
-        elif schema_type == "object":
-            # Create object with all required properties
-            result = {}
-            properties = schema.get("properties", {})
-            required = schema.get("required", [])
-            
-            # Add all required properties with their default values
-            for prop_name in required:
-                if prop_name in properties:
-                    prop_schema = self.resolve_schema_references(properties[prop_name])
-                    result[prop_name] = self.get_default_value(prop_schema)
-            
-            # If unevaluatedProperties is false, add all optional properties too
-            if schema.get("unevaluatedProperties") is False:
-                for prop_name, prop_schema in properties.items():
-                    if prop_name not in result:
-                        prop_schema = self.resolve_schema_references(prop_schema)
-                        result[prop_name] = self.get_default_value(prop_schema)
-            
-            return result
-            
-        return None
+        except Exception as e:
+            print(f"Error loading unit {unit_id}: {str(e)}")
+            error_label = QLabel(f"Error loading unit: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.unit_details_layout.addWidget(error_label)
 
+    def on_item_selected(self, item):
+        """Handle unit item selection from the list"""
+        if not self.current_folder:
+            return
+            
+        item_id = item.text()
+        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
+        item_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{item_id}.unit_item"
+        
+        try:
+            # Load from file
+            item_data, _ = self.load_file(item_file, try_base_game=False)  # Don't try base game again
+            if not item_data:
+                print(f"Item file not found: {item_file}")
+                return
+                
+            # Clear existing details
+            self.clear_layout(self.item_details_layout)
+            
+            # Create and add the schema view for item details
+            schema_view = self.create_schema_view("unit-item", item_data, is_base_game, item_file)
+            self.item_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            print(f"Error loading item {item_id}: {str(e)}")
+            error_label = QLabel(f"Error loading item: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.item_details_layout.addWidget(error_label)
+
+    def on_ability_selected(self, item):
+        """Handle ability selection from the list"""
+        if not self.current_folder:
+            return
+            
+        ability_id = item.text()
+        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
+        ability_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{ability_id}.ability"
+        
+        try:
+            # Load from file
+            ability_data, _ = self.load_file(ability_file, try_base_game=False)  # Don't try base game again
+            if not ability_data:
+                print(f"Ability file not found: {ability_file}")
+                return
+                
+            # Clear existing details
+            self.clear_layout(self.ability_details_layout)
+            
+            # Create and add the schema view for ability details
+            schema_view = self.create_schema_view("ability", ability_data, is_base_game, ability_file)
+            self.ability_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            print(f"Error loading ability {ability_id}: {str(e)}")
+            error_label = QLabel(f"Error loading ability: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.ability_details_layout.addWidget(error_label)
+
+    def on_action_selected(self, item):
+        """Handle action data source selection from the list"""
+        if not self.current_folder:
+            return
+            
+        action_id = item.text()
+        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
+        action_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{action_id}.action_data_source"
+        
+        try:
+            # Load from file
+            action_data, _ = self.load_file(action_file, try_base_game=False)  # Don't try base game again
+            if not action_data:
+                print(f"Action data source file not found: {action_file}")
+                return
+                
+            # Clear existing details
+            self.clear_layout(self.action_details_layout)
+            
+            # Create and add the schema view for action details
+            schema_view = self.create_schema_view("action-data-source", action_data, is_base_game, action_file)
+            self.action_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            print(f"Error loading action data source {action_id}: {str(e)}")
+            error_label = QLabel(f"Error loading action data source: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.action_details_layout.addWidget(error_label)
+
+    def on_buff_selected(self, item):
+        """Handle buff selection from the list"""
+        if not self.current_folder:
+            return
+            
+        buff_id = item.text()
+        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
+        buff_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{buff_id}.buff"
+        
+        try:
+            # Load from file
+            buff_data, _ = self.load_file(buff_file, try_base_game=False)  # Don't try base game again
+            if not buff_data:
+                print(f"Buff file not found: {buff_file}")
+                return
+                
+            # Clear existing details
+            self.clear_layout(self.buff_details_layout)
+            
+            # Create and add the schema view for buff details
+            schema_view = self.create_schema_view("buff", buff_data, is_base_game, buff_file)
+            self.buff_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            print(f"Error loading buff {buff_id}: {str(e)}")
+            error_label = QLabel(f"Error loading buff: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.buff_details_layout.addWidget(error_label)
+
+    def on_formation_selected(self, item):
+        """Handle formation selection from the list"""
+        if not self.current_folder:
+            return
+            
+        formation_id = item.text()
+        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
+        formation_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{formation_id}.formation"
+        
+        try:
+            # Load from file
+            formation_data, _ = self.load_file(formation_file, try_base_game=False)  # Don't try base game again
+            if not formation_data:
+                print(f"Formation file not found: {formation_file}")
+                return
+                
+            # Clear existing details
+            self.clear_layout(self.formation_details_layout)
+            
+            # Create and add the schema view for formation details
+            schema_view = self.create_schema_view("formation", formation_data, is_base_game, formation_file)
+            self.formation_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            print(f"Error loading formation {formation_id}: {str(e)}")
+            error_label = QLabel(f"Error loading formation: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.formation_details_layout.addWidget(error_label)
+
+    def on_pattern_selected(self, item):
+        """Handle flight pattern selection from the list"""
+        if not self.current_folder:
+            return
+            
+        pattern_id = item.text()
+        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
+        pattern_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{pattern_id}.flight_pattern"
+        
+        try:
+            # Load from file
+            pattern_data, _ = self.load_file(pattern_file, try_base_game=False)  # Don't try base game again
+            if not pattern_data:
+                print(f"Flight pattern file not found: {pattern_file}")
+                return
+                
+            # Clear existing details
+            self.clear_layout(self.pattern_details_layout)
+            
+            # Create and add the schema view for pattern details
+            schema_view = self.create_schema_view("flight-pattern", pattern_data, is_base_game, pattern_file)
+            self.pattern_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            print(f"Error loading flight pattern {pattern_id}: {str(e)}")
+            error_label = QLabel(f"Error loading flight pattern: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.pattern_details_layout.addWidget(error_label)
+
+    def on_reward_selected(self, item):
+        """Handle NPC reward selection from the list"""
+        if not self.current_folder:
+            return
+            
+        reward_id = item.text()
+        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
+        reward_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{reward_id}.npc_reward"
+        
+        try:
+            # Load from file
+            reward_data, _ = self.load_file(reward_file, try_base_game=False)  # Don't try base game again
+            if not reward_data:
+                print(f"NPC reward file not found: {reward_file}")
+                return
+                
+            # Clear existing details
+            self.clear_layout(self.reward_details_layout)
+            
+            # Create and add the schema view for reward details
+            schema_view = self.create_schema_view("npc-reward", reward_data, is_base_game, reward_file)
+            self.reward_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            print(f"Error loading NPC reward {reward_id}: {str(e)}")
+            error_label = QLabel(f"Error loading NPC reward: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.reward_details_layout.addWidget(error_label)
+
+    def on_exotic_selected(self, item):
+        """Handle exotic selection from the list"""
+        if not self.current_folder:
+            return
+            
+        exotic_id = item.text()
+        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
+        exotic_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{exotic_id}.exotic"
+        
+        try:
+            # Load from file
+            exotic_data, _ = self.load_file(exotic_file, try_base_game=False)  # Don't try base game again
+            if not exotic_data:
+                print(f"Exotic file not found: {exotic_file}")
+                return
+                
+            # Clear existing details
+            self.clear_layout(self.exotic_details_layout)
+            
+            # Create and add the schema view for exotic details
+            schema_view = self.create_schema_view("exotic", exotic_data, is_base_game, exotic_file)
+            self.exotic_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            print(f"Error loading exotic {exotic_id}: {str(e)}")
+            error_label = QLabel(f"Error loading exotic: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.exotic_details_layout.addWidget(error_label)
+
+    def on_uniform_selected(self, item):
+        """Handle uniform selection from the list"""
+        if not self.current_folder:
+            return
+            
+        uniform_id = item.text()
+        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
+        uniform_file = (self.base_game_folder if is_base_game else self.current_folder) / "uniforms" / f"{uniform_id}.uniforms"
+        
+        try:
+            # Load from file
+            uniform_data, _ = self.load_file(uniform_file, try_base_game=False)  # Don't try base game again
+            if not uniform_data:
+                print(f"Uniform file not found: {uniform_file}")
+                return
+                
+            # Clear existing details
+            self.clear_layout(self.uniform_details_layout)
+            
+            # Create and add the schema view for uniform details
+            schema_view = self.create_schema_view("uniform", uniform_data, is_base_game, uniform_file)
+            self.uniform_details_layout.addWidget(schema_view)
+            
+        except Exception as e:
+            print(f"Error loading uniform {uniform_id}: {str(e)}")
+            error_label = QLabel(f"Error loading uniform: {str(e)}")
+            error_label.setStyleSheet("color: red;")
+            self.uniform_details_layout.addWidget(error_label)
+
+    def create_schema_view(self, file_type: str, file_data: dict, is_base_game: bool = False, file_path: Path = None) -> QWidget:
+        """Create a reusable schema view for any file type.
+        
+        Args:
+            file_type: The type of file (e.g. 'unit', 'research-subject')
+            file_data: The data to display
+            is_base_game: Whether the data is from the base game
+            file_path: The path to the file being displayed
+            
+        Returns:
+            A QWidget containing the schema view
+        """
+        print(f"Creating schema view for {file_type}")
+        print(f"Is base game: {is_base_game}")
+        print(f"File path: {file_path}")
+        
+        # Only initialize command stack data if it doesn't exist
+        if file_path is not None and not self.command_stack.get_file_data(file_path):
+            self.command_stack.update_file_data(file_path, file_data)
+            print(f"Initialized command stack data for {file_path}")
+        
+        # Get the current data from command stack if available
+        display_data = self.command_stack.get_file_data(file_path) if file_path else file_data
+        
+        # Get the schema name
+        if file_type == "uniform":
+            # Convert from snake_case to kebab-case and append -uniforms-schema
+            schema_name = file_path.stem.replace("_", "-") + "-uniforms-schema"
+            print(f"Looking for uniform schema: {schema_name}")
+        else:
+            schema_name = f"{file_type}-schema"
+            
+        if schema_name not in self.schemas:
+            print(f"Schema not found for {schema_name}, using generic schema")
+            # Create a generic schema based on the data structure
+            def create_schema_for_value(value):
+                if isinstance(value, dict):
+                    properties = {}
+                    for key, val in value.items():
+                        properties[key] = create_schema_for_value(val)
+                    return {
+                        "type": "object",
+                        "properties": properties
+                    }
+                elif isinstance(value, list):
+                    if not value:  # Empty list
+                        return {
+                            "type": "array",
+                            "items": {"type": "string"}  # Default to string for empty arrays
+                        }
+                    # Use the type of the first item for all items
+                    return {
+                        "type": "array",
+                        "items": create_schema_for_value(value[0])
+                    }
+                elif isinstance(value, bool):
+                    return {"type": "boolean"}
+                elif isinstance(value, int):
+                    return {"type": "integer"}
+                elif isinstance(value, float):
+                    return {"type": "number"}
+                else:
+                    return {"type": "string"}
+
+            # Create the root schema
+            self.current_schema = create_schema_for_value(display_data)
+        else:
+            print(f"Found schema: {schema_name}")
+            # Get the schema and resolve any top-level references
+            schema = self.schemas[schema_name]
+            if isinstance(schema, dict) and "$ref" in schema:
+                schema = self.resolve_schema_references(schema)
+            self.current_schema = schema
+        
+        # Create scrollable area for the content
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setProperty("file_path", str(file_path) if file_path else None)
+        scroll.setProperty("file_type", file_type)
+        
+        # Create content widget
+        content = QWidget()
+        main_layout = QVBoxLayout(content)
+        main_layout.setSpacing(10)
+        
+        def update_content(new_data: dict, data_path: List[str] = None, value: Any = None, source_widget = None):
+            """Update the content widget with new data"""
+            print(f"Updating schema view content for {file_path}")
+            print(f"Data path: {data_path}, Source widget: {source_widget}")
+            
+            # Check if this is an array update by looking at the data at the path
+            is_array_update = False
+            if data_path:
+                # Only treat it as an array update if we're updating the array itself, not an item within it
+                if len(data_path) == 1:
+                    # For top-level arrays, check if the value is a list
+                    is_array_update = isinstance(value, list)
+                else:
+                    # For nested arrays, check if the parent is a list and we're not updating an item
+                    current = new_data
+                    for i, key in enumerate(data_path[:-1]):
+                        if isinstance(current, dict) and key in current:
+                            current = current[key]
+                    is_array_update = isinstance(current, list) and isinstance(value, list)
+
+            print(f"Is array update: {is_array_update}")
+            
+            # Only do a full refresh if we have no data path AND it's not an array update
+            should_full_refresh = data_path is None and not is_array_update
+            
+            if should_full_refresh:
+                print("Full refresh")
+                # Full update - recreate entire view
+                logging.debug("Performing full update")
+                
+                # Clear existing content
+                while main_layout.count():
+                    item = main_layout.takeAt(0)
+                    if item.widget():
+                        item.widget().deleteLater()
+                
+                # Add name if available
+                if "name" in new_data:
+                    logging.debug("Adding name field")
+                    name_text, is_base_game_name = self.get_localized_text(new_data["name"])
+                    name_label = QLabel(name_text)
+                    name_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+                    if is_base_game or is_base_game_name:
+                        name_label.setStyleSheet(name_label.styleSheet() + "; color: #666666; font-style: italic;")
+                    main_layout.addWidget(name_label)
+                
+                # Add description if available
+                if "description" in new_data:
+                    logging.debug("Adding description field")
+                    desc_text, is_base_game_desc = self.get_localized_text(new_data["description"])
+                    desc_label = QLabel(desc_text)
+                    desc_label.setWordWrap(True)
+                    if is_base_game or is_base_game_desc:
+                        desc_label.setStyleSheet("color: #666666; font-style: italic;")
+                    main_layout.addWidget(desc_label)
+                
+                # Add picture if available
+                if "tooltip_picture" in new_data:
+                    logging.debug("Adding tooltip picture")
+                    picture_label = self.create_texture_label(new_data["tooltip_picture"], max_size=256)
+                    main_layout.addWidget(picture_label)
+                
+                # Create the main details widget using the schema
+                title = f"{file_type.replace('-', ' ').title()} Details (Base Game)" if is_base_game else f"{file_type.replace('-', ' ').title()} Details"
+                print(f"Creating details group with title: {title}")
+                details_group = QGroupBox(title)
+                if is_base_game:
+                    details_group.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
+                
+                # Create the content widget using the schema, passing an empty path to start tracking
+                logging.debug("Creating schema content widget")
+                details_widget = self.create_widget_for_schema(new_data, self.current_schema, is_base_game, [])
+                details_layout = QVBoxLayout()
+                details_layout.addWidget(details_widget)
+                details_group.setLayout(details_layout)
+                main_layout.addWidget(details_group)
+            else:
+                # Partial update - find and update specific widget
+                logging.debug("Performing partial update")
+                
+                def find_widget_by_path(widget: QWidget, target_path: List[str]) -> QWidget:
+                    """Recursively find a widget by its data path"""
+                    if hasattr(widget, 'property'):
+                        widget_path = widget.property('data_path')
+                        if widget_path == target_path:
+                            return widget
+                            
+                    # Search children
+                    if hasattr(widget, 'children'):
+                        for child in widget.children():
+                            result = find_widget_by_path(child, target_path)
+                            if result is not None:
+                                return result
+                    return None
+                
+                if is_array_update:
+                    # Find the array's toggle button
+                    array_path = data_path[:-1] if len(data_path) > 1 else data_path
+                    array_widget = find_widget_by_path(content, array_path)
+                    
+                    if array_widget and isinstance(array_widget, QToolButton):
+                        # Update the array count in the toggle button
+                        array_data = value if len(data_path) == 1 else current
+                        prop_name = data_path[-2] if len(data_path) >= 2 else data_path[0]
+                        prop_name = prop_name if isinstance(prop_name, str) else f"Item {prop_name}"
+                        display_name = f"{prop_name.replace('_', ' ').title()} ({len(array_data)})"
+                        array_widget.setText(display_name)
+                        
+                        # Find the array's content widget (it's the next widget after the button)
+                        array_container = array_widget.parent()
+                        if array_container:
+                            array_layout = array_container.layout()
+                            for i in range(array_layout.count()):
+                                widget = array_layout.itemAt(i).widget()
+                                if widget and widget != array_widget:
+                                    # This is the content widget
+                                    array_content = widget
+                                    array_content_layout = array_content.layout()
+                                    if array_content_layout:
+                                        return
+                                        # Skip widget creation if flag is set
+                                        if array_content.property("skip_widget_creation"):
+                                            print("Skipping widget creation")
+
+                                            continue
+                                        
+                                        # Create widget for the new array item
+                                        # Get the schema for array items by traversing the schema structure
+                                        current_schema = self.current_schema
+                                        if len(data_path) == 1:
+                                            # For top-level arrays, get the items schema directly
+                                            current_schema = current_schema.get("properties", {}).get(data_path[0], {})
+                                        else:
+                                            # For nested arrays, traverse the schema structure
+                                            for key in data_path[:-1]:
+                                                if isinstance(current_schema, dict):
+                                                    if "properties" in current_schema:
+                                                        current_schema = current_schema["properties"].get(key, {})
+                                                    elif "items" in current_schema:
+                                                        current_schema = current_schema["items"]
+                                        
+                                        items_schema = current_schema.get("items", {})
+                                        if isinstance(items_schema, dict):
+                                            # Create widget for the new value
+                                            item_path = data_path[:-1] if len(data_path) > 1 else data_path
+                                            item_path = item_path + [len(array_data) - 1]  # Add index of new item
+                                            new_widget = self.create_widget_for_value(value[-1], items_schema, is_base_game, item_path)
+                                            if new_widget:
+                                                array_content_layout.addWidget(new_widget)
+                                    break
+                elif data_path:  # Only do regular value update if we have a data path and it's not an array update
+                    # Regular value update
+                    target_widget = find_widget_by_path(content, data_path)
+                    if target_widget is not None and target_widget is not source_widget:
+                        print(f"Found widget to update: {target_widget}")
+                        # Update widget value based on its type
+                        if isinstance(target_widget, QLineEdit):
+                            print(f"Updating QLineEdit with value: {value}")
+                            target_widget.setText(str(value) if value is not None else "")
+                        elif isinstance(target_widget, QSpinBox):
+                            target_widget.setValue(int(value) if value is not None else 0)
+                        elif isinstance(target_widget, QDoubleSpinBox):
+                            target_widget.setValue(float(value) if value is not None else 0.0)
+                        elif isinstance(target_widget, QCheckBox):
+                            target_widget.setChecked(bool(value))
+                        elif isinstance(target_widget, QComboBox):
+                            target_widget.setCurrentText(str(value) if value is not None else "")
+                        # Update original value property
+                        target_widget.setProperty("original_value", value)
+        
+        # Initial content update with command stack data
+        update_content(display_data)
+        
+        # Register for data changes if file path is provided
+        if file_path is not None:
+            self.command_stack.register_data_change_callback(file_path, update_content)
+            
+            def cleanup():
+                self.command_stack.unregister_data_change_callback(file_path, update_content)
+            scroll.destroyed.connect(cleanup)
+        
+        scroll.setWidget(content)
+        logging.debug("Finished creating schema view")
+        return scroll
+    
     def create_widget_for_schema(self, data: dict, schema: dict, is_base_game: bool = False, path: list = None) -> QWidget:
         """Create a widget to display data according to a JSON schema"""
         if path is None:
@@ -1953,43 +3355,6 @@ class EntityToolGUI(QMainWindow):
         # Handle simple values
         return self.create_widget_for_value(value, schema, is_base_game, path)
     
-    def get_current_value_from_command_stack(self, file_path: Path, path: list, default_value: any) -> any:
-        """Get the current value from command stack if available, otherwise return default"""
-        if not file_path or not path:
-            return default_value
-            
-        data = self.command_stack.get_file_data(file_path)
-        if not data:
-            return default_value
-            
-        # Navigate through the path to get the value
-        current = data
-        try:
-            for key in path[:-1]:
-                if isinstance(current, dict):
-                    current = current.get(key, {})
-                elif isinstance(current, list) and isinstance(key, int) and key < len(current):
-                    current = current[key]
-                else:
-                    return default_value
-                    
-            if isinstance(current, dict):
-                return current.get(path[-1], default_value)
-            elif isinstance(current, list) and isinstance(path[-1], int) and path[-1] < len(current):
-                return current[path[-1]]
-            return default_value
-        except Exception:
-            return default_value
-
-    def find_parent_schema_view(self, widget: QWidget) -> QWidget:
-        """Find the parent schema view widget that contains the file path"""
-        current = widget
-        while current:
-            if hasattr(current, 'file_path'):
-                return current
-            current = current.parent()
-        return None
-
     def create_widget_for_value(self, value: any, schema: dict, is_base_game: bool, path: list = None) -> QWidget:
         """Create an editable widget for a value based on its schema type"""
         if path is None:
@@ -2491,7 +3856,7 @@ class EntityToolGUI(QMainWindow):
             )
             
             return edit
-    
+
     def load_referenced_entity(self, entity_id: str, entity_type: str):
         """Load a referenced entity file and display it in the appropriate panel"""
         if not isinstance(entity_id, str):
@@ -2831,78 +4196,161 @@ class EntityToolGUI(QMainWindow):
             print(f"Error loading {entity_type} file {entity_id}: {str(e)}")
             return
     
-    def load_research_subject(self, subject_id: str):
-        """Load a research subject file and display its details using the schema"""
-        if not self.current_folder or not hasattr(self, 'research_details_layout'):
-            return
+    def get_schema_for_path(self, path: list) -> dict:
+        """Get the schema for a specific data path"""
+        if not self.current_schema:
+            print("No current schema available")
+            return None
             
-        # Look for the research subject file in the entities folder
-        subject_file = self.current_folder / "entities" / f"{subject_id}.research_subject"
+        # For empty path (top-level object), return the current schema
+        if not path:
+            print(f"Returning top-level schema: {self.current_schema}")
+            return self.current_schema
+            
+        schema = self.current_schema
+        for part in path:
+            if not schema:
+                print(f"Schema is None while processing path part: {part}")
+                return None
+                
+            # Resolve any references in the current schema
+            if isinstance(schema, dict):
+                if "$ref" in schema:
+                    # Resolve reference
+                    ref_path = schema["$ref"].split("/")[1:]
+                    current = self.current_schema
+                    for ref_part in ref_path:
+                        if ref_part in current:
+                            current = current[ref_part]
+                        else:
+                            return None
+                    schema = current
+                
+                if isinstance(part, str):
+                    # Object property
+                    if "properties" in schema and part in schema["properties"]:
+                        schema = schema["properties"][part]
+                    else:
+                        return None
+                elif isinstance(part, int):
+                    # Array index - get the items schema
+                    if "items" in schema:
+                        schema = schema["items"]
+                        # Resolve any references in the items schema
+                        if isinstance(schema, dict) and "$ref" in schema:
+                            ref_path = schema["$ref"].split("/")[1:]
+                            current = self.current_schema
+                            for ref_part in ref_path:
+                                if ref_part in current:
+                                    current = current[ref_part]
+                                else:
+                                    return None
+                            schema = current
+                    else:
+                        return None
+                        
+        return schema
+
+    def get_default_value(self, schema: dict) -> any:
+        """Get a default value for a schema"""
+        # Resolve any references first
+        schema = self.resolve_schema_references(schema)
         
-        try:
-            # Check if we have data in the command stack first
-            subject_data = self.command_stack.get_file_data(subject_file)
-            is_base_game = False
+        if not schema:
+            return None
             
-            if subject_data is None:
-                # Load from file if not in command stack
-                subject_data, is_base_game = self.load_file(subject_file)
-                if not subject_data:
-                    print(f"Research subject file not found: {subject_file}")
-                    return
-                    
-                # Store initial data in command stack
-                self.command_stack.update_file_data(subject_file, subject_data)
-            else:
-                print(f"Using data from command stack for {subject_file}")
+        schema_type = schema.get("type")
+        
+        if schema_type == "string":
+            if "enum" in schema:
+                return schema["enum"][0]  # Return first enum value
+            return ""
             
-            # Clear any existing details
-            while self.research_details_layout.count():
-                item = self.research_details_layout.takeAt(0)
-                if item.widget():
-                    item.widget().deleteLater()
+        elif schema_type == "number":
+            if "minimum" in schema:
+                return schema["minimum"]
+            return 0.0
             
-            # Create and add the schema view
-            schema_view = self.create_schema_view("research-subject", subject_data, is_base_game, subject_file)
-            self.research_details_layout.addWidget(schema_view)
+        elif schema_type == "integer":
+            if "minimum" in schema:
+                return schema["minimum"]
+            return 0
             
-        except Exception as e:
-            print(f"Error loading research subject {subject_id}: {str(e)}")
+        elif schema_type == "boolean":
+            return False
             
-    def save_config(self):
-        """Save configuration to file"""
-        config_path = Path(__file__).parent / "config.json"
-        try:
-            with open(config_path, 'w') as f:
-                json.dump(self.config, f, indent=4)
-            logging.info("Configuration saved successfully")
-        except Exception as e:
-            print(f"Error saving config: {str(e)}")
+        elif schema_type == "array":
+            # Get the schema for array items
+            items_schema = schema.get("items", {})
+            min_items = schema.get("minItems", 1)  # Default to 1 item if not specified
+            max_items = schema.get("maxItems", None)  # No max by default
+            
+            if items_schema:
+                # Create the minimum required number of items
+                default_items = []
+                for _ in range(min_items):
+                    default_item = self.get_default_value(items_schema)
+                    default_items.append(default_item)
+                return default_items
+            return [""]  # Fallback for arrays with no items schema
+            
+        elif schema_type == "object":
+            # Create object with all required properties
+            result = {}
+            properties = schema.get("properties", {})
+            required = schema.get("required", [])
+            
+            # Add all required properties with their default values
+            for prop_name in required:
+                if prop_name in properties:
+                    prop_schema = self.resolve_schema_references(properties[prop_name])
+                    result[prop_name] = self.get_default_value(prop_schema)
+            
+            # If unevaluatedProperties is false, add all optional properties too
+            if schema.get("unevaluatedProperties") is False:
+                for prop_name, prop_schema in properties.items():
+                    if prop_name not in result:
+                        prop_schema = self.resolve_schema_references(prop_schema)
+                        result[prop_name] = self.get_default_value(prop_schema)
+            
+            return result
+            
+        return None
 
-    def load_stylesheet(self):
-        """Load and apply the dark theme stylesheet from QSS file"""
-        try:
-            style_path = Path(__file__).parent / "style.qss"
-            if not style_path.exists():
-                logging.error("Style file not found")
-                return
-                
-            with open(style_path, 'r') as f:
-                style = f.read()
-                
-            self.setStyleSheet(style)
-            logging.info("Loaded stylesheet")
-        except Exception as e:
-            print(f"Error loading stylesheet: {str(e)}")
-
-    def on_player_selected(self, player_name: str):
-        """Handle player selection from dropdown"""
-        if not player_name or not self.current_folder:
-            return
+    def resolve_schema_references(self, schema: dict) -> dict:
+        """Resolve schema references recursively"""
+        if not schema:
+            return schema
             
-        # Find and load the selected player file
-        player_file = self.current_folder / "entities" / f"{player_name}.player"
-        self.load_player_file(player_file) 
+        if "$ref" in schema:
+            ref_path = schema["$ref"].split("/")[1:]  # Skip the first '#' element
+            # Find the referenced schema in the loaded schemas
+            for loaded_schema in self.schemas.values():
+                try:
+                    resolved = loaded_schema
+                    for part in ref_path:
+                        resolved = resolved[part]
+                    # Merge any additional properties from the original schema
+                    resolved = {**resolved, **{k: v for k, v in schema.items() if k != "$ref"}}
+                    return resolved
+                except (KeyError, TypeError):
+                    continue
+            # If we get here, we couldn't resolve the reference
+            print(f"Warning: Could not resolve schema reference: {schema['$ref']}")
+            return schema
+            
+        # Handle nested objects
+        if "properties" in schema:
+            resolved_props = {}
+            for prop_name, prop_schema in schema["properties"].items():
+                resolved_props[prop_name] = self.resolve_schema_references(prop_schema)
+            schema["properties"] = resolved_props
+            
+        # Handle arrays
+        if "items" in schema:
+            schema["items"] = self.resolve_schema_references(schema["items"])
+            
+        return schema
 
     def create_generic_schema(self, data: dict) -> dict:
         """Create a generic schema that matches any JSON structure"""
@@ -2935,277 +4383,6 @@ class EntityToolGUI(QMainWindow):
         else:
             return {"type": "string"}  # Default to string for all other types
 
-    def create_schema_view(self, file_type: str, file_data: dict, is_base_game: bool = False, file_path: Path = None) -> QWidget:
-        """Create a reusable schema view for any file type.
-        
-        Args:
-            file_type: The type of file (e.g. 'unit', 'research-subject')
-            file_data: The data to display
-            is_base_game: Whether the data is from the base game
-            file_path: The path to the file being displayed
-            
-        Returns:
-            A QWidget containing the schema view
-        """
-        print(f"Creating schema view for {file_type}")
-        print(f"Is base game: {is_base_game}")
-        print(f"File path: {file_path}")
-        
-        # Only initialize command stack data if it doesn't exist
-        if file_path is not None and not self.command_stack.get_file_data(file_path):
-            self.command_stack.update_file_data(file_path, file_data)
-            print(f"Initialized command stack data for {file_path}")
-        
-        # Get the current data from command stack if available
-        display_data = self.command_stack.get_file_data(file_path) if file_path else file_data
-        
-        # Get the schema name
-        if file_type == "uniform":
-            # Convert from snake_case to kebab-case and append -uniforms-schema
-            schema_name = file_path.stem.replace("_", "-") + "-uniforms-schema"
-            print(f"Looking for uniform schema: {schema_name}")
-        else:
-            schema_name = f"{file_type}-schema"
-            
-        if schema_name not in self.schemas:
-            print(f"Schema not found for {schema_name}, using generic schema")
-            # Create a generic schema based on the data structure
-            def create_schema_for_value(value):
-                if isinstance(value, dict):
-                    properties = {}
-                    for key, val in value.items():
-                        properties[key] = create_schema_for_value(val)
-                    return {
-                        "type": "object",
-                        "properties": properties
-                    }
-                elif isinstance(value, list):
-                    if not value:  # Empty list
-                        return {
-                            "type": "array",
-                            "items": {"type": "string"}  # Default to string for empty arrays
-                        }
-                    # Use the type of the first item for all items
-                    return {
-                        "type": "array",
-                        "items": create_schema_for_value(value[0])
-                    }
-                elif isinstance(value, bool):
-                    return {"type": "boolean"}
-                elif isinstance(value, int):
-                    return {"type": "integer"}
-                elif isinstance(value, float):
-                    return {"type": "number"}
-                else:
-                    return {"type": "string"}
-
-            # Create the root schema
-            self.current_schema = create_schema_for_value(display_data)
-        else:
-            print(f"Found schema: {schema_name}")
-            # Get the schema and resolve any top-level references
-            schema = self.schemas[schema_name]
-            if isinstance(schema, dict) and "$ref" in schema:
-                schema = self.resolve_schema_references(schema)
-            self.current_schema = schema
-        
-        # Create scrollable area for the content
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setProperty("file_path", str(file_path) if file_path else None)
-        scroll.setProperty("file_type", file_type)
-        
-        # Create content widget
-        content = QWidget()
-        main_layout = QVBoxLayout(content)
-        main_layout.setSpacing(10)
-        
-        def update_content(new_data: dict, data_path: List[str] = None, value: Any = None, source_widget = None):
-            """Update the content widget with new data"""
-            print(f"Updating schema view content for {file_path}")
-            print(f"Data path: {data_path}, Source widget: {source_widget}")
-            
-            # Check if this is an array update by looking at the data at the path
-            is_array_update = False
-            if data_path:
-                # Only treat it as an array update if we're updating the array itself, not an item within it
-                if len(data_path) == 1:
-                    # For top-level arrays, check if the value is a list
-                    is_array_update = isinstance(value, list)
-                else:
-                    # For nested arrays, check if the parent is a list and we're not updating an item
-                    current = new_data
-                    for i, key in enumerate(data_path[:-1]):
-                        if isinstance(current, dict) and key in current:
-                            current = current[key]
-                    is_array_update = isinstance(current, list) and isinstance(value, list)
-
-            print(f"Is array update: {is_array_update}")
-            
-            # Only do a full refresh if we have no data path AND it's not an array update
-            should_full_refresh = data_path is None and not is_array_update
-            
-            if should_full_refresh:
-                print("Full refresh")
-                # Full update - recreate entire view
-                logging.debug("Performing full update")
-                
-                # Clear existing content
-                while main_layout.count():
-                    item = main_layout.takeAt(0)
-                    if item.widget():
-                        item.widget().deleteLater()
-                
-                # Add name if available
-                if "name" in new_data:
-                    logging.debug("Adding name field")
-                    name_text, is_base_game_name = self.get_localized_text(new_data["name"])
-                    name_label = QLabel(name_text)
-                    name_label.setStyleSheet("font-size: 16px; font-weight: bold;")
-                    if is_base_game or is_base_game_name:
-                        name_label.setStyleSheet(name_label.styleSheet() + "; color: #666666; font-style: italic;")
-                    main_layout.addWidget(name_label)
-                
-                # Add description if available
-                if "description" in new_data:
-                    logging.debug("Adding description field")
-                    desc_text, is_base_game_desc = self.get_localized_text(new_data["description"])
-                    desc_label = QLabel(desc_text)
-                    desc_label.setWordWrap(True)
-                    if is_base_game or is_base_game_desc:
-                        desc_label.setStyleSheet("color: #666666; font-style: italic;")
-                    main_layout.addWidget(desc_label)
-                
-                # Add picture if available
-                if "tooltip_picture" in new_data:
-                    logging.debug("Adding tooltip picture")
-                    picture_label = self.create_texture_label(new_data["tooltip_picture"], max_size=256)
-                    main_layout.addWidget(picture_label)
-                
-                # Create the main details widget using the schema
-                title = f"{file_type.replace('-', ' ').title()} Details (Base Game)" if is_base_game else f"{file_type.replace('-', ' ').title()} Details"
-                print(f"Creating details group with title: {title}")
-                details_group = QGroupBox(title)
-                if is_base_game:
-                    details_group.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
-                
-                # Create the content widget using the schema, passing an empty path to start tracking
-                logging.debug("Creating schema content widget")
-                details_widget = self.create_widget_for_schema(new_data, self.current_schema, is_base_game, [])
-                details_layout = QVBoxLayout()
-                details_layout.addWidget(details_widget)
-                details_group.setLayout(details_layout)
-                main_layout.addWidget(details_group)
-            else:
-                # Partial update - find and update specific widget
-                logging.debug("Performing partial update")
-                
-                def find_widget_by_path(widget: QWidget, target_path: List[str]) -> QWidget:
-                    """Recursively find a widget by its data path"""
-                    if hasattr(widget, 'property'):
-                        widget_path = widget.property('data_path')
-                        if widget_path == target_path:
-                            return widget
-                            
-                    # Search children
-                    if hasattr(widget, 'children'):
-                        for child in widget.children():
-                            result = find_widget_by_path(child, target_path)
-                            if result is not None:
-                                return result
-                    return None
-                
-                if is_array_update:
-                    # Find the array's toggle button
-                    array_path = data_path[:-1] if len(data_path) > 1 else data_path
-                    array_widget = find_widget_by_path(content, array_path)
-                    
-                    if array_widget and isinstance(array_widget, QToolButton):
-                        # Update the array count in the toggle button
-                        array_data = value if len(data_path) == 1 else current
-                        prop_name = data_path[-2] if len(data_path) >= 2 else data_path[0]
-                        prop_name = prop_name if isinstance(prop_name, str) else f"Item {prop_name}"
-                        display_name = f"{prop_name.replace('_', ' ').title()} ({len(array_data)})"
-                        array_widget.setText(display_name)
-                        
-                        # Find the array's content widget (it's the next widget after the button)
-                        array_container = array_widget.parent()
-                        if array_container:
-                            array_layout = array_container.layout()
-                            for i in range(array_layout.count()):
-                                widget = array_layout.itemAt(i).widget()
-                                if widget and widget != array_widget:
-                                    # This is the content widget
-                                    array_content = widget
-                                    array_content_layout = array_content.layout()
-                                    if array_content_layout:
-                                        return
-                                        # Skip widget creation if flag is set
-                                        if array_content.property("skip_widget_creation"):
-                                            print("Skipping widget creation")
-
-                                            continue
-                                        
-                                        # Create widget for the new array item
-                                        # Get the schema for array items by traversing the schema structure
-                                        current_schema = self.current_schema
-                                        if len(data_path) == 1:
-                                            # For top-level arrays, get the items schema directly
-                                            current_schema = current_schema.get("properties", {}).get(data_path[0], {})
-                                        else:
-                                            # For nested arrays, traverse the schema structure
-                                            for key in data_path[:-1]:
-                                                if isinstance(current_schema, dict):
-                                                    if "properties" in current_schema:
-                                                        current_schema = current_schema["properties"].get(key, {})
-                                                    elif "items" in current_schema:
-                                                        current_schema = current_schema["items"]
-                                        
-                                        items_schema = current_schema.get("items", {})
-                                        if isinstance(items_schema, dict):
-                                            # Create widget for the new value
-                                            item_path = data_path[:-1] if len(data_path) > 1 else data_path
-                                            item_path = item_path + [len(array_data) - 1]  # Add index of new item
-                                            new_widget = self.create_widget_for_value(value[-1], items_schema, is_base_game, item_path)
-                                            if new_widget:
-                                                array_content_layout.addWidget(new_widget)
-                                    break
-                elif data_path:  # Only do regular value update if we have a data path and it's not an array update
-                    # Regular value update
-                    target_widget = find_widget_by_path(content, data_path)
-                    if target_widget is not None and target_widget is not source_widget:
-                        print(f"Found widget to update: {target_widget}")
-                        # Update widget value based on its type
-                        if isinstance(target_widget, QLineEdit):
-                            print(f"Updating QLineEdit with value: {value}")
-                            target_widget.setText(str(value) if value is not None else "")
-                        elif isinstance(target_widget, QSpinBox):
-                            target_widget.setValue(int(value) if value is not None else 0)
-                        elif isinstance(target_widget, QDoubleSpinBox):
-                            target_widget.setValue(float(value) if value is not None else 0.0)
-                        elif isinstance(target_widget, QCheckBox):
-                            target_widget.setChecked(bool(value))
-                        elif isinstance(target_widget, QComboBox):
-                            target_widget.setCurrentText(str(value) if value is not None else "")
-                        # Update original value property
-                        target_widget.setProperty("original_value", value)
-        
-        # Initial content update with command stack data
-        update_content(display_data)
-        
-        # Register for data changes if file path is provided
-        if file_path is not None:
-            self.command_stack.register_data_change_callback(file_path, update_content)
-            
-            def cleanup():
-                self.command_stack.unregister_data_change_callback(file_path, update_content)
-            scroll.destroyed.connect(cleanup)
-        
-        scroll.setWidget(content)
-        logging.debug("Finished creating schema view")
-        return scroll
-
     def get_schema_view_file_path(self, widget: QWidget) -> Path | None:
         """Get the file path from the parent schema view of a widget"""
         # Walk up the widget hierarchy until we find a QScrollArea (schema view)
@@ -3218,6 +4395,62 @@ class EntityToolGUI(QMainWindow):
                 break
             current = current.parent()
         return None
+
+    def find_parent_schema_view(self, widget: QWidget) -> QWidget:
+        """Find the parent schema view widget that contains the file path"""
+        current = widget
+        while current:
+            if hasattr(current, 'file_path'):
+                return current
+            current = current.parent()
+        return None
+
+    def refresh_schema_view(self, file_path: Path):
+        """Refresh the schema view for a file"""
+        # Get the current data
+        data = self.command_stack.get_file_data(file_path)
+        if isinstance(data, (Path, str)):  # If data is a path (like for root properties), load the actual data
+            data = self.old_value  # Use the backed up data from the command
+
+        if not data:
+            return
+            
+        # Find the schema view widget
+        schema_view = None
+        for widget in self.findChildren(QWidget):
+            if (hasattr(widget, 'property') and 
+                widget.property("file_path") == str(file_path)):
+                schema_view = widget
+                break
+        
+        if schema_view and schema_view.parent() and schema_view.parent().layout():
+            # Get the schema type from the file extension
+            schema_type = file_path.suffix[1:]  # Remove the dot
+            
+            # Create new schema view
+            new_view = self.create_schema_view(
+                schema_type,
+                data,
+                False,  # is_base_game
+                file_path
+            )
+            
+            # Replace old view with new one
+            parent = schema_view.parent()
+            layout = parent.layout()
+            layout.replaceWidget(schema_view, new_view)
+            schema_view.deleteLater()
+
+    def clear_layout(self, layout):
+        """Clear a layout and all its widgets"""
+        if layout is not None:
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
+                else:
+                    self.clear_layout(item.layout())
 
     def on_text_changed(self, widget: QLineEdit, new_text: str):
         """Handle text changes in QLineEdit widgets"""
@@ -3246,7 +4479,7 @@ class EntityToolGUI(QMainWindow):
             self.command_stack.push(command)
             widget.setProperty("original_value", new_text)
             self.update_save_button()  # Update save button state
-            
+
     def on_combo_changed(self, widget: QComboBox, new_text: str):
         """Handle selection changes in QComboBox widgets"""
         # Get file path from parent schema view
@@ -3319,735 +4552,162 @@ class EntityToolGUI(QMainWindow):
             self.command_stack.push(command)
             widget.setProperty("original_value", new_value)
             self.update_save_button()  # Update save button state
-    
-    def save_changes(self):
-        """Save all changes and return True if successful"""
-        if not self.command_stack.has_unsaved_changes():
-            logging.info("No unsaved changes to save")
-            return True
-            
-        # Get all modified files
-        modified_files = self.command_stack.get_modified_files()
-        print(f"Found {len(modified_files)} modified files to save")
-        print(f"Modified files list: {modified_files}")
+
+    def on_text_edit_timer_timeout(self):
+        if self.current_text_edit and not self.current_text_edit.property("is_updating"):
+            self.on_localized_text_changed(self.current_text_edit, self.current_text_edit.toPlainText())
+
+    def on_select_value(self, target_widget, new_value):
+        """Handle selection from any selector dialog"""
+        data_path = target_widget.property("data_path")
+        old_value = target_widget.property("original_value")
+        file_path = self.get_schema_view_file_path(target_widget)
         
-        success = True
-        for file_path in modified_files:
-            print(f"Processing file for save: {file_path}")
+        if data_path is not None and old_value != new_value and file_path:
+            # Create value update command
+            value_cmd = EditValueCommand(
+                file_path,
+                data_path,
+                old_value,
+                new_value,
+                lambda v: None,  # No-op since transformation is handled separately
+                self.update_data_value
+            )
+            value_cmd.source_widget = target_widget
             
-            # Get the latest data from the command stack
+            # Create transform command
+            transform_cmd = TransformWidgetCommand(self, target_widget, old_value, new_value)
+            
+            # Combine commands
+            composite_cmd = CompositeCommand([value_cmd, transform_cmd])
+            self.command_stack.push(composite_cmd)
+            
+            # Widget cleanup is handled by TransformWidgetCommand
+            self.update_save_button()
+
+    def get_localized_text(self, text_key: str) -> tuple[str, bool]:
+        """Get localized text for a key and whether it's from base game.
+        Returns tuple of (text, is_from_base_game)"""
+
+        if not text_key:
+            return "", False
+
+        # Check if text_key is a dictionary and extract the 'group' if it is
+        if isinstance(text_key, dict) and 'group' in text_key:
+            text_key = text_key['group']
+
+        if text_key.startswith(":"):  # Raw string
+            return text_key[1:], False
+        
+        # Try current language in mod folder first
+        if self.current_language in self.all_localized_strings['mod']:
+            if text_key in self.all_localized_strings['mod'][self.current_language]:
+                return self.all_localized_strings['mod'][self.current_language][text_key], False
+        
+        # Try English in mod folder
+        if "en" in self.all_localized_strings['mod']:
+            if text_key in self.all_localized_strings['mod']["en"]:
+                return self.all_localized_strings['mod']["en"][text_key], False
+        
+        # Try base game current language
+        if self.current_language in self.all_localized_strings['base_game']:
+            if text_key in self.all_localized_strings['base_game'][self.current_language]:
+                return self.all_localized_strings['base_game'][self.current_language][text_key], True
+        
+        # Try base game English
+        if "en" in self.all_localized_strings['base_game']:
+            if text_key in self.all_localized_strings['base_game']["en"]:
+                return self.all_localized_strings['base_game']["en"][text_key], True
+        
+        return text_key, False  # Return key if no translation found
+
+    def on_localized_text_changed(self, edit: QPlainTextEdit, text: str):
+        """Handle changes to localized text values"""
+        if not self.current_folder:
+            return
+            
+        # Get the key and language from the widget's properties
+        key = edit.property("localized_key")
+        language = edit.property("language")
+        if not key or not language:
+            return
+            
+        # Get the localized text file path
+        text_file = self.current_folder / "localized_text" / f"{language}.localized_text"
+        
+        # Get the current data from the file
+        try:
+            with open(text_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except Exception:
+            data = {}
+            
+        # Initialize command stack data if needed
+        if not self.command_stack.get_file_data(text_file):
+            self.command_stack.update_file_data(text_file, data)
+        
+        # Create a command to update the text
+        old_value = data.get(key, "")
+        if old_value != text:
+            command = EditValueCommand(
+                text_file,
+                [key],  # The path is just the key since it's a flat dictionary
+                old_value,
+                text,
+                lambda value: self.update_text_preserve_cursor(edit, value),
+                lambda path, value: self.update_localized_text_in_memory(text_file, path[0], value)
+            )
+            command.source_widget = edit
+            self.command_stack.push(command)
+            self.update_save_button()
+            
+            # Update the in-memory strings
+            if language not in self.all_localized_strings['mod']:
+                self.all_localized_strings['mod'][language] = {}
+            self.all_localized_strings['mod'][language][key] = text
+            
+    def update_text_preserve_cursor(self, edit: QPlainTextEdit, value: str):
+        """Update text in QPlainTextEdit while preserving cursor position and selection"""
+        edit.setProperty("is_updating", True)  # Set flag before update
+        cursor = edit.textCursor()
+        position = cursor.position()
+        anchor = cursor.anchor()
+        
+        # Block signals to prevent recursive updates
+        edit.blockSignals(True)
+        edit.setPlainText(value)
+        edit.blockSignals(False)
+        
+        # Restore cursor and selection
+        cursor = edit.textCursor()
+        cursor.setPosition(anchor)
+        if anchor != position:
+            cursor.setPosition(position, cursor.MoveMode.KeepAnchor)
+        edit.setTextCursor(cursor)
+        edit.setProperty("is_updating", False)  # Clear flag after update
+
+    def update_localized_text_in_memory(self, file_path: Path, key: str, value: str):
+        """Update a value in memory only, actual file write happens during save"""
+        try:
+            # Get current data from command stack
             data = self.command_stack.get_file_data(file_path)
-            
             if not data:
-                print(f"No data found in command stack for file: {file_path}")
-                success = False
-                continue
-                    
-            # Save the file
-            print(f"Attempting to save file: {file_path}")
-            try:
-                with open(file_path, 'w', encoding='utf-8') as f:
-                    json.dump(data, f, indent=4)
-                print(f"Successfully saved file: {file_path}")
-            except Exception as e:
-                print(f"Failed to save file {file_path}: {str(e)}")
-                success = False
-                continue
-                
-        # Update UI and command stack state
-        if success:
-            self.status_label.setText("All changes saved")
-            self.status_label.setProperty("status", "success")
-            logging.info("All files saved successfully")
-            # Mark all changes as saved in command stack
-            self.command_stack.mark_all_saved()
-        else:
-            self.status_label.setText("Error saving some changes")
-            self.status_label.setProperty("status", "error")
-            logging.error("Some files failed to save")
-        self.status_label.style().unpolish(self.status_label)
-        self.status_label.style().polish(self.status_label)
-        
-        # Update save button state
-        self.update_save_button()
-        print(f"Save button enabled: {self.command_stack.has_unsaved_changes()}")
-
-        return success
-        
-    def update_save_button(self):
-        """Update save button enabled state"""
-        if hasattr(self, 'save_btn'):
-            has_changes = self.command_stack.has_unsaved_changes()
-            self.save_btn.setEnabled(has_changes)
+                # If no data in command stack, read from file
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                except Exception:
+                    data = {}
+                self.command_stack.update_file_data(file_path, data)
             
-        # Also update undo/redo buttons
-        if hasattr(self, 'undo_btn'):
-            self.undo_btn.setEnabled(self.command_stack.can_undo())
-        if hasattr(self, 'redo_btn'):
-            self.redo_btn.setEnabled(self.command_stack.can_redo())
+            # Update the value in memory only
+            data[key] = value
+            self.command_stack.update_file_data(file_path, data)
             
-    def load_all_localized_strings(self) -> None:
-        """Load all localized strings from both mod and base game into memory"""
-        logging.info("Loading all localized strings...")
-        
-        # Initialize dictionaries to store all strings
-        self.all_localized_strings = {
-            'mod': {},  # {language: {key: text}}
-            'base_game': {}  # {language: {key: text}}
-        }
-        
-        # Load mod strings
-        if self.current_folder:
-            # Load .localized_text files (JSON format)
-            localized_text_folder = self.current_folder / "localized_text"
-            print(f"Checking mod localized_text folder: {localized_text_folder}")
-            if localized_text_folder.exists():
-                for text_file in localized_text_folder.glob("*.localized_text"):
-                    print(f"Loading mod localized text from: {text_file}")
-                    try:
-                        with open(text_file, 'r', encoding='utf-8') as f:
-                            json_data = json.load(f)
-                            # Initialize language dictionary if needed
-                            language = text_file.stem
-                            if language not in self.all_localized_strings['mod']:
-                                self.all_localized_strings['mod'][language] = {}
-                            # Add strings for this language
-                            self.all_localized_strings['mod'][language].update(json_data)
-                            # Initialize command stack with this data
-                            self.command_stack.update_file_data(text_file, json_data)
-                            print(f"Loaded {len(json_data)} strings for language {language} from {text_file}")
-                    except Exception as e:
-                        print(f"Error loading localized text file {text_file}: {str(e)}")
-                        # Initialize with empty data on error
-                        self.command_stack.update_file_data(text_file, {})
-            else:
-                logging.debug("No mod localized_text folder found")
-                # Create the folder
-                localized_text_folder.mkdir(parents=True, exist_ok=True)
-                # Initialize empty files for current language and English
-                for lang in [self.current_language, "en"]:
-                    text_file = localized_text_folder / f"{lang}.localized_text"
-                    self.command_stack.update_file_data(text_file, {})
-        
-        # Load base game strings
-        if self.base_game_folder:
-            # Load .localized_text files (JSON format)
-            localized_text_folder = self.base_game_folder / "localized_text"
-            print(f"Checking base game localized_text folder: {localized_text_folder}")
-            if localized_text_folder.exists():
-                for text_file in localized_text_folder.glob("*.localized_text"):
-                    print(f"Loading base game localized text from: {text_file}")
-                    try:
-                        with open(text_file, 'r', encoding='utf-8') as f:
-                            json_data = json.load(f)
-                            # Initialize language dictionary if needed
-                            language = text_file.stem
-                            if language not in self.all_localized_strings['base_game']:
-                                self.all_localized_strings['base_game'][language] = {}
-                            # Add strings for this language
-                            self.all_localized_strings['base_game'][language].update(json_data)
-                            print(f"Loaded {len(json_data)} strings for language {language} from {text_file}")
-                    except Exception as e:
-                        print(f"Error loading localized text file {text_file}: {str(e)}")
-            else:
-                logging.debug("No base game localized_text folder found")
-                        
-        # Log summary
-        for source in ['mod', 'base_game']:
-            for language in self.all_localized_strings[source]:
-                count = len(self.all_localized_strings[source][language])
-                print(f"Total {source} strings for {language}: {count}")
-                if count > 0:
-                    # Log a few example strings
-                    print(f"Example strings for {source} {language}:")
-                    for i, (key, value) in enumerate(list(self.all_localized_strings[source][language].items())[:3]):
-                        print(f"  {key} = {value}")
-                        if i >= 2:
-                            break
-    
-    def load_all_texture_files(self) -> None:
-        """Load list of all texture files from both mod and base game into memory"""
-        logging.info("Loading all texture files...")
-        
-        # Initialize lists to store texture file paths
-        self.all_texture_files = {
-            'mod': set(),  # Set of texture file names without extension
-            'base_game': set()  # Set of texture file names without extension
-        }
-        
-        # Load mod textures
-        if self.current_folder:
-            textures_folder = self.current_folder / "textures"
-            if textures_folder.exists():
-                for texture_file in textures_folder.glob("*.*"):
-                    if texture_file.suffix.lower() in ['.png', '.dds']:
-                        self.all_texture_files['mod'].add(texture_file.stem)
-                print(f"Found {len(self.all_texture_files['mod'])} texture files in mod")
-        
-        # Load base game textures
-        if self.base_game_folder:
-            textures_folder = self.base_game_folder / "textures"
-            if textures_folder.exists():
-                for texture_file in textures_folder.glob("*.*"):
-                    if texture_file.suffix.lower() in ['.png', '.dds']:
-                        self.all_texture_files['base_game'].add(texture_file.stem)
-                print(f"Found {len(self.all_texture_files['base_game'])} texture files in base game")
-
-    def load_base_game_manifest_files(self) -> None:
-        """Load manifest files from base game into memory"""
-        logging.info("Loading base game manifest files...")
-        
-        # Clear existing base game manifest data
-        self.manifest_data['base_game'] = {}
-        
-        if self.base_game_folder:
-            print(f"Using base game folder: {self.base_game_folder}")
-            entities_folder = self.base_game_folder / "entities"
-            if entities_folder.exists():
-                print(f"Found base game entities folder: {entities_folder}")
-                for manifest_file in entities_folder.glob("*.entity_manifest"):
-                    try:
-                        manifest_type = manifest_file.stem  # e.g., 'player', 'weapon'
-                        print(f"Loading base game manifest: {manifest_file}")
-                        with open(manifest_file, 'r', encoding='utf-8') as f:
-                            manifest_data = json.load(f)
-                            
-                        if manifest_type not in self.manifest_data['base_game']:
-                            self.manifest_data['base_game'][manifest_type] = {}
-                            
-                        # Load each referenced entity file
-                        if 'ids' in manifest_data:
-                            for entity_id in manifest_data['ids']:
-                                entity_file = entities_folder / f"{entity_id}.{manifest_type}"
-                                if entity_file.exists():
-                                    with open(entity_file, 'r', encoding='utf-8') as f:
-                                        entity_data = json.load(f)
-                                        self.manifest_data['base_game'][manifest_type][entity_id] = entity_data
-                                else:
-                                    print(f"Referenced base game entity file not found: {entity_file}")
-                                        
-                        print(f"Loaded base game manifest {manifest_type} with {len(manifest_data.get('ids', []))} entries")
-                    except Exception as e:
-                        print(f"Error loading base game manifest file {manifest_file}: {str(e)}")
-            else:
-                print(f"Base game entities folder not found: {entities_folder}")
-        else:
-            logging.warning("No base game folder configured")
-                        
-        # Log summary
-        for manifest_type in self.manifest_data['base_game']:
-            count = len(self.manifest_data['base_game'][manifest_type])
-            print(f"Total base game {manifest_type} entries: {count}")
-            if count > 0:
-                print(f"Example {manifest_type} entries: {list(self.manifest_data['base_game'][manifest_type].keys())[:3]}")
-
-    def load_mod_manifest_files(self) -> None:
-        """Load manifest files from mod folder into memory"""
-        logging.info("Loading mod manifest files...")
-        
-        # Clear existing mod manifest data
-        self.manifest_data['mod'] = {}
-        
-        if self.current_folder:
-            print(f"Using mod folder: {self.current_folder}")
-            entities_folder = self.current_folder / "entities"
-            if entities_folder.exists():
-                print(f"Found mod entities folder: {entities_folder}")
-                for manifest_file in entities_folder.glob("*.entity_manifest"):
-                    try:
-                        manifest_type = manifest_file.stem  # e.g., 'player', 'weapon'
-                        print(f"Loading mod manifest: {manifest_file}")
-                        with open(manifest_file, 'r', encoding='utf-8') as f:
-                            manifest_data = json.load(f)
-                            
-                        if manifest_type not in self.manifest_data['mod']:
-                            self.manifest_data['mod'][manifest_type] = {}
-                            
-                        # Load each referenced entity file
-                        if 'ids' in manifest_data:
-                            for entity_id in manifest_data['ids']:
-                                entity_file = entities_folder / f"{entity_id}.{manifest_type}"
-                                if entity_file.exists():
-                                    with open(entity_file, 'r', encoding='utf-8') as f:
-                                        entity_data = json.load(f)
-                                        self.manifest_data['mod'][manifest_type][entity_id] = entity_data
-                                        print(f"Loaded mod {manifest_type} data for {entity_id}")
-                                else:
-                                    print(f"Referenced mod entity file not found: {entity_file}")
-                                        
-                        print(f"Loaded mod manifest {manifest_type} with {len(manifest_data.get('ids', []))} entries")
-                    except Exception as e:
-                        print(f"Error loading mod manifest file {manifest_file}: {str(e)}")
-            else:
-                print(f"Mod entities folder not found: {entities_folder}")
-        else:
-            logging.warning("No mod folder loaded")
-                        
-        # Log summary
-        for manifest_type in self.manifest_data['mod']:
-            count = len(self.manifest_data['mod'][manifest_type])
-            print(f"Total mod {manifest_type} entries: {count}")
-            if count > 0:
-                print(f"Example {manifest_type} entries: {list(self.manifest_data['mod'][manifest_type].keys())[:3]}")
-
-    def on_item_selected(self, item):
-        """Handle unit item selection from the list"""
-        if not self.current_folder:
-            return
-            
-        item_id = item.text()
-        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
-        item_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{item_id}.unit_item"
-        
-        try:
-            # Load from file
-            item_data, _ = self.load_file(item_file, try_base_game=False)  # Don't try base game again
-            if not item_data:
-                print(f"Item file not found: {item_file}")
-                return
-                
-            # Clear existing details
-            self.clear_layout(self.item_details_layout)
-            
-            # Create and add the schema view for item details
-            schema_view = self.create_schema_view("unit-item", item_data, is_base_game, item_file)
-            self.item_details_layout.addWidget(schema_view)
-            
+            print(f"Updated localized text {key} in memory")
+            print(f"New value: {value}")
         except Exception as e:
-            print(f"Error loading item {item_id}: {str(e)}")
-            error_label = QLabel(f"Error loading item: {str(e)}")
-            error_label.setStyleSheet("color: red;")
-            self.item_details_layout.addWidget(error_label)
-
-    def on_ability_selected(self, item):
-        """Handle ability selection from the list"""
-        if not self.current_folder:
-            return
-            
-        ability_id = item.text()
-        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
-        ability_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{ability_id}.ability"
-        
-        try:
-            # Load from file
-            ability_data, _ = self.load_file(ability_file, try_base_game=False)  # Don't try base game again
-            if not ability_data:
-                print(f"Ability file not found: {ability_file}")
-                return
-                
-            # Clear existing details
-            self.clear_layout(self.ability_details_layout)
-            
-            # Create and add the schema view for ability details
-            schema_view = self.create_schema_view("ability", ability_data, is_base_game, ability_file)
-            self.ability_details_layout.addWidget(schema_view)
-            
-        except Exception as e:
-            print(f"Error loading ability {ability_id}: {str(e)}")
-            error_label = QLabel(f"Error loading ability: {str(e)}")
-            error_label.setStyleSheet("color: red;")
-            self.ability_details_layout.addWidget(error_label)
-
-    def on_action_selected(self, item):
-        """Handle action data source selection from the list"""
-        if not self.current_folder:
-            return
-            
-        action_id = item.text()
-        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
-        action_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{action_id}.action_data_source"
-        
-        try:
-            # Load from file
-            action_data, _ = self.load_file(action_file, try_base_game=False)  # Don't try base game again
-            if not action_data:
-                print(f"Action data source file not found: {action_file}")
-                return
-                
-            # Clear existing details
-            self.clear_layout(self.action_details_layout)
-            
-            # Create and add the schema view for action details
-            schema_view = self.create_schema_view("action-data-source", action_data, is_base_game, action_file)
-            self.action_details_layout.addWidget(schema_view)
-            
-        except Exception as e:
-            print(f"Error loading action data source {action_id}: {str(e)}")
-            error_label = QLabel(f"Error loading action data source: {str(e)}")
-            error_label.setStyleSheet("color: red;")
-            self.action_details_layout.addWidget(error_label)
-
-    def on_buff_selected(self, item):
-        """Handle buff selection from the list"""
-        if not self.current_folder:
-            return
-            
-        buff_id = item.text()
-        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
-        buff_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{buff_id}.buff"
-        
-        try:
-            # Load from file
-            buff_data, _ = self.load_file(buff_file, try_base_game=False)  # Don't try base game again
-            if not buff_data:
-                print(f"Buff file not found: {buff_file}")
-                return
-                
-            # Clear existing details
-            self.clear_layout(self.buff_details_layout)
-            
-            # Create and add the schema view for buff details
-            schema_view = self.create_schema_view("buff", buff_data, is_base_game, buff_file)
-            self.buff_details_layout.addWidget(schema_view)
-            
-        except Exception as e:
-            print(f"Error loading buff {buff_id}: {str(e)}")
-            error_label = QLabel(f"Error loading buff: {str(e)}")
-            error_label.setStyleSheet("color: red;")
-            self.buff_details_layout.addWidget(error_label)
-
-    def on_formation_selected(self, item):
-        """Handle formation selection from the list"""
-        if not self.current_folder:
-            return
-            
-        formation_id = item.text()
-        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
-        formation_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{formation_id}.formation"
-        
-        try:
-            # Load from file
-            formation_data, _ = self.load_file(formation_file, try_base_game=False)  # Don't try base game again
-            if not formation_data:
-                print(f"Formation file not found: {formation_file}")
-                return
-                
-            # Clear existing details
-            self.clear_layout(self.formation_details_layout)
-            
-            # Create and add the schema view for formation details
-            schema_view = self.create_schema_view("formation", formation_data, is_base_game, formation_file)
-            self.formation_details_layout.addWidget(schema_view)
-            
-        except Exception as e:
-            print(f"Error loading formation {formation_id}: {str(e)}")
-            error_label = QLabel(f"Error loading formation: {str(e)}")
-            error_label.setStyleSheet("color: red;")
-            self.formation_details_layout.addWidget(error_label)
-
-    def on_pattern_selected(self, item):
-        """Handle flight pattern selection from the list"""
-        if not self.current_folder:
-            return
-            
-        pattern_id = item.text()
-        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
-        pattern_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{pattern_id}.flight_pattern"
-        
-        try:
-            # Load from file
-            pattern_data, _ = self.load_file(pattern_file, try_base_game=False)  # Don't try base game again
-            if not pattern_data:
-                print(f"Flight pattern file not found: {pattern_file}")
-                return
-                
-            # Clear existing details
-            self.clear_layout(self.pattern_details_layout)
-            
-            # Create and add the schema view for pattern details
-            schema_view = self.create_schema_view("flight-pattern", pattern_data, is_base_game, pattern_file)
-            self.pattern_details_layout.addWidget(schema_view)
-            
-        except Exception as e:
-            print(f"Error loading flight pattern {pattern_id}: {str(e)}")
-            error_label = QLabel(f"Error loading flight pattern: {str(e)}")
-            error_label.setStyleSheet("color: red;")
-            self.pattern_details_layout.addWidget(error_label)
-
-    def on_reward_selected(self, item):
-        """Handle NPC reward selection from the list"""
-        if not self.current_folder:
-            return
-            
-        reward_id = item.text()
-        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
-        reward_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{reward_id}.npc_reward"
-        
-        try:
-            # Load from file
-            reward_data, _ = self.load_file(reward_file, try_base_game=False)  # Don't try base game again
-            if not reward_data:
-                print(f"NPC reward file not found: {reward_file}")
-                return
-                
-            # Clear existing details
-            self.clear_layout(self.reward_details_layout)
-            
-            # Create and add the schema view for reward details
-            schema_view = self.create_schema_view("npc-reward", reward_data, is_base_game, reward_file)
-            self.reward_details_layout.addWidget(schema_view)
-            
-        except Exception as e:
-            print(f"Error loading NPC reward {reward_id}: {str(e)}")
-            error_label = QLabel(f"Error loading NPC reward: {str(e)}")
-            error_label.setStyleSheet("color: red;")
-            self.reward_details_layout.addWidget(error_label)
-
-    def on_exotic_selected(self, item):
-        """Handle exotic selection from the list"""
-        if not self.current_folder:
-            return
-            
-        exotic_id = item.text()
-        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
-        exotic_file = (self.base_game_folder if is_base_game else self.current_folder) / "entities" / f"{exotic_id}.exotic"
-        
-        try:
-            # Load from file
-            exotic_data, _ = self.load_file(exotic_file, try_base_game=False)  # Don't try base game again
-            if not exotic_data:
-                print(f"Exotic file not found: {exotic_file}")
-                return
-                
-            # Clear existing details
-            self.clear_layout(self.exotic_details_layout)
-            
-            # Create and add the schema view for exotic details
-            schema_view = self.create_schema_view("exotic", exotic_data, is_base_game, exotic_file)
-            self.exotic_details_layout.addWidget(schema_view)
-            
-        except Exception as e:
-            print(f"Error loading exotic {exotic_id}: {str(e)}")
-            error_label = QLabel(f"Error loading exotic: {str(e)}")
-            error_label.setStyleSheet("color: red;")
-            self.exotic_details_layout.addWidget(error_label)
-
-    def on_uniform_selected(self, item):
-        """Handle uniform selection from the list"""
-        if not self.current_folder:
-            return
-            
-        uniform_id = item.text()
-        is_base_game = item.foreground().color().getRgb()[:3] == (150, 150, 150)  # Check if it's a base game item
-        uniform_file = (self.base_game_folder if is_base_game else self.current_folder) / "uniforms" / f"{uniform_id}.uniforms"
-        
-        try:
-            # Load from file
-            uniform_data, _ = self.load_file(uniform_file, try_base_game=False)  # Don't try base game again
-            if not uniform_data:
-                print(f"Uniform file not found: {uniform_file}")
-                return
-                
-            # Clear existing details
-            self.clear_layout(self.uniform_details_layout)
-            
-            # Create and add the schema view for uniform details
-            schema_view = self.create_schema_view("uniform", uniform_data, is_base_game, uniform_file)
-            self.uniform_details_layout.addWidget(schema_view)
-            
-        except Exception as e:
-            print(f"Error loading uniform {uniform_id}: {str(e)}")
-            error_label = QLabel(f"Error loading uniform: {str(e)}")
-            error_label.setStyleSheet("color: red;")
-            self.uniform_details_layout.addWidget(error_label)
-
-    def create_context_menu(self, widget, current_value):
-        """Create a context menu for text fields and buttons"""
-        menu = QMenu(self)
-        
-        # Get schema and data path from widget or its container
-        schema = None
-        data_path = widget.property("data_path")
-        print(f"Creating context menu for path: {data_path}")
-            
-        if data_path is not None:  # Changed from 'if data_path:' to handle empty lists
-            # Find the schema for this path
-            schema = self.get_schema_for_path(data_path)
-            print(f"Got schema for path {data_path}: {schema}")
-            
-            # For top-level objects, we need to resolve references in the schema itself
-            if not data_path and schema and "$ref" in schema:
-                schema = self.resolve_schema_references(schema)
-                print(f"Resolved top-level schema reference: {schema}")
-        
-        # Add Delete Property option if this is a property widget
-        property_name = None
-        
-        # Try to find property name from various widget types and layouts
-        def find_property_name_in_layout(layout):
-            if layout and layout.count() > 0:
-                first_widget = layout.itemAt(0).widget()
-                if isinstance(first_widget, QLabel):
-                    return first_widget.text().replace(":", "").replace(" ", "_").lower()
-                elif isinstance(first_widget, QToolButton):
-                    return first_widget.text().replace(" ", "_").lower()
-            return None
-            
-        def find_property_name_in_hierarchy(widget):
-            # Check if widget itself is a QToolButton (collapsible header)
-            if isinstance(widget, QToolButton):
-                return widget.text().replace(" ", "_").lower()
-                
-            # Check widget's direct parent
-            if widget.parent():
-                parent = widget.parent()
-                
-                # Try parent's layout
-                if parent.layout():
-                    name = find_property_name_in_layout(parent.layout())
-                    if name:
-                        return name
-                        
-                # If parent is a container widget, try its parent
-                if parent.parent():
-                    grandparent = parent.parent()
-                    if grandparent.layout():
-                        name = find_property_name_in_layout(grandparent.layout())
-                        if name:
-                            return name
-            return None
-            
-        # Try to find property name
-        property_name = find_property_name_in_hierarchy(widget)
-        
-        if property_name and data_path:
-            # Don't allow deletion of required properties
-            parent_schema = self.get_schema_for_path(data_path[:-1])  # Get parent object's schema
-            if not parent_schema or "required" not in parent_schema or property_name not in parent_schema["required"]:
-                if len(menu.actions()) > 0:
-                    menu.addSeparator()
-                action = menu.addAction("Delete Property")
-                action.triggered.connect(
-                    lambda checked, w=widget, n=property_name: self.delete_property(w, n)
-                )
-                
-        # Add property/item menu if this is an object or array
-        if schema and isinstance(current_value, (dict, list)):
-            add_menu = menu.addMenu("Add..." if isinstance(current_value, dict) else "Add Item")
-            
-            if isinstance(current_value, dict):
-                # Resolve schema references before checking properties
-                schema = self.resolve_schema_references(schema)
-                print(f"Resolved schema for properties: {schema}")
-
-                # Get available properties from schema
-                properties = schema.get("properties", {})
-                required = schema.get("required", [])
-                # Get currently used properties
-                used_props = set(current_value.keys())
-                print(f"Used properties: {used_props}")
-                print(f"Available properties: {properties.keys()}")
-                
-                # Add menu items for each available property
-                has_available_props = False
-                for prop_name, prop_schema in sorted(properties.items()):
-                    if prop_name not in used_props:
-                        has_available_props = True
-                        action = add_menu.addAction(prop_name)
-                        is_required = prop_name in required
-                        if is_required:
-                            action.setText(f"{prop_name} (required)")
-                        action.triggered.connect(
-                            lambda checked, n=prop_name, s=prop_schema: 
-                            self.add_property(widget, n, s)
-                        )
-                    
-                # If no available properties, add a disabled message
-                if not has_available_props:
-                    print("No available properties found")
-                    action = add_menu.addAction("No available properties")
-                    action.setEnabled(False)
-        
-            elif isinstance(current_value, list):
-                # Get item schema and resolve references
-                items_schema = schema.get("items", {})
-                if items_schema:
-                    items_schema = self.resolve_schema_references(items_schema)
-                    action = add_menu.addAction("New Item")
-                    action.triggered.connect(
-                        lambda checked: self.add_array_item(widget, items_schema)
-                    )
-                    
-        # Only add selection menu for non-container values (not objects or arrays)
-        if not isinstance(current_value, (dict, list)):
-            select_menu = menu.addMenu("Select from...")
-            
-            # File selection action
-            file_action = select_menu.addAction("File...")
-            file_action.triggered.connect(lambda: self.show_file_selector(widget))
-            
-            # Uniforms selection action
-            uniforms_action = select_menu.addAction("Uniforms...")
-            uniforms_action.triggered.connect(lambda: self.show_uniforms_selector(widget))
-            
-            # Localized text selection action
-            text_action = select_menu.addAction("Localized Text...")
-            text_action.triggered.connect(lambda: self.show_localized_text_selector(widget))
-            
-            # Texture selection action
-            texture_action = select_menu.addAction("Texture...")
-            texture_action.triggered.connect(lambda: self.show_texture_selector(widget))
-            
-            # Sound selection action
-            sound_action = select_menu.addAction("Sounds...")
-            sound_action.triggered.connect(lambda: self.show_sound_selector(widget))
-            
-        return menu
-
-    def get_schema_for_path(self, path: list) -> dict:
-        """Get the schema for a specific data path"""
-        if not self.current_schema:
-            print("No current schema available")
-            return None
-            
-        # For empty path (top-level object), return the current schema
-        if not path:
-            print(f"Returning top-level schema: {self.current_schema}")
-            return self.current_schema
-            
-        schema = self.current_schema
-        for part in path:
-            if not schema:
-                print(f"Schema is None while processing path part: {part}")
-                return None
-                
-            # Resolve any references in the current schema
-            if isinstance(schema, dict):
-                if "$ref" in schema:
-                    # Resolve reference
-                    ref_path = schema["$ref"].split("/")[1:]
-                    current = self.current_schema
-                    for ref_part in ref_path:
-                        if ref_part in current:
-                            current = current[ref_part]
-                        else:
-                            return None
-                    schema = current
-                
-                if isinstance(part, str):
-                    # Object property
-                    if "properties" in schema and part in schema["properties"]:
-                        schema = schema["properties"][part]
-                    else:
-                        return None
-                elif isinstance(part, int):
-                    # Array index - get the items schema
-                    if "items" in schema:
-                        schema = schema["items"]
-                        # Resolve any references in the items schema
-                        if isinstance(schema, dict) and "$ref" in schema:
-                            ref_path = schema["$ref"].split("/")[1:]
-                            current = self.current_schema
-                            for ref_part in ref_path:
-                                if ref_part in current:
-                                    current = current[ref_part]
-                                else:
-                                    return None
-                            schema = current
-                    else:
-                        return None
-                        
-        return schema
+            print(f"Error updating localized text in memory: {str(e)}")
 
     def add_property(self, widget: QWidget, prop_name: str, prop_schema: dict):
         """Add a new property to an object"""
@@ -4113,983 +4773,6 @@ class EntityToolGUI(QMainWindow):
             
             self.command_stack.push(transform_cmd)
             self.update_save_button()
-
-    def add_array_item(self, widget: QWidget, item_schema: dict):
-        """Add a new item to an array"""
-        # Get file path from parent schema view
-        file_path = self.get_schema_view_file_path(widget)
-        if not file_path:
-            return
-            
-        data_path = widget.property("data_path")
-        if data_path is None:
-            return
-            
-        # Get current data from command stack
-        current_data = self.command_stack.get_file_data(file_path)
-        if not current_data:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                current_data = json.load(f)
-                
-        # Navigate to the target array
-        array_data = current_data
-        for part in data_path:
-            array_data = array_data[part]
-            
-        if not isinstance(array_data, list):
-            array_data = []
-            
-        # Resolve schema references and get the full schema
-        resolved_schema = self.resolve_schema_references(item_schema)
-        
-        # Create new item with default value based on schema
-        new_item = self.get_default_value(resolved_schema)
-        
-        # For objects, ensure all required properties are present with proper default values
-        if isinstance(new_item, dict):
-            # Get required properties from schema
-            required_props = resolved_schema.get("required", [])
-            properties = resolved_schema.get("properties", {})
-            
-            # Add all required properties
-            for prop_name in required_props:
-                if prop_name not in new_item and prop_name in properties:
-                    prop_schema = self.resolve_schema_references(properties[prop_name])
-                    new_item[prop_name] = self.get_default_value(prop_schema)
-                    
-            # If schema has unevaluatedProperties set to false, add all optional properties too
-            if resolved_schema.get("unevaluatedProperties") is False:
-                for prop_name, prop_schema in properties.items():
-                    if prop_name not in new_item:
-                        prop_schema = self.resolve_schema_references(prop_schema)
-                        new_item[prop_name] = self.get_default_value(prop_schema)
-                    
-        new_array = array_data + [new_item]
-        
-        # Find the array's content widget (next widget after the toggle button)
-        array_container = widget.parent()
-        content_widget = None
-        if array_container:
-            array_layout = array_container.layout()
-            for i in range(array_layout.count()):
-                item_widget = array_layout.itemAt(i).widget()
-                if item_widget and item_widget != widget:
-                    content_widget = item_widget
-                    break
-        
-        if content_widget and content_widget.layout():
-            # Create transform command for the new widget
-            transform_cmd = TransformWidgetCommand(
-                self,
-                content_widget,
-                None,  # No old value since we're adding a new widget
-                new_item
-            )
-            # Add required attributes to transform command
-            transform_cmd.file_path = file_path
-            transform_cmd.data_path = data_path + [len(array_data)]  # Path to the new item
-            transform_cmd.source_widget = widget
-            transform_cmd.schema = resolved_schema  # Pass the schema to the transform command
-            transform_cmd.array_data = array_data  # Pass current array data
-            transform_cmd.new_array = new_array  # Pass new array data
-            
-            self.command_stack.push(transform_cmd)
-            self.update_save_button()
-
-    def resolve_schema_references(self, schema: dict) -> dict:
-        """Resolve schema references recursively"""
-        if not schema:
-            return schema
-            
-        if "$ref" in schema:
-            ref_path = schema["$ref"].split("/")[1:]  # Skip the first '#' element
-            # Find the referenced schema in the loaded schemas
-            for loaded_schema in self.schemas.values():
-                try:
-                    resolved = loaded_schema
-                    for part in ref_path:
-                        resolved = resolved[part]
-                    # Merge any additional properties from the original schema
-                    resolved = {**resolved, **{k: v for k, v in schema.items() if k != "$ref"}}
-                    return resolved
-                except (KeyError, TypeError):
-                    continue
-            # If we get here, we couldn't resolve the reference
-            print(f"Warning: Could not resolve schema reference: {schema['$ref']}")
-            return schema
-            
-        # Handle nested objects
-        if "properties" in schema:
-            resolved_props = {}
-            for prop_name, prop_schema in schema["properties"].items():
-                resolved_props[prop_name] = self.resolve_schema_references(prop_schema)
-            schema["properties"] = resolved_props
-            
-        # Handle arrays
-        if "items" in schema:
-            schema["items"] = self.resolve_schema_references(schema["items"])
-            
-        return schema
-
-    def refresh_schema_view(self, file_path: Path):
-        """Refresh the schema view for a file"""
-        # Get the current data
-        data = self.command_stack.get_file_data(file_path)
-        if isinstance(data, (Path, str)):  # If data is a path (like for root properties), load the actual data
-            data = self.old_value  # Use the backed up data from the command
-
-        if not data:
-            return
-            
-        # Find the schema view widget
-        schema_view = None
-        for widget in self.findChildren(QWidget):
-            if (hasattr(widget, 'property') and 
-                widget.property("file_path") == str(file_path)):
-                schema_view = widget
-                break
-        
-        if schema_view and schema_view.parent() and schema_view.parent().layout():
-            # Get the schema type from the file extension
-            schema_type = file_path.suffix[1:]  # Remove the dot
-            
-            # Create new schema view
-            new_view = self.create_schema_view(
-                schema_type,
-                data,
-                False,  # is_base_game
-                file_path
-            )
-            
-            # Replace old view with new one
-            parent = schema_view.parent()
-            layout = parent.layout()
-            layout.replaceWidget(schema_view, new_view)
-            schema_view.deleteLater()
-
-    def show_context_menu(self, widget, position, current_value):
-        """Show the context menu at the given position"""
-        print(f"show_context_menu called for widget: {widget}, position: {position}")
-        menu = self.create_context_menu(widget, current_value)
-        if menu:
-            logging.debug("Menu created, about to show")
-            menu.exec(widget.mapToGlobal(position))
-        else:
-            logging.debug("No menu was created")
-
-    def show_file_selector(self, target_widget):
-        """Show a dialog to select a file from mod or base game"""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Select File")
-        layout = QVBoxLayout(dialog)
-        
-        # File type selector
-        type_layout = QHBoxLayout()
-        type_label = QLabel("File Type:")
-        type_combo = QComboBox()
-        type_combo.addItems(sorted(set(self.manifest_data['mod'].keys()) | 
-                                 set(self.manifest_data['base_game'].keys())))
-        type_layout.addWidget(type_label)
-        type_layout.addWidget(type_combo)
-        layout.addLayout(type_layout)
-        
-        # File list
-        file_list = QListWidget()
-        layout.addWidget(file_list)
-        
-        def update_file_list():
-            file_list.clear()
-            file_type = type_combo.currentText()
-            # Add mod files first
-            for file_id in sorted(self.manifest_data['mod'].get(file_type, {})):
-                item = QListWidgetItem(file_id)
-                file_list.addItem(item)
-            # Then add base game files (grayed out)
-            for file_id in sorted(self.manifest_data['base_game'].get(file_type, {})):
-                if file_id not in self.manifest_data['mod'].get(file_type, {}):
-                    item = QListWidgetItem(file_id)
-                    item.setForeground(QColor(150, 150, 150))
-                    font = item.font()
-                    font.setItalic(True)
-                    item.setFont(font)
-                    file_list.addItem(item)
-        
-        type_combo.currentTextChanged.connect(update_file_list)
-        update_file_list()  # Initial population
-        
-        # Buttons
-        button_box = QHBoxLayout()
-        select_btn = QPushButton("Select")
-        cancel_btn = QPushButton("Cancel")
-        button_box.addWidget(select_btn)
-        button_box.addWidget(cancel_btn)
-        layout.addLayout(button_box)
-        
-        def on_select():
-            if file_list.currentItem():
-                new_value = file_list.currentItem().text()
-                self.on_select_value(target_widget, new_value)
-                dialog.accept()
-        
-        select_btn.clicked.connect(on_select)
-        cancel_btn.clicked.connect(dialog.reject)
-        file_list.itemDoubleClicked.connect(on_select)
-        
-        dialog.exec()
-
-    def show_uniforms_selector(self, target_widget):
-        """Show a dialog to select a uniform value"""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Select Uniform Value")
-        dialog.resize(800, 600)
-        layout = QVBoxLayout(dialog)
-        
-        # Uniforms file selector
-        file_layout = QHBoxLayout()
-        file_label = QLabel("Uniforms File:")
-        file_combo = QComboBox()
-        # Add mod files first
-        mod_files = []
-        base_files = []
-        for item in self.uniforms_list.findItems("*", Qt.MatchFlag.MatchWildcard):
-            # Check if file exists in mod folder
-            mod_path = self.current_folder / "uniforms" / f"{item.text()}.uniforms"
-            if mod_path.exists():
-                mod_files.append(item.text())
-            else:
-                base_files.append(item.text())
-        
-        # Add mod files first
-        for file_id in sorted(mod_files):
-            file_combo.addItem(file_id)
-        # Then add base game files
-        for file_id in sorted(base_files):
-            file_combo.addItem(file_id)
-            # Style base game items
-            index = file_combo.count() - 1
-            file_combo.setItemData(index, QColor(150, 150, 150), Qt.ItemDataRole.ForegroundRole)
-            font = file_combo.itemData(index, Qt.ItemDataRole.FontRole) or QFont()
-            font.setItalic(True)
-            file_combo.setItemData(index, font, Qt.ItemDataRole.FontRole)
-        
-        file_layout.addWidget(file_label)
-        file_layout.addWidget(file_combo)
-        layout.addLayout(file_layout)
-        
-        # Tree widget for nested data
-        tree = QTreeWidget()
-        tree.setHeaderLabels(["Key", "Value"])
-        tree.setColumnWidth(0, 300)  # Give more space to the key column
-        layout.addWidget(tree)
-        
-        def add_item(parent, key, value, full_path=""):
-            """Recursively add items to the tree"""
-            if full_path:
-                new_path = f"{full_path}.{key}" if isinstance(key, str) else f"{full_path}[{key}]"
-            else:
-                new_path = str(key)
-                
-            item = QTreeWidgetItem(parent)
-            item.setText(0, str(key))
-            
-            if isinstance(value, dict):
-                item.setText(1, "{...}")
-                for k, v in sorted(value.items()):
-                    add_item(item, k, v, new_path)
-            elif isinstance(value, list):
-                item.setText(1, f"[{len(value)} items]")
-                for i, v in enumerate(value):
-                    add_item(item, i, v, new_path)
-            else:
-                item.setText(1, str(value))
-                # Store the full path and value for selection
-                item.setData(0, Qt.ItemDataRole.UserRole, (new_path, value))
-        
-        def update_tree():
-            tree.clear()
-            file_id = file_combo.currentText()
-            if not file_id:
-                return
-                
-            try:
-                # Try to load the uniforms file
-                file_path = self.current_folder / "uniforms" / f"{file_id}.uniforms"
-                if not file_path.exists() and self.base_game_folder:
-                    file_path = self.base_game_folder / "uniforms" / f"{file_id}.uniforms"
-                
-                if file_path.exists():
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                        for key, value in sorted(data.items()):
-                            add_item(tree, key, value)
-                            
-                    tree.expandToDepth(0)  # Expand first level by default
-            except Exception as e:
-                print(f"Error loading uniforms file: {str(e)}")
-        
-        def on_item_selected():
-            item = tree.currentItem()
-            if not item:
-                return
-                
-            data = item.data(0, Qt.ItemDataRole.UserRole)
-            if data:  # Only leaf nodes have data
-                path, value = data
-                new_value = str(value) if not isinstance(value, (dict, list)) else path
-                self.on_select_value(target_widget, new_value)
-                dialog.accept()
-        
-        def on_item_double_clicked(item, column):
-            on_item_selected()
-        
-        file_combo.currentTextChanged.connect(update_tree)
-        tree.itemDoubleClicked.connect(on_item_double_clicked)
-        update_tree()  # Initial population
-        
-        # Buttons
-        button_box = QHBoxLayout()
-        select_btn = QPushButton("Select")
-        select_btn.setEnabled(False)  # Disabled until an item is selected
-        cancel_btn = QPushButton("Cancel")
-        button_box.addStretch()
-        button_box.addWidget(select_btn)
-        button_box.addWidget(cancel_btn)
-        layout.addLayout(button_box)
-        
-        # Enable select button when an item is selected
-        def on_current_item_changed(current, previous):
-            select_btn.setEnabled(current is not None and current.data(0, Qt.ItemDataRole.UserRole) is not None)
-        
-        tree.currentItemChanged.connect(on_current_item_changed)
-        select_btn.clicked.connect(on_item_selected)
-        cancel_btn.clicked.connect(dialog.reject)
-        
-        dialog.exec()
-
-    def show_localized_text_selector(self, target_widget):
-        """Show a dialog to select localized text"""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Select Localized Text")
-        dialog.resize(800, 600)  # Make the dialog larger
-        layout = QVBoxLayout(dialog)
-        
-        # Language selector
-        lang_layout = QHBoxLayout()
-        lang_label = QLabel("Language:")
-        lang_combo = QComboBox()
-        
-        # Get all available languages
-        all_languages = set()
-        for source in ['mod', 'base_game']:
-            all_languages.update(self.all_localized_strings[source].keys())
-        
-        lang_combo.addItems(sorted(all_languages))
-        # Set current language if available, otherwise default to English
-        current_index = lang_combo.findText(self.current_language)
-        if current_index >= 0:
-            lang_combo.setCurrentIndex(current_index)
-        elif lang_combo.findText("en") >= 0:
-            lang_combo.setCurrentIndex(lang_combo.findText("en"))
-            
-        lang_layout.addWidget(lang_label)
-        lang_layout.addWidget(lang_combo)
-        layout.addLayout(lang_layout)
-        
-        # Search box
-        search_box = QLineEdit()
-        search_box.setPlaceholderText("Search...")
-        layout.addWidget(search_box)
-        
-        # Text list
-        text_list = QListWidget()
-        layout.addWidget(text_list)
-        
-        def update_text_list(search=""):
-            text_list.clear()
-            search = search.lower()
-            current_lang = lang_combo.currentText()
-            
-            # Helper to add items with proper styling
-            def add_items(items, is_base_game=False):
-                for key, value in sorted(items.items()):
-                    if search in key.lower() or search in str(value).lower():
-                        item = QListWidgetItem(f"{key}: {value}")
-                        item.setData(Qt.ItemDataRole.UserRole, key)  # Store just the key
-                        if is_base_game:
-                            item.setForeground(QColor(150, 150, 150))
-                            font = item.font()
-                            font.setItalic(True)
-                            item.setFont(font)
-                        text_list.addItem(item)
-            
-            # Add mod texts first
-            if current_lang in self.all_localized_strings['mod']:
-                add_items(self.all_localized_strings['mod'][current_lang])
-            
-            # Then add base game texts
-            if current_lang in self.all_localized_strings['base_game']:
-                add_items(self.all_localized_strings['base_game'][current_lang], True)
-        
-        search_box.textChanged.connect(update_text_list)
-        lang_combo.currentTextChanged.connect(lambda: update_text_list(search_box.text()))
-        update_text_list()  # Initial population
-        
-        # Buttons
-        button_box = QHBoxLayout()
-        select_btn = QPushButton("Select")
-        select_btn.setEnabled(False)  # Disabled until an item is selected
-        cancel_btn = QPushButton("Cancel")
-        button_box.addStretch()
-        button_box.addWidget(select_btn)
-        button_box.addWidget(cancel_btn)
-        layout.addLayout(button_box)
-        
-        def on_item_selected():
-            item = text_list.currentItem()
-            if item:
-                new_value = item.data(Qt.ItemDataRole.UserRole)
-                self.on_select_value(target_widget, new_value)
-                dialog.accept()
-        
-        def on_item_double_clicked(item):
-            on_item_selected()
-        
-        # Enable select button when an item is selected
-        def on_current_item_changed(current, previous):
-            select_btn.setEnabled(current is not None)
-        
-        text_list.currentItemChanged.connect(on_current_item_changed)
-        text_list.itemDoubleClicked.connect(on_item_double_clicked)
-        select_btn.clicked.connect(on_item_selected)
-        cancel_btn.clicked.connect(dialog.reject)
-        
-        dialog.exec()
-
-    def on_localized_text_changed(self, edit: QPlainTextEdit, text: str):
-        """Handle changes to localized text values"""
-        if not self.current_folder:
-            return
-            
-        # Get the key and language from the widget's properties
-        key = edit.property("localized_key")
-        language = edit.property("language")
-        if not key or not language:
-            return
-            
-        # Get the localized text file path
-        text_file = self.current_folder / "localized_text" / f"{language}.localized_text"
-        
-        # Get the current data from the file
-        try:
-            with open(text_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-        except Exception:
-            data = {}
-            
-        # Initialize command stack data if needed
-        if not self.command_stack.get_file_data(text_file):
-            self.command_stack.update_file_data(text_file, data)
-        
-        # Create a command to update the text
-        old_value = data.get(key, "")
-        if old_value != text:
-            command = EditValueCommand(
-                text_file,
-                [key],  # The path is just the key since it's a flat dictionary
-                old_value,
-                text,
-                lambda value: self.update_text_preserve_cursor(edit, value),
-                lambda path, value: self.update_localized_text_in_memory(text_file, path[0], value)
-            )
-            command.source_widget = edit
-            self.command_stack.push(command)
-            self.update_save_button()
-            
-            # Update the in-memory strings
-            if language not in self.all_localized_strings['mod']:
-                self.all_localized_strings['mod'][language] = {}
-            self.all_localized_strings['mod'][language][key] = text
-
-    def update_text_preserve_cursor(self, edit: QPlainTextEdit, value: str):
-        """Update text in QPlainTextEdit while preserving cursor position and selection"""
-        edit.setProperty("is_updating", True)  # Set flag before update
-        cursor = edit.textCursor()
-        position = cursor.position()
-        anchor = cursor.anchor()
-        
-        # Block signals to prevent recursive updates
-        edit.blockSignals(True)
-        edit.setPlainText(value)
-        edit.blockSignals(False)
-        
-        # Restore cursor and selection
-        cursor = edit.textCursor()
-        cursor.setPosition(anchor)
-        if anchor != position:
-            cursor.setPosition(position, cursor.MoveMode.KeepAnchor)
-        edit.setTextCursor(cursor)
-        edit.setProperty("is_updating", False)  # Clear flag after update
-
-    def update_localized_text_in_memory(self, file_path: Path, key: str, value: str):
-        """Update a value in memory only, actual file write happens during save"""
-        try:
-            # Get current data from command stack
-            data = self.command_stack.get_file_data(file_path)
-            if not data:
-                # If no data in command stack, read from file
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                except Exception:
-                    data = {}
-                self.command_stack.update_file_data(file_path, data)
-            
-            # Update the value in memory only
-            data[key] = value
-            self.command_stack.update_file_data(file_path, data)
-            
-            print(f"Updated localized text {key} in memory")
-            print(f"New value: {value}")
-        except Exception as e:
-            print(f"Error updating localized text in memory: {str(e)}")
-
-    def on_text_edit_timer_timeout(self):
-        if self.current_text_edit and not self.current_text_edit.property("is_updating"):
-            self.on_localized_text_changed(self.current_text_edit, self.current_text_edit.toPlainText())
-
-    def on_select_value(self, target_widget, new_value):
-        """Handle selection from any selector dialog"""
-        data_path = target_widget.property("data_path")
-        old_value = target_widget.property("original_value")
-        file_path = self.get_schema_view_file_path(target_widget)
-        
-        if data_path is not None and old_value != new_value and file_path:
-            # Create value update command
-            value_cmd = EditValueCommand(
-                file_path,
-                data_path,
-                old_value,
-                new_value,
-                lambda v: None,  # No-op since transformation is handled separately
-                self.update_data_value
-            )
-            value_cmd.source_widget = target_widget
-            
-            # Create transform command
-            transform_cmd = TransformWidgetCommand(self, target_widget, old_value, new_value)
-            
-            # Combine commands
-            composite_cmd = CompositeCommand([value_cmd, transform_cmd])
-            self.command_stack.push(composite_cmd)
-            
-            # Widget cleanup is handled by TransformWidgetCommand
-            self.update_save_button()
-
-    def show_texture_selector(self, target_widget):
-        """Show a dialog to select a texture"""
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Select Texture")
-        dialog.resize(1000, 600)
-        layout = QHBoxLayout(dialog)
-        
-        # Left side with list
-        left_side = QWidget()
-        left_layout = QVBoxLayout(left_side)
-        layout.addWidget(left_side)
-        
-        # Add search box
-        search_box = QLineEdit()
-        search_box.setPlaceholderText("Search textures...")
-        left_layout.addWidget(search_box)
-        
-        # Create list widget for textures
-        texture_list = QListWidget()
-        left_layout.addWidget(texture_list)
-        
-        # Right side with preview
-        right_side = QWidget()
-        right_layout = QVBoxLayout(right_side)
-        layout.addWidget(right_side)
-        
-        # Preview label
-        preview_label = QLabel()
-        preview_label.setMinimumSize(300, 300)
-        preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        right_layout.addWidget(preview_label)
-        right_layout.addStretch()
-        
-        def update_texture_list(search=""):
-            texture_list.clear()
-            search = search.lower()
-            
-            def add_textures(textures, is_base_game=False):
-                for texture in sorted(textures):
-                    if search in texture.lower():
-                        item = QListWidgetItem(texture)
-                        if is_base_game:
-                            item.setForeground(QColor(150, 150, 150))
-                            font = item.font()
-                            font.setItalic(True)
-                            item.setFont(font)
-                        texture_list.addItem(item)
-            
-            # Add mod textures first
-            add_textures(self.all_texture_files['mod'])
-            # Then add base game textures
-            add_textures(self.all_texture_files['base_game'], True)
-        
-        # Connect search box
-        search_box.textChanged.connect(update_texture_list)
-        
-        # Buttons
-        button_box = QHBoxLayout()
-        select_btn = QPushButton("Select")
-        select_btn.setEnabled(False)
-        cancel_btn = QPushButton("Cancel")
-        button_box.addStretch()
-        button_box.addWidget(select_btn)
-        button_box.addWidget(cancel_btn)
-        left_layout.addLayout(button_box)
-        
-        def on_item_selected():
-            if texture_list.currentItem():
-                new_value = texture_list.currentItem().text()
-                self.on_select_value(target_widget, new_value)
-                dialog.accept()
-        
-        def on_item_double_clicked(item):
-            on_item_selected()
-        
-        def on_current_item_changed(current, previous):
-            select_btn.setEnabled(current is not None)
-            if current:
-                # Update preview
-                texture_name = current.text()
-                pixmap, _ = self.load_texture(texture_name)
-                if pixmap:
-                    # Scale pixmap to fit preview area while maintaining aspect ratio
-                    scaled_pixmap = pixmap.scaled(300, 300, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                    preview_label.setPixmap(scaled_pixmap)
-                else:
-                    preview_label.setText("No preview available")
-            else:
-                preview_label.clear()
-        
-        texture_list.currentItemChanged.connect(on_current_item_changed)
-        texture_list.itemDoubleClicked.connect(on_item_double_clicked)
-        select_btn.clicked.connect(on_item_selected)
-        cancel_btn.clicked.connect(dialog.reject)
-        
-        # Initial population
-        update_texture_list()
-        dialog.exec()
-
-    def show_sound_selector(self, target_widget):
-        """Show a dialog to select a sound file"""
-        # Initialize pygame mixer
-        if not pygame.mixer.get_init():
-            pygame.mixer.init()
-        
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Select Sound")
-        dialog.resize(800, 500)
-        layout = QVBoxLayout(dialog)
-        
-        # Search box
-        search_box = QLineEdit()
-        search_box.setPlaceholderText("Search sounds...")
-        layout.addWidget(search_box)
-        
-        # Sound list
-        sound_list = QListWidget()
-        layout.addWidget(sound_list)
-        
-        # Playback controls
-        controls_layout = QHBoxLayout()
-        play_button = QPushButton("Play")
-        stop_button = QPushButton("Stop")
-        stop_button.setEnabled(False)
-        controls_layout.addWidget(play_button)
-        controls_layout.addWidget(stop_button)
-        layout.addLayout(controls_layout)
-        
-        # Audio playback state
-        audio_state = {
-            'playing': False,
-            'sound': None
-        }
-        
-        def get_sound_files():
-            """Get all .ogg files from mod and base game"""
-            sound_files = {'mod': set(), 'base_game': set()}
-            
-            # Get mod sounds
-            if self.current_folder:
-                sound_dir = self.current_folder / "sounds"
-                if sound_dir.exists():
-                    for file_path in sound_dir.rglob("*.ogg"):
-                        rel_path = file_path.relative_to(sound_dir)
-                        sound_files['mod'].add(str(rel_path).replace('\\', '/'))
-            
-            # Get base game sounds
-            if self.base_game_folder:
-                sound_dir = self.base_game_folder / "sounds"
-                if sound_dir.exists():
-                    for file_path in sound_dir.rglob("*.ogg"):
-                        rel_path = file_path.relative_to(sound_dir)
-                        rel_path_str = str(rel_path).replace('\\', '/')
-                        if rel_path_str not in sound_files['mod']:
-                            sound_files['base_game'].add(rel_path_str)
-            
-            return sound_files
-            
-        def update_sound_list(search=""):
-            sound_list.clear()
-            search = search.lower()
-            sound_files = get_sound_files()
-            
-            # Add mod sounds first
-            for sound in sorted(sound_files['mod']):
-                if search in sound.lower():
-                    # Strip .ogg extension for display
-                    display_name = str(Path(sound).with_suffix(''))
-                    item = QListWidgetItem(display_name)
-                    # Store full path with extension as data
-                    item.setData(Qt.ItemDataRole.UserRole, sound)
-                    sound_list.addItem(item)
-            
-            # Then add base game sounds
-            for sound in sorted(sound_files['base_game']):
-                if search in sound.lower():
-                    # Strip .ogg extension for display
-                    display_name = str(Path(sound).with_suffix(''))
-                    item = QListWidgetItem(display_name)
-                    # Store full path with extension as data
-                    item.setData(Qt.ItemDataRole.UserRole, sound)
-                    item.setForeground(QColor(150, 150, 150))
-                    font = item.font()
-                    font.setItalic(True)
-                    item.setFont(font)
-                    sound_list.addItem(item)
-        
-        def play_sound():
-            if not sound_list.currentItem():
-                return
-                
-            # Get full path with extension from item data
-            sound_path = sound_list.currentItem().data(Qt.ItemDataRole.UserRole)
-            is_base_game = sound_list.currentItem().foreground().color().getRgb()[:3] == (150, 150, 150)
-            
-            # Get full path
-            base_dir = self.base_game_folder if is_base_game else self.current_folder
-            full_path = base_dir / "sounds" / sound_path
-            
-            if full_path.exists():
-                try:
-                    # Stop any existing playback
-                    stop_sound()
-                    
-                    # Load and play the sound
-                    audio_state['sound'] = pygame.mixer.Sound(str(full_path))
-                    audio_state['sound'].play()
-                    audio_state['playing'] = True
-                    
-                    play_button.setEnabled(False)
-                    stop_button.setEnabled(True)
-                    
-                    # Start a timer to check when playback is done
-                    def check_playback():
-                        while audio_state['playing'] and pygame.mixer.get_busy():
-                            pygame.time.wait(100)
-                        if audio_state['playing']:  # If not stopped manually
-                            audio_state['playing'] = False
-                            play_button.setEnabled(True)
-                            stop_button.setEnabled(False)
-                    
-                    threading.Thread(target=check_playback, daemon=True).start()
-                    
-                except Exception as e:
-                    print(f"Error playing sound: {str(e)}")
-                    audio_state['playing'] = False
-                    play_button.setEnabled(True)
-                    stop_button.setEnabled(False)
-        
-        def stop_sound():
-            if audio_state['sound']:
-                audio_state['sound'].stop()
-            audio_state['playing'] = False
-            audio_state['sound'] = None
-            play_button.setEnabled(True)
-            stop_button.setEnabled(False)
-        
-        # Connect signals
-        search_box.textChanged.connect(update_sound_list)
-        play_button.clicked.connect(play_sound)
-        stop_button.clicked.connect(stop_sound)
-        
-        # Selection buttons
-        button_box = QHBoxLayout()
-        select_btn = QPushButton("Select")
-        select_btn.setEnabled(False)
-        cancel_btn = QPushButton("Cancel")
-        button_box.addStretch()
-        button_box.addWidget(select_btn)
-        button_box.addWidget(cancel_btn)
-        layout.addLayout(button_box)
-        
-        def on_item_selected():
-            if sound_list.currentItem():
-                stop_sound()  # Stop any playing sound
-                # Use display name (without extension) for selection
-                new_value = sound_list.currentItem().text()
-                self.on_select_value(target_widget, new_value)
-                dialog.accept()
-        
-        def on_item_double_clicked(item):
-            on_item_selected()
-        
-        def on_current_item_changed(current, previous):
-            select_btn.setEnabled(current is not None)
-            play_button.setEnabled(current is not None)
-        
-        # Connect selection signals
-        sound_list.currentItemChanged.connect(on_current_item_changed)
-        sound_list.itemDoubleClicked.connect(on_item_double_clicked)
-        select_btn.clicked.connect(on_item_selected)
-        cancel_btn.clicked.connect(dialog.reject)
-        
-        # Clean up on close
-        dialog.finished.connect(stop_sound)
-        
-        # Initial population
-        update_sound_list()
-        dialog.exec()
-        
-        # Clean up pygame mixer
-        pygame.mixer.quit()
-
-    def closeEvent(self, event):
-        """Handle window close event"""
-        if self.command_stack.has_unsaved_changes():
-            reply = QMessageBox.question(
-                self,
-                'Unsaved Changes',
-                'You have unsaved changes. Do you want to save before closing?',
-                QMessageBox.StandardButton.Save | 
-                QMessageBox.StandardButton.Discard | 
-                QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Save
-            )
-            
-            if reply == QMessageBox.StandardButton.Save:
-                # Try to save changes
-                if self.save_changes():
-                    event.accept()
-                else:
-                    # If save failed, ask if they want to discard or cancel
-                    reply = QMessageBox.question(
-                        self,
-                        'Save Failed',
-                        'Failed to save changes. Do you want to discard changes and close anyway?',
-                        QMessageBox.StandardButton.Discard | 
-                        QMessageBox.StandardButton.Cancel,
-                        QMessageBox.StandardButton.Cancel
-                    )
-                    if reply == QMessageBox.StandardButton.Discard:
-                        event.accept()
-                    else:
-                        event.ignore()
-            elif reply == QMessageBox.StandardButton.Discard:
-                event.accept()
-            else:  # Cancel
-                event.ignore()
-        else:
-            event.accept()
-
-    def setup_logging(self):
-        """Setup logging configuration"""
-        # Create log list widget if not already created in init_ui
-        if not hasattr(self, 'log_widget'):
-            self.log_widget = QListWidget()
-            self.log_widget.setMaximumHeight(100)
-            
-        # Create and configure the log handler
-        handler = GUILogHandler(self.log_widget)
-        handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-        
-        # Get the root logger and add our handler
-        root_logger = logging.getLogger()
-        root_logger.setLevel(logging.INFO)
-        
-        # Remove any existing handlers to avoid duplicates
-        for existing_handler in root_logger.handlers[:]:
-            root_logger.removeHandler(existing_handler)
-            
-        root_logger.addHandler(handler)
-        logging.info("Logging system initialized")
-
-    def show_array_item_menu(self, widget: QWidget, pos):
-        """Show context menu for array item indices"""
-        print("Showing array item menu")
-        menu = QMenu()
-        
-        # Get data path and array data
-        data_path = widget.property("data_path")
-        array_data = widget.property("array_data")
-        
-        if data_path and array_data and len(array_data) > 1:
-            # Add delete action
-            delete_action = menu.addAction("Delete Item")
-            delete_action.triggered.connect(
-                lambda: self.delete_array_item(widget, data_path)
-            )
-        
-        menu.exec(widget.mapToGlobal(pos))
-        
-    def delete_array_item(self, widget: QWidget, item_path: list):
-        """Delete an item from an array"""
-        # Get file path from parent schema view
-        file_path = self.get_schema_view_file_path(widget)
-        if not file_path:
-            return
-            
-        # Get current data from command stack
-        current_data = self.command_stack.get_file_data(file_path)
-        if not current_data:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                current_data = json.load(f)
-        
-        # Get array path (everything except the last index)
-        array_path = item_path[:-1]
-        item_index = item_path[-1]
-        
-        # Navigate to the array
-        array_data = current_data
-        for part in array_path:
-            array_data = array_data[part]
-            
-        if not isinstance(array_data, list):
-            return
-            
-        # Find the array's content widget (where the items are stored)
-        content_widget = widget.parent().parent()
-        if not content_widget:
-            return
-        
-        # Create and execute command
-        command = DeleteArrayItemCommand(
-            self,
-            content_widget,
-            array_data,
-            item_index
-        )
-        # Add required attributes to transform command
-        command.file_path = file_path
-        command.data_path = array_path
-        command.source_widget = widget
-        
-        self.command_stack.push(command)
-        self.update_save_button()
 
     def delete_property(self, widget: QWidget, property_name: str):
         """Delete a property from an object"""
@@ -5159,52 +4842,129 @@ class EntityToolGUI(QMainWindow):
             import traceback
             traceback.print_exc()
 
-    def refresh_schema_view(self, file_path: str):
-        """Refresh the schema view for the given file path"""
-        # Find the schema view by searching all widgets
-        for widget in self.findChildren(QWidget):
-            if (hasattr(widget, 'property') and 
-                widget.property("file_path") == str(file_path)):
+    def add_array_item(self, widget: QWidget, item_schema: dict):
+        """Add a new item to an array"""
+        # Get file path from parent schema view
+        file_path = self.get_schema_view_file_path(widget)
+        if not file_path:
+            return
+            
+        data_path = widget.property("data_path")
+        if data_path is None:
+            return
+            
+        # Get current data from command stack
+        current_data = self.command_stack.get_file_data(file_path)
+        if not current_data:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                current_data = json.load(f)
                 
-                # Get current data from command stack
-                current_data = self.current_data
-                if not current_data:
-                    return
+        # Navigate to the target array
+        array_data = current_data
+        for part in data_path:
+            array_data = array_data[part]
+            
+        if not isinstance(array_data, list):
+            array_data = []
+            
+        # Resolve schema references and get the full schema
+        resolved_schema = self.resolve_schema_references(item_schema)
+        
+        # Create new item with default value based on schema
+        new_item = self.get_default_value(resolved_schema)
+        
+        # For objects, ensure all required properties are present with proper default values
+        if isinstance(new_item, dict):
+            # Get required properties from schema
+            required_props = resolved_schema.get("required", [])
+            properties = resolved_schema.get("properties", {})
+            
+            # Add all required properties
+            for prop_name in required_props:
+                if prop_name not in new_item and prop_name in properties:
+                    prop_schema = self.resolve_schema_references(properties[prop_name])
+                    new_item[prop_name] = self.get_default_value(prop_schema)
                     
-                # Get the parent layout
-                parent = widget.parent()
-                if not parent or not parent.layout():
-                    return
+            # If schema has unevaluatedProperties set to false, add all optional properties too
+            if resolved_schema.get("unevaluatedProperties") is False:
+                for prop_name, prop_schema in properties.items():
+                    if prop_name not in new_item:
+                        prop_schema = self.resolve_schema_references(prop_schema)
+                        new_item[prop_name] = self.get_default_value(prop_schema)
                     
-                parent_layout = parent.layout()
-                
-                # Find widget index
-                widget_index = parent_layout.indexOf(widget)
-                if widget_index == -1:
-                    return
-                    
-                file_type = Path(file_path).suffix[1:]  # Get extension without the dot
-                # Create new schema view
-                new_widget = self.create_schema_view(
-                    file_type,
-                    current_data,
-                    False,
-                    file_path
-                )
+        new_array = array_data + [new_item]
+        
+        # Find the array's content widget (next widget after the toggle button)
+        array_container = widget.parent()
+        content_widget = None
+        if array_container:
+            array_layout = array_container.layout()
+            for i in range(array_layout.count()):
+                item_widget = array_layout.itemAt(i).widget()
+                if item_widget and item_widget != widget:
+                    content_widget = item_widget
+                    break
+        
+        if content_widget and content_widget.layout():
+            # Create transform command for the new widget
+            transform_cmd = AddArrayItemCommand(
+                self,
+                content_widget,
+                None,  # No old value since we're adding a new widget
+                new_item
+            )
+            # Add required attributes to transform command
+            transform_cmd.file_path = file_path
+            transform_cmd.data_path = data_path + [len(array_data)]  # Path to the new item
+            transform_cmd.source_widget = widget
+            transform_cmd.schema = resolved_schema  # Pass the schema to the transform command
+            transform_cmd.array_data = array_data  # Pass current array data
+            transform_cmd.new_array = new_array  # Pass new array data
+            
+            self.command_stack.push(transform_cmd)
+            self.update_save_button()
 
-                if new_widget:
-                    print(f"Content widget data: {new_widget.widget().property('data')}")
-                    # Hide old widget
-
-                    widget.hide()
-                    
-                    # Remove old widget
-                    old_item = parent_layout.takeAt(widget_index)
-                    if old_item:
-                        old_widget = old_item.widget()
-                        if old_widget:
-                            old_widget.setParent(None)
-                            old_widget.deleteLater()
-                    
-                    # Add new widget
-                    parent_layout.insertWidget(widget_index, new_widget)
+    def delete_array_item(self, widget: QWidget, item_path: list):
+        """Delete an item from an array"""
+        # Get file path from parent schema view
+        file_path = self.get_schema_view_file_path(widget)
+        if not file_path:
+            return
+            
+        # Get current data from command stack
+        current_data = self.command_stack.get_file_data(file_path)
+        if not current_data:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                current_data = json.load(f)
+        
+        # Get array path (everything except the last index)
+        array_path = item_path[:-1]
+        item_index = item_path[-1]
+        
+        # Navigate to the array
+        array_data = current_data
+        for part in array_path:
+            array_data = array_data[part]
+            
+        if not isinstance(array_data, list):
+            return
+            
+        # Find the array's content widget (where the items are stored)
+        content_widget = widget.parent().parent()
+        if not content_widget:
+            return
+        
+        # Create and execute command
+        command = DeleteArrayItemCommand(
+            self,
+            content_widget,
+            array_data,
+            item_index
+        )
+        # Add required attributes to transform command
+        command.file_path = file_path
+        command.data_path = array_path
+        command.source_widget = widget
+        
+        self.command_stack.push(command)
+        self.update_save_button()
