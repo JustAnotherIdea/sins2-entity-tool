@@ -4204,7 +4204,6 @@ class EntityToolGUI(QMainWindow):
             
         # For empty path (top-level object), return the current schema
         if not path:
-            print(f"Returning top-level schema: {self.current_schema}")
             return self.current_schema
             
         schema = self.current_schema

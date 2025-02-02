@@ -523,6 +523,9 @@ class AddArrayItemCommand(TransformWidgetCommand):
                             updated_array.append(None)
                     updated_array[self.data_path[-1]] = self.new_value
                     
+                    # Store the updated array for undo
+                    self.updated_array = updated_array
+                    
                     # Add index label first
                     index_label = QLabel(f"[{self.data_path[-1]}]")
                     index_label.setProperty("data_path", self.data_path)
@@ -541,6 +544,11 @@ class AddArrayItemCommand(TransformWidgetCommand):
                     container_layout.addWidget(new_widget)
                     container_layout.addStretch()
                     
+                    # Store references to the widgets we'll need for undo
+                    self.added_container = container
+                    self.added_index_label = index_label
+                    self.added_value_widget = new_widget
+                    
                     # Replace with our container
                     self.replace_widget(container)
                 else:
@@ -554,6 +562,40 @@ class AddArrayItemCommand(TransformWidgetCommand):
             import traceback
             traceback.print_exc()
             return None
+
+    def undo(self):
+        """Undo the array item addition"""
+        try:
+            print("Undoing array item addition")
+            print(f"Data path: {self.data_path}")
+            print(f"Original array data: {self.array_data}")
+            
+            # Update the data first - restore original array
+            if self.data_path is not None:
+                array_path = self.data_path[:-1]  # Remove the index
+                # Remove the item from the array by restoring the original array
+                print(f"Restoring array at path {array_path} to {self.array_data}")
+                self.gui.update_data_value(array_path, self.array_data)
+            
+            # Remove the widget if we have it
+            if self.added_widget:
+                if self.added_widget.parent():
+                    layout = self.added_widget.parent().layout()
+                    if layout:
+                        # Find and remove our widget
+                        for i in range(layout.count()):
+                            if layout.itemAt(i).widget() == self.added_widget:
+                                item = layout.takeAt(i)
+                                if item.widget():
+                                    item.widget().hide()
+                                    item.widget().deleteLater()
+                                break
+                self.added_widget = None
+            
+        except Exception as e:
+            print(f"Error undoing array item addition: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
 class DeleteArrayItemCommand(Command):
     """Command for deleting an item from an array"""
