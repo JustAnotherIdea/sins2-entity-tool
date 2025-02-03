@@ -1114,7 +1114,11 @@ class DeletePropertyCommand(Command):
             print(f"Executing delete property command for {self.property_name}")
             print(f"Full path: {self.full_path}")
             print(f"Parent path for update: {self.data_path}")
-            
+
+            # Remove the property from the data
+            if self.data_path != []:
+                self.new_value.pop(self.full_path[-1])
+                
             # Update the data
             if self.data_path is not None:
                 print(f"Updating data value at path: {self.data_path}")
