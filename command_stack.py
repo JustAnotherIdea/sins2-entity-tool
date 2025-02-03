@@ -549,8 +549,62 @@ class AddArrayItemCommand(TransformWidgetCommand):
                     self.added_index_label = index_label
                     self.added_value_widget = new_widget
                     
-                    # Replace with our container
-                    self.replace_widget(container)
+                    # Try to find the array's content layout if our stored reference is invalid
+                    def find_array_content_layout():
+                        """Find the array's content layout in the UI"""
+                        # Find the schema view first
+                        schema_view = None
+                        for widget in self.gui.findChildren(QWidget):
+                            if (hasattr(widget, 'property') and 
+                                widget.property("file_path") == str(self.file_path)):
+                                schema_view = widget
+                                break
+                        
+                        if not schema_view:
+                            return None
+                            
+                        # Find the array's toggle button by looking for a QToolButton with matching data path
+                        array_path = self.data_path[:-1]  # Remove the index
+                        array_button = None
+                        for widget in schema_view.findChildren(QToolButton):
+                            if widget.property("data_path") == array_path:
+                                array_button = widget
+                                break
+                        
+                        if not array_button:
+                            return None
+                            
+                        # Get the array's content widget (sibling of the button)
+                        array_container = array_button.parent()
+                        if not array_container or not array_container.layout():
+                            return None
+                            
+                        content_widget = None
+                        container_layout = array_container.layout()
+                        for i in range(container_layout.count()):
+                            widget = container_layout.itemAt(i).widget()
+                            if widget != array_button:
+                                content_widget = widget
+                                break
+                                
+                        if not content_widget or not content_widget.layout():
+                            return None
+                            
+                        return content_widget.layout()
+                    
+                    # Try to use the stored container first
+                    try:
+                        if self.container and self.container.layout():
+                            self.replace_widget(container)
+                            return new_widget
+                    except (RuntimeError, AttributeError):
+                        print("Stored container reference is invalid, trying to find layout in UI")
+                        
+                    # If stored container is invalid, try to find it in the UI
+                    content_layout = find_array_content_layout()
+                    if content_layout:
+                        content_layout.addWidget(container)
+                        return new_widget
                 else:
                     # Just replace the widget normally
                     self.replace_widget(new_widget)
