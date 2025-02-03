@@ -1106,6 +1106,7 @@ class DeletePropertyCommand(Command):
         self.property_widget = property_widget
         self.property_name = property_name
         self.full_path = data_path  # Store the complete path including property name
+        self.removed_widget = None  # Store the removed widget for undo
         
     def execute(self):
         """Execute the property deletion"""
@@ -1119,7 +1120,7 @@ class DeletePropertyCommand(Command):
                 print(f"Updating data value at path: {self.data_path}")
                 self.gui.update_data_value(self.data_path, self.new_value)
             
-            # Find the schema view by searching all widgets
+            # Find the widget to remove
             schema_view = None
             for widget in self.gui.findChildren(QWidget):
                 if (hasattr(widget, 'property') and 
@@ -1131,120 +1132,54 @@ class DeletePropertyCommand(Command):
                 print("Could not find schema view")
                 return
 
-            # For regular nested properties, first try to find the parent object's button
-            parent_button = None
-            parent_path = self.data_path  # ['asteroid_extraction_rates']
-            print(f"Looking for parent object button with path: {parent_path}")
-            
-            for widget in schema_view.findChildren(QToolButton):
-                btn_text = widget.text()
-                print(f"Found button with text: {btn_text}")
-                
-                # Remove count suffix if present (e.g., "Planet Levels (4)" -> "Planet Levels")
-                btn_text = btn_text.split(" (")[0]
-                
-                # Try different text formats for the last part of the path
-                if parent_path:
+            # For array properties, we need to find the array's collapsible section
+            if isinstance(self.property_widget, QToolButton):
+                # The property widget is already the collapsible button
+                collapsible_widget = self.property_widget.parent()
+            else:
+                # Find the collapsible section by looking for a QToolButton with the property name
+                collapsible_button = None
+                for widget in schema_view.findChildren(QToolButton):
+                    btn_text = widget.text()
+                    # Remove count suffix if present
+                    btn_text = btn_text.split(" (")[0]
+                    
+                    # Try different text formats
                     possible_texts = [
-                        parent_path[-1],  # asteroid_extraction_rates
-                        parent_path[-1].replace("_", " "),  # asteroid extraction rates
-                        parent_path[-1].replace("_", " ").title(),  # Asteroid Extraction Rates
-                        parent_path[-1].replace("_", " ").lower(),  # asteroid extraction rates
-                        parent_path[-1].lower(),  # asteroidextractionrates
-                        parent_path[-1].title()  # AsteroidExtractionRates
+                        self.property_name,  # original
+                        self.property_name.replace("_", " "),  # spaces
+                        self.property_name.replace("_", " ").title(),  # Title Case
+                        self.property_name.replace("_", " ").lower(),  # lower case
+                        self.property_name.lower(),  # lowercase
+                        self.property_name.title()  # Title
                     ]
                     if any(text == btn_text for text in possible_texts):
-                        print(f"Found parent button: {btn_text}")
-                        parent_button = widget
+                        collapsible_button = widget
                         break
+                
+                if collapsible_button:
+                    collapsible_widget = collapsible_button.parent()
+                else:
+                    # If we can't find the collapsible button, try to find the property's row widget
+                    for widget in schema_view.findChildren(QWidget):
+                        if (hasattr(widget, 'property') and 
+                            widget.property("data_path") == self.full_path):
+                            collapsible_widget = widget.parent()
+                            break
 
-            if not parent_button:
-                print("Could not find parent button")
-                return
-
-            # Get the collapsible widget (parent of the button)
-            collapsible_widget = parent_button.parent()
             if not collapsible_widget:
-                print("Could not find collapsible widget")
-                return
-            
-            # Find the content widget (sibling of the button)
-            content_widget = None
-            collapsible_layout = collapsible_widget.layout()
-            if collapsible_layout:
-                for i in range(collapsible_layout.count()):
-                    widget = collapsible_layout.itemAt(i).widget()
-                    if widget != parent_button:
-                        content_widget = widget
-                        break
-
-            if not content_widget:
-                print("Could not find content widget")
+                print("Could not find widget to remove")
                 return
 
-            # Get schema and create new dictionary widget
-            dict_schema = self.gui.get_schema_for_path(self.data_path)
-            if not dict_schema:
-                print("Could not find dictionary schema")
-                return
-            
-            # Handle schema references
-            if "$ref" in dict_schema:
-                ref_path = dict_schema["$ref"]
-                print(f"Following schema reference: {ref_path}")
-                # Remove the #/ prefix if present
-                if ref_path.startswith("#/"):
-                    ref_path = ref_path[2:]
-                # Split the path and navigate through the root schema
-                parts = ref_path.split("/")
-                ref_schema = self.gui.get_schema_for_path([])  # Get root schema
-                for part in parts:
-                    if part in ref_schema:
-                        ref_schema = ref_schema[part]
-                dict_schema = ref_schema
-                print(f"Resolved schema: {dict_schema}")
-            
-            # Get the current dictionary data
-            current_data = self.gui.command_stack.get_file_data(self.file_path)
-            if not current_data:
-                print("Could not get current data")
-                return
-            
-            # Navigate to the dictionary and use new_value for the dictionary data
-            dict_data = self.new_value
-            print(f"Dictionary data for widget creation (from new_value): {dict_data}")
-            
-            # Create new widget for the dictionary
-            new_widget = self.gui.create_widget_for_schema(
-                dict_data,  # Use the new value which has the property removed
-                dict_schema,
-                False,  # is_base_game
-                self.data_path
-            )
-            
-            if new_widget:
-                print("Created new dictionary widget")
-                # Get the content widget's layout
-                content_layout = content_widget.layout()
-                if not content_layout:
-                    content_layout = QVBoxLayout(content_widget)
-                    content_layout.setContentsMargins(0, 0, 0, 0)
-                    content_layout.setSpacing(4)
-                
-                # Clear the old layout
-                while content_layout.count():
-                    item = content_layout.takeAt(0)
-                    if item.widget():
-                        item.widget().hide()
-                        item.widget().deleteLater()
-                
-                # Add new widget to the content layout
-                content_layout.addWidget(new_widget)
-                
-                # Make sure the section is expanded
-                if isinstance(parent_button, QToolButton):
-                    parent_button.setChecked(True)  # This will expand the section
-                    print("Expanded dictionary section")
+            # Store the widget and its parent for undo
+            self.removed_widget = collapsible_widget
+            self.removed_parent = collapsible_widget.parent()
+            self.removed_layout = self.removed_parent.layout()
+            self.removed_index = self.removed_layout.indexOf(collapsible_widget)
+
+            # Hide and remove the widget
+            collapsible_widget.hide()
+            collapsible_widget.setParent(None)  # Detach but don't delete
             
         except Exception as e:
             print(f"Error executing delete property command: {str(e)}")
@@ -1256,262 +1191,51 @@ class DeletePropertyCommand(Command):
         """Undo the property deletion"""
         try:
             # Update the data first
-            if self.data_path != []:
+            if self.data_path is not None:
                 print(f"Undoing deletion at path: {self.data_path}")
                 self.gui.update_data_value(self.data_path, self.old_value)
-            else:
-                print("Undoing root property deletion")
-                self.gui.command_stack.update_file_data(self.file_path, self.old_value)
             
-            # For root properties, we need to force a schema view update first
-            if not self.data_path:
-                print("Root property deletion - forcing schema view update")
-                # TODO: Force a refresh of the schema view
-                self.refresh_views()
-                return
-            
-            # Find the schema view by searching all widgets
-            schema_view = None
-            for widget in self.gui.findChildren(QWidget):
-                if (hasattr(widget, 'property') and 
-                    widget.property("file_path") == str(self.file_path)):
-                    schema_view = widget
-                    break
-
-            if not schema_view:
-                print("Could not find schema view")
-                return
-
-            # Then check for array items or dictionary properties
-            if isinstance(self.data_path[-1], int):
-                array_path = self.data_path[:-1]  # ['planet_levels']
-                print(f"Looking for array widget with path: {array_path}")
-                
-                # Find the array's collapsible section by looking for a QToolButton with the array name
-                array_button = None
-                for widget in schema_view.findChildren(QToolButton):
-                    btn_text = widget.text()
-                    print(f"Found button with text: {btn_text}")
-                    
-                    # Remove count suffix if present (e.g., "Planet Levels (4)" -> "Planet Levels")
-                    btn_text = btn_text.split(" (")[0]
-                    
-                    # Try different text formats
-                    possible_texts = [
-                        array_path[0],  # planet_levels
-                        array_path[0].replace("_", " "),  # planet levels
-                        array_path[0].replace("_", " ").title(),  # Planet Levels
-                        array_path[0].replace("_", " ").lower(),  # planet levels
-                        array_path[0].lower(),  # planetlevels
-                        array_path[0].title()  # PlanetLevels
-                    ]
-                    if any(text == btn_text for text in possible_texts):
-                        print(f"Found array button: {btn_text}")
-                        array_button = widget
-                        break
-                
-                if not array_button:
-                    print("Could not find array button")
-                    print("Available buttons:")
-                    for widget in schema_view.findChildren(QToolButton):
-                        print(f"  {widget.text()}")
-                    return
-                
-                # Get the collapsible widget (parent of the array button)
-                collapsible_widget = array_button.parent()
-                if not collapsible_widget:
-                    print("Could not find collapsible widget")
-                    return
-                
-                # Get the parent of the collapsible widget
-                parent = collapsible_widget.parent()
-                if not parent:
-                    print("Could not find parent of collapsible widget")
-                    return
-                
-                parent_layout = parent.layout()
-                if not parent_layout:
-                    print("Could not find parent layout")
-                    return
-                
-                # Find the collapsible widget's index in its parent's layout
-                widget_index = -1
-                for i in range(parent_layout.count()):
-                    if parent_layout.itemAt(i).widget() == collapsible_widget:
-                        widget_index = i
-                        break
-                
-                if widget_index == -1:
-                    print("Could not find widget index")
-                    return
-                
-                # Get schema and create new array widget
-                array_schema = self.gui.get_schema_for_path(array_path)
-                if not array_schema:
-                    print("Could not find array schema")
-                    return
-                
-                # Get the current array data from the command stack
-                current_data = self.gui.command_stack.get_file_data(self.file_path)
-                if not current_data:
-                    print("Could not get current data")
-                    return
-                
-                # Navigate to the array
-                array_data = current_data
-                for part in array_path:
-                    if isinstance(array_data, (dict, list)):
-                        array_data = array_data[part]
-                
-                print(f"Array data for widget creation: {array_data}")
-                
-                # Create new widget for the array
-                new_widget = self.gui.create_widget_for_schema(
-                    array_data,  # Use the full array data
-                    array_schema,
-                    False,  # is_base_game
-                    array_path
-                )
-                
-                if new_widget:
-                    print("Created new array widget")
-                    # First hide the old widget
-                    collapsible_widget.hide()
-                    
-                    # Remove it from the layout
-                    old_item = parent_layout.takeAt(widget_index)
-                    if old_item:
-                        old_widget = old_item.widget()
-                        if old_widget:
-                            old_widget.setParent(None)
-                            old_widget.deleteLater()
-                    
-                    # Add new widget at the same position
-                    parent_layout.insertWidget(widget_index, new_widget)
-                    
-                    # Find and click the toggle button to expand the array
-                    new_layout = new_widget.layout()
-                    if new_layout and new_layout.count() > 0:
-                        toggle_btn = new_layout.itemAt(0).widget()
-                        if isinstance(toggle_btn, QToolButton):
-                            toggle_btn.setChecked(True)  # This will expand the array
-                            print("Expanded array section")
+            # If we have the removed widget, try to restore it
+            if (self.removed_widget and self.removed_parent and 
+                self.removed_layout and self.removed_index >= 0):
+                print("Restoring removed widget")
+                self.removed_widget.setParent(self.removed_parent)
+                self.removed_layout.insertWidget(self.removed_index, self.removed_widget)
+                self.removed_widget.show()
             else:
-                # For regular nested properties, first try to find the parent object's button
-                parent_button = None
-                parent_path = self.data_path  # ['asteroid_extraction_rates']
-                print(f"Looking for parent object button with path: {parent_path}")
-                
-                for widget in schema_view.findChildren(QToolButton):
-                    btn_text = widget.text()
-                    print(f"Found button with text: {btn_text}")
-                    
-                    # Remove count suffix if present (e.g., "Planet Levels (4)" -> "Planet Levels")
-                    btn_text = btn_text.split(" (")[0]
-                    
-                    # Try different text formats for the last part of the path
-                    if parent_path:
-                        possible_texts = [
-                            parent_path[-1],  # asteroid_extraction_rates
-                            parent_path[-1].replace("_", " "),  # asteroid extraction rates
-                            parent_path[-1].replace("_", " ").title(),  # Asteroid Extraction Rates
-                            parent_path[-1].replace("_", " ").lower(),  # asteroid extraction rates
-                            parent_path[-1].lower(),  # asteroidextractionrates
-                            parent_path[-1].title()  # AsteroidExtractionRates
-                        ]
-                        if any(text == btn_text for text in possible_texts):
-                            print(f"Found parent button: {btn_text}")
-                            parent_button = widget
-                            break
-
-                if not parent_button:
-                    print("Could not find parent button")
-                    return
-
-                # Get the collapsible widget (parent of the button)
-                collapsible_widget = parent_button.parent()
-                if not collapsible_widget:
-                    print("Could not find collapsible widget")
-                    return
-                
-                # Find the content widget (sibling of the button)
-                content_widget = None
-                collapsible_layout = collapsible_widget.layout()
-                if collapsible_layout:
-                    for i in range(collapsible_layout.count()):
-                        widget = collapsible_layout.itemAt(i).widget()
-                        if widget != parent_button:
-                            content_widget = widget
-                            break
-
-                if not content_widget:
-                    print("Could not find content widget")
-                    return
-
-                # Get schema and create new dictionary widget
-                dict_schema = self.gui.get_schema_for_path(self.data_path)
-                if not dict_schema:
-                    print("Could not find dictionary schema")
-                    return
-                
-                # Handle schema references
-                if "$ref" in dict_schema:
-                    ref_path = dict_schema["$ref"]
-                    print(f"Following schema reference: {ref_path}")
-                    # Remove the #/ prefix if present
-                    if ref_path.startswith("#/"):
-                        ref_path = ref_path[2:]
-                    # Split the path and navigate through the root schema
-                    parts = ref_path.split("/")
-                    ref_schema = self.gui.get_schema_for_path([])  # Get root schema
-                    for part in parts:
-                        if part in ref_schema:
-                            ref_schema = ref_schema[part]
-                    dict_schema = ref_schema
-                    print(f"Resolved schema: {dict_schema}")
-                
-                # Get the current dictionary data
-                current_data = self.gui.command_stack.get_file_data(self.file_path)
-                if not current_data:
-                    print("Could not get current data")
-                    return
-                
-                # Navigate to the dictionary and use old_value for the dictionary data
-                dict_data = self.old_value
-                print(f"Dictionary data for widget creation (from old_value): {dict_data}")
-                
-                # Create new widget for the dictionary
-                new_widget = self.gui.create_widget_for_schema(
-                    dict_data,  # Use the old value which has all properties
-                    dict_schema,
-                    False,  # is_base_game
-                    self.data_path
-                )
-                
-                if new_widget:
-                    print("Created new dictionary widget")
-                    # Get the content widget's layout
-                    content_layout = content_widget.layout()
-                    if not content_layout:
-                        content_layout = QVBoxLayout(content_widget)
-                        content_layout.setContentsMargins(0, 0, 0, 0)
-                        content_layout.setSpacing(4)
-                    
-                    # Clear the old layout
-                    while content_layout.count():
-                        item = content_layout.takeAt(0)
-                        if item.widget():
-                            item.widget().hide()
-                            item.widget().deleteLater()
-                    
-                    # Add new widget to the content layout
-                    content_layout.addWidget(new_widget)
-                    
-                    # Make sure the section is expanded
-                    if isinstance(parent_button, QToolButton):
-                        parent_button.setChecked(True)  # This will expand the section
-                        print("Expanded dictionary section")
-                
+                print("No stored widget to restore, recreating from schema")
+                # Get schema and create new widget
+                schema = self.gui.get_schema_for_path(self.data_path)
+                if schema:
+                    new_widget = self.gui.create_widget_for_schema(
+                        self.old_value,
+                        schema,
+                        False,  # is_base_game
+                        self.data_path
+                    )
+                    if new_widget:
+                        # Find parent widget to add to
+                        schema_view = None
+                        for widget in self.gui.findChildren(QWidget):
+                            if (hasattr(widget, 'property') and 
+                                widget.property("file_path") == str(self.file_path)):
+                                schema_view = widget
+                                break
+                        
+                        if schema_view:
+                            # Find the parent container
+                            parent_path = self.data_path
+                            parent_container = None
+                            for widget in schema_view.findChildren(QWidget):
+                                if (hasattr(widget, 'property') and 
+                                    widget.property("data_path") == parent_path):
+                                    parent_container = widget
+                                    break
+                            
+                            if parent_container and parent_container.layout():
+                                parent_container.layout().addWidget(new_widget)
+                                new_widget.show()
+            
         except Exception as e:
             print(f"Error undoing delete property command: {str(e)}")
             import traceback
@@ -1519,173 +1243,8 @@ class DeletePropertyCommand(Command):
             
     def redo(self):
         """Redo the property deletion"""
-        try:
-            # Update the data first
-            if self.data_path != []:
-                print(f"Redoing deletion at path: {self.data_path}")
-                self.gui.update_data_value(self.data_path, self.new_value)
-            else:
-                print("Redoing root property deletion")
-                self.gui.command_stack.update_file_data(self.file_path, self.new_value)
-                
-                # Find the widget for the root property
-                schema_view = None
-                for widget in self.gui.findChildren(QWidget):
-                    if (hasattr(widget, 'property') and 
-                        widget.property("file_path") == str(self.file_path)):
-                        schema_view = widget
-                        break
-                    
-                if schema_view:
-                    # Find widget with matching property name
-                    for widget in schema_view.findChildren(QWidget):
-                        if (hasattr(widget, 'property') and 
-                            widget.property("data_path") and 
-                            widget.property("data_path")[-1] == self.property_name):
-                            parent = widget.parent()
-                            if parent:
-                                parent.hide()
-                                parent.setParent(None)
-                                parent.deleteLater()
-                            break
-                return True
-            
-            # For root properties and regular nested properties, just execute normally
-            if not self.data_path or not isinstance(self.data_path[-1], int):
-                return self.execute()
-            
-            # For array items, we need to replace the entire array widget
-            # Find the schema view by searching all widgets
-            schema_view = None
-            for widget in self.gui.findChildren(QWidget):
-                if (hasattr(widget, 'property') and 
-                    widget.property("file_path") == str(self.file_path)):
-                    schema_view = widget
-                    break
+        return self.execute()
 
-            if not schema_view:
-                print("Could not find schema view")
-                return
-
-            array_path = self.data_path[:-1]  # ['planet_levels']
-            print(f"Looking for array widget with path: {array_path}")
-            
-            # Find the array's collapsible section by looking for a QToolButton with the array name
-            array_button = None
-            for widget in schema_view.findChildren(QToolButton):
-                btn_text = widget.text()
-                print(f"Found button with text: {btn_text}")
-                
-                # Remove count suffix if present (e.g., "Planet Levels (4)" -> "Planet Levels")
-                btn_text = btn_text.split(" (")[0]
-                
-                # Try different text formats
-                possible_texts = [
-                    array_path[0],  # planet_levels
-                    array_path[0].replace("_", " "),  # planet levels
-                    array_path[0].replace("_", " ").title(),  # Planet Levels
-                    array_path[0].replace("_", " ").lower(),  # planet levels
-                    array_path[0].lower(),  # planetlevels
-                    array_path[0].title()  # PlanetLevels
-                ]
-                if any(text == btn_text for text in possible_texts):
-                    print(f"Found array button: {btn_text}")
-                    array_button = widget
-                    break
-            
-            if not array_button:
-                print("Could not find array button")
-                print("Available buttons:")
-                for widget in schema_view.findChildren(QToolButton):
-                    print(f"  {widget.text()}")
-                return
-            
-            # Get the collapsible widget (parent of the array button)
-            collapsible_widget = array_button.parent()
-            if not collapsible_widget:
-                print("Could not find collapsible widget")
-                return
-            
-            # Get the parent of the collapsible widget
-            parent = collapsible_widget.parent()
-            if not parent:
-                print("Could not find parent of collapsible widget")
-                return
-            
-            parent_layout = parent.layout()
-            if not parent_layout:
-                print("Could not find parent layout")
-                return
-            
-            # Find the collapsible widget's index in its parent's layout
-            widget_index = -1
-            for i in range(parent_layout.count()):
-                if parent_layout.itemAt(i).widget() == collapsible_widget:
-                    widget_index = i
-                    break
-            
-            if widget_index == -1:
-                print("Could not find widget index")
-                return
-            
-            # Get schema and create new array widget
-            array_schema = self.gui.get_schema_for_path(array_path)
-            if not array_schema:
-                print("Could not find array schema")
-                return
-            
-            # Get the current array data from the command stack
-            current_data = self.gui.command_stack.get_file_data(self.file_path)
-            if not current_data:
-                print("Could not get current data")
-                return
-            
-            # Navigate to the array
-            array_data = current_data
-            for part in array_path:
-                if isinstance(array_data, (dict, list)):
-                    array_data = array_data[part]
-            
-            print(f"Array data for widget creation: {array_data}")
-            
-            # Create new widget for the array
-            new_widget = self.gui.create_widget_for_schema(
-                array_data,  # Use the full array data
-                array_schema,
-                False,  # is_base_game
-                array_path
-            )
-            
-            if new_widget:
-                print("Created new array widget")
-                # First hide the old widget
-                collapsible_widget.hide()
-                
-                # Remove it from the layout
-                old_item = parent_layout.takeAt(widget_index)
-                if old_item:
-                    old_widget = old_item.widget()
-                    if old_widget:
-                        old_widget.setParent(None)
-                        old_widget.deleteLater()
-                
-                # Add new widget at the same position
-                parent_layout.insertWidget(widget_index, new_widget)
-                
-                # Find and click the toggle button to expand the array
-                new_layout = new_widget.layout()
-                if new_layout and new_layout.count() > 0:
-                    toggle_btn = new_layout.itemAt(0).widget()
-                    if isinstance(toggle_btn, QToolButton):
-                        toggle_btn.setChecked(True)  # This will expand the array
-                        print("Expanded array section")
-                
-        except Exception as e:
-            print(f"Error redoing delete property command: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return None 
-        
     def refresh_views(self):
         """Refresh any schema views affected by this command"""
         if hasattr(self, 'file_path') and self.file_path:
