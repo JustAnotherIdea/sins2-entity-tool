@@ -577,20 +577,96 @@ class AddArrayItemCommand(TransformWidgetCommand):
                 print(f"Restoring array at path {array_path} to {self.array_data}")
                 self.gui.update_data_value(array_path, self.array_data)
             
-            # Remove the widget if we have it
-            if self.added_widget:
-                if self.added_widget.parent():
-                    layout = self.added_widget.parent().layout()
+            def find_widget_in_ui():
+                """Find the widget in the UI by its data path"""
+                try:
+                    # Find the schema view first
+                    schema_view = None
+                    for widget in self.gui.findChildren(QWidget):
+                        if (hasattr(widget, 'property') and 
+                            widget.property("file_path") == str(self.file_path)):
+                            schema_view = widget
+                            break
+                    
+                    if not schema_view:
+                        print("Could not find schema view")
+                        return None
+                        
+                    # Find the array container by looking for a QToolButton with the array name
+                    array_button = None
+                    array_path = self.data_path[:-1]  # Remove the index
+                    for widget in schema_view.findChildren(QToolButton):
+                        btn_text = widget.text()
+                        # Remove count suffix if present (e.g., "Planet Levels (4)" -> "Planet Levels")
+                        btn_text = btn_text.split(" (")[0]
+                        
+                        # Try different text formats
+                        possible_texts = [
+                            array_path[-1],  # planet_levels
+                            array_path[-1].replace("_", " "),  # planet levels
+                            array_path[-1].replace("_", " ").title(),  # Planet Levels
+                            array_path[-1].replace("_", " ").lower(),  # planet levels
+                            array_path[-1].lower(),  # planetlevels
+                            array_path[-1].title()  # PlanetLevels
+                        ]
+                        if any(text == btn_text for text in possible_texts):
+                            array_button = widget
+                            break
+                            
+                    if not array_button:
+                        print("Could not find array button")
+                        return None
+                        
+                    # Get the array content widget (sibling of the button)
+                    array_container = array_button.parent()
+                    if not array_container or not array_container.layout():
+                        return None
+                        
+                    content_widget = None
+                    container_layout = array_container.layout()
+                    for i in range(container_layout.count()):
+                        widget = container_layout.itemAt(i).widget()
+                        if widget != array_button:
+                            content_widget = widget
+                            break
+                            
+                    if not content_widget or not content_widget.layout():
+                        return None
+                        
+                    # Find the item widget by its index
+                    content_layout = content_widget.layout()
+                    item_index = self.data_path[-1]
+                    if content_layout.count() > item_index:
+                        return content_layout.itemAt(item_index).widget()
+                        
+                except Exception as e:
+                    print(f"Error finding widget in UI: {str(e)}")
+                return None
+            
+            # Try to use the stored widget reference first
+            widget_to_remove = None
+            try:
+                if self.added_widget and self.added_widget.parent():
+                    widget_to_remove = self.added_widget
+            except RuntimeError:  # Widget was deleted
+                print("Stored widget reference is stale, searching in UI...")
+                widget_to_remove = find_widget_in_ui()
+            
+            # Remove the widget
+            if widget_to_remove:
+                if widget_to_remove.parent():
+                    layout = widget_to_remove.parent().layout()
                     if layout:
                         # Find and remove our widget
                         for i in range(layout.count()):
-                            if layout.itemAt(i).widget() == self.added_widget:
+                            if layout.itemAt(i).widget() == widget_to_remove:
                                 item = layout.takeAt(i)
                                 if item.widget():
                                     item.widget().hide()
                                     item.widget().deleteLater()
                                 break
-                self.added_widget = None
+            
+            self.added_widget = None
             
         except Exception as e:
             print(f"Error undoing array item addition: {str(e)}")
