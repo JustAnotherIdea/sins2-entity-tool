@@ -1239,6 +1239,8 @@ class DeletePropertyCommand(Command):
             # Remove the property from the data
             if self.data_path != []:
                 self.new_value.pop(self.full_path[-1])
+            else:
+                self.new_value.pop(self.full_path[0])
                 
             # Update the data
             if self.data_path is not None:
