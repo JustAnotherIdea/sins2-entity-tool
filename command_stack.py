@@ -1158,78 +1158,25 @@ class AddPropertyCommand(Command):
     def undo(self):
         """Undo the property addition"""
         try:
-            # Update the data
-            if self.data_path is not None:
-                if self.data_path == []:
-                    # For root properties, update the entire data structure
-                    self.old_value.pop(self.prop_name)
-                    self.gui.update_data_value([], self.old_value)
-                else:
-                    # For non-root properties, update just the property
-                    self.gui.update_data_value(self.data_path, self.old_value)
-                
-            # For root properties, find and remove the schema view widget
+            # For root properties, update the data and refresh the schema view
             if self.data_path == []:
-                # Find the widget to remove
-                schema_view = None
-                for widget in self.gui.findChildren(QWidget):
-                    if (hasattr(widget, 'property') and 
-                        widget.property("file_path") == str(self.file_path)):
-                        schema_view = widget
-                        break
-
-                if not schema_view:
-                    print("Could not find schema view")
-                    return
-
-                # For array properties, we need to find the array's collapsible section
-                if isinstance(self.added_widget, QToolButton):
-                    # The property widget is already the collapsible button
-                    collapsible_widget = self.added_widget.parent()
-                else:
-                    # Find the collapsible section by looking for a QToolButton with the property name
-                    collapsible_button = None
-                    for widget in schema_view.findChildren(QToolButton):
-                        btn_text = widget.text()
-                        # Remove count suffix if present
-                        btn_text = btn_text.split(" (")[0]
-                        
-                        # Try different text formats
-                        possible_texts = [
-                            self.prop_name,  # original
-                            self.prop_name.replace("_", " "),  # spaces
-                            self.prop_name.replace("_", " ").title(),  # Title Case
-                            self.prop_name.replace("_", " ").lower(),  # lower case
-                            self.prop_name.lower(),  # lowercase
-                            self.prop_name.title()  # Title
-                        ]
-                        if any(text == btn_text for text in possible_texts):
-                            collapsible_button = widget
-                            break
-                    
-                    if collapsible_button:
-                        collapsible_widget = collapsible_button.parent()
-                    else:
-                        # If we can't find the collapsible button, try to find the property's row widget
-                        for widget in schema_view.findChildren(QWidget):
-                            if (hasattr(widget, 'property') and 
-                                widget.property("data_path") == self.full_path):
-                                collapsible_widget = widget.parent()
-                                break
-
-                if not collapsible_widget:
-                    print("Could not find widget to remove")
-                    return
+                # Update the command stack data first
+                self.gui.command_stack.update_file_data(self.file_path, self.old_value)
+                # Then update the data value (this will trigger any callbacks)
+                self.gui.update_data_value(self.data_path, self.old_value)
+                # Finally refresh the schema view
+                self.gui.refresh_schema_view(self.file_path)
+                return
                 
-                # Hide and remove the widget
-                collapsible_widget.hide()
-                collapsible_widget.setParent(None)  # Detach but don't delete
-            else:
-                # For non-root properties, just remove the added widget
-                if self.added_widget:
-                    self.added_widget.setParent(None)
-                    self.added_widget.deleteLater()
-                    self.added_widget = None
+            # For non-root properties, update the data normally
+            if self.data_path is not None:
+                self.gui.update_data_value(self.data_path, self.old_value)
+                
+            # For non-root properties, just remove the added widget
+            if self.added_widget:
+                self.added_widget.setParent(None)
+                self.added_widget.deleteLater()
+                self.added_widget = None
                 
         except Exception as e:
             print(f"Error undoing add property command: {str(e)}")
