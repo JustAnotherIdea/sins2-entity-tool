@@ -419,48 +419,19 @@ class TransformWidgetCommand:
                 self.data_path
             )
 
-            # Check if this is a texture transformation first
-            has_texture = False
-            parent_container = None
-            if self.container and self.container.parent():
-                parent_container = self.container.parent()
-                if parent_container and parent_container.layout():
-                    layout = parent_container.layout()
-                    # Look for QLabel with pixmap and QLineEdit
-                    has_label = False
-                    has_edit = False
-                    for i in range(layout.count()):
-                        widget = layout.itemAt(i).widget()
-                        # Check for texture label
-                        if isinstance(widget, QLabel) and widget.pixmap():
-                            has_label = True
-                        # Check for QLineEdit, including inside nested widgets
-                        if isinstance(widget, QLineEdit):
-                            has_edit = True
-                        elif isinstance(widget, QWidget) and widget.layout():
-                            # Check inside nested widget
-                            nested_layout = widget.layout()
-                            for j in range(nested_layout.count()):
-                                nested_widget = nested_layout.itemAt(j).widget()
-                                if isinstance(nested_widget, QLineEdit):
-                                    has_edit = True
-                                    break
-                    has_texture = has_label and has_edit
-
-            has_texture = True
-            if has_texture:
-                # Store texture transformation info
-                self.is_texture = True
-                self.parent_container = parent_container
+            if new_widget:
+                # Store transformation info
+                self.is_texture = True  # We'll treat all transforms the same way
+                self.parent_container = self.container.parent() if self.container else None
                 
-                # For texture transformations, preserve the parent container
-                if parent_container and parent_container.parent():
-                    parent = parent_container.parent()
+                # For all transformations, preserve the parent container
+                if self.parent_container and self.parent_container.parent():
+                    parent = self.parent_container.parent()
                     if parent and parent.layout():
                         # Find our container's index
                         index = -1
                         for i in range(parent.layout().count()):
-                            if parent.layout().itemAt(i).widget() == parent_container:
+                            if parent.layout().itemAt(i).widget() == self.parent_container:
                                 index = i
                                 break
                         
@@ -514,51 +485,9 @@ class TransformWidgetCommand:
                             # Add new container at same index
                             parent.layout().insertWidget(index, container)
                             return container
-            else:
-                # For non-texture transformations, create a new container
-                container = QWidget()
-                container_layout = QHBoxLayout(container)
-                container_layout.setContentsMargins(0, 0, 0, 0)
-                container_layout.setSpacing(4)
-
-                # Find the parent schema
-                parent_schema = self.gui.get_schema_for_path(self.data_path[:-1])
-                if parent_schema and parent_schema.get("type") == "array":
-                    # Check if we already have an index label in the old container
-                    existing_index_label = None
-                    if self.container and self.container.layout():
-                        for i in range(self.container.layout().count()):
-                            widget = self.container.layout().itemAt(i).widget()
-                            if isinstance(widget, QLabel) and widget.text().startswith('[') and widget.text().endswith(']'):
-                                existing_index_label = widget
-                                break
-
-                    if existing_index_label:
-                        # Reuse existing index label
-                        existing_index_label.setParent(None)  # Remove from old container
-                        container_layout.addWidget(existing_index_label)
-                    else:
-                        # Create new index label if needed
-                        index_label = QLabel(f"[{self.data_path[-1]}]")
-                        index_label.setProperty("data_path", self.data_path)
-                        index_label.setStyleSheet("QLabel { color: gray; }")
-                        
-                        # Add context menu to index label
-                        index_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-                        index_label.customContextMenuRequested.connect(
-                            lambda pos, w=index_label: self.gui.show_array_item_menu(w, pos)
-                        )
-                        container_layout.addWidget(index_label)
-
-                    # Add new widget and stretch
-                    container_layout.addWidget(new_widget)
-                    container_layout.addStretch()
-                else:
-                    # Add new widget to container
-                    container_layout.addWidget(new_widget)
-                    container_layout.addStretch()   
-
-                return self.replace_widget(container)
+                
+                # Fallback for cases where we can't find the parent container
+                return self.replace_widget(new_widget)
                 
         except Exception as e:
             print(f"Error executing transform widget command: {str(e)}")
