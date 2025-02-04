@@ -1020,14 +1020,19 @@ class AddPropertyCommand(Command):
     def execute(self):
         """Execute the property addition"""
         try:
-            # Update the data
-            if self.data_path is not None:
-                self.gui.update_data_value(self.data_path, self.new_value)
-                
-            # For root properties, refresh the entire schema view and return early
+            # For root properties, update the data and refresh the schema view
             if self.data_path == []:
+                # Update the command stack data first
+                self.gui.command_stack.update_file_data(self.file_path, self.new_value)
+                # Then update the data value (this will trigger any callbacks)
+                self.gui.update_data_value(self.data_path, self.new_value)
+                # Finally refresh the schema view
                 self.gui.refresh_schema_view(self.file_path)
                 return
+                
+            # For non-root properties, update the data normally
+            if self.data_path is not None:
+                self.gui.update_data_value(self.data_path, self.new_value)
                 
             # Create and add the widget (only for non-root properties)
             if self.schema and self.prop_name and self.parent_layout:
