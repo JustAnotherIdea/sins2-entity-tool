@@ -1157,6 +1157,7 @@ class AddPropertyCommand(Command):
             if self.data_path is not None:
                 if self.data_path == []:
                     # For root properties, update the entire data structure
+                    self.old_value.pop(self.prop_name)
                     self.gui.update_data_value([], self.old_value)
                 else:
                     # For non-root properties, update just the property
