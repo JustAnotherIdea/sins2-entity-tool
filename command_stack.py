@@ -2,7 +2,7 @@ from typing import Any, List, Dict, Set, Callable
 from pathlib import Path
 import json
 import logging
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QToolButton, QGroupBox
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QToolButton, QGroupBox, QLineEdit
 from PyQt6.QtCore import Qt
 
 class Command:
@@ -403,6 +403,12 @@ class TransformWidgetCommand:
             if not schema:
                 return None
                 
+            # Create a container
+            container = QWidget()
+            container_layout = QHBoxLayout(container)
+            container_layout.setContentsMargins(0, 0, 0, 0)
+            container_layout.setSpacing(4)
+
             # Create new widget
             new_widget = self.gui.create_widget_for_value(
                 self.new_value,
@@ -410,11 +416,102 @@ class TransformWidgetCommand:
                 False,  # is_base_game
                 self.data_path
             )
-            
-            if new_widget:
-                self.replace_widget(new_widget)
+
+            # Find the parent schema
+            parent_schema = self.gui.get_schema_for_path(self.data_path[:-1])
+            if parent_schema and parent_schema.get("type") == "array":
+
+                # Add index label first
+                index_label = QLabel(f"[{self.data_path[-1]}]")
+                index_label.setProperty("data_path", self.data_path)
+                index_label.setStyleSheet("QLabel { color: gray; }")
                 
-                return new_widget
+                # Add context menu to index label
+                index_label.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                index_label.customContextMenuRequested.connect(
+                    lambda pos, w=index_label: self.gui.show_array_item_menu(w, pos)
+                )
+                
+                # Add lable and new widget
+                container_layout.addWidget(index_label)
+                container_layout.addWidget(new_widget)
+                container_layout.addStretch()
+            else:
+                # Add new widget to container
+                container_layout.addWidget(new_widget)
+                container_layout.addStretch()   
+            
+            if container:
+                # For texture widgets, we need to look at the parent's parent
+                # since the container we get is just the QLineEdit's immediate parent
+                has_texture = False
+                parent_container = None
+                if self.container and self.container.parent():
+                    parent_container = self.container.parent()
+                    print(f"Parent container: {parent_container}")
+                    if parent_container and parent_container.layout():
+                        layout = parent_container.layout()
+                        print(f"Parent layout type: {type(layout)}")
+                        print(f"Parent layout count: {layout.count()}")
+                        
+                        # Look for QLabel with pixmap and QLineEdit
+                        has_label = False
+                        has_edit = False
+                        for i in range(layout.count()):
+                            widget = layout.itemAt(i).widget()
+                            print(f"Examining widget at index {i}: {widget}")
+                            print(f"Widget type: {type(widget)}")
+                            
+                            # Check for texture label
+                            if isinstance(widget, QLabel) and widget.pixmap():
+                                print("Found texture label")
+                                has_label = True
+                            
+                            # Check for QLineEdit, including inside nested widgets
+                            if isinstance(widget, QLineEdit):
+                                print("Found line edit directly")
+                                has_edit = True
+                            elif isinstance(widget, QWidget) and widget.layout():
+                                # Check inside nested widget
+                                nested_layout = widget.layout()
+                                print(f"Checking nested layout with {nested_layout.count()} items")
+                                for j in range(nested_layout.count()):
+                                    nested_widget = nested_layout.itemAt(j).widget()
+                                    print(f"  Nested widget: {nested_widget}")
+                                    if isinstance(nested_widget, QLineEdit):
+                                        print("Found line edit in nested widget")
+                                        has_edit = True
+                                        break
+                                    
+                        has_texture = has_label and has_edit
+                        print(f"Has label: {has_label}, Has edit: {has_edit}")
+                
+                print(f"Final has_texture value: {has_texture}")
+                if has_texture:
+                    # For widgets with textures, we need to replace at the parent level
+                    if parent_container and parent_container.parent():
+                        parent = parent_container.parent()
+                        if parent and parent.layout():
+                            # Find our container's index
+                            index = -1
+                            for i in range(parent.layout().count()):
+                                if parent.layout().itemAt(i).widget() == parent_container:
+                                    index = i
+                                    break
+                            
+                            if index >= 0:
+                                # Remove old container
+                                item = parent.layout().takeAt(index)
+                                if item.widget():
+                                    item.widget().hide()
+                                    item.widget().deleteLater()
+                                
+                                # Add new widget at same index
+                                parent.layout().insertWidget(index, container)
+                                return container
+                
+                # For non-texture widgets or if texture replacement failed, use normal replacement
+                return self.replace_widget(container)
                 
         except Exception as e:
             print(f"Error executing transform widget command: {str(e)}")
