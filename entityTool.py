@@ -4717,7 +4717,7 @@ class EntityToolGUI(QMainWindow):
             
         data_path = widget.property("data_path")
         if data_path is None:
-            return
+            data_path = []  # Empty list for root properties
             
         # Get current data from command stack
         current_data = self.command_stack.get_file_data(file_path)
@@ -4727,8 +4727,9 @@ class EntityToolGUI(QMainWindow):
                 
         # Navigate to the target object
         target = current_data
-        for part in data_path:
-            target = target[part]
+        if data_path:  # Only navigate if we have a path
+            for part in data_path:
+                target = target[part]
             
         if not isinstance(target, dict):
             return
@@ -4744,6 +4745,12 @@ class EntityToolGUI(QMainWindow):
         new_value = target.copy()
         new_value[prop_name] = default_value
         
+        # For root properties, we need to update the entire data structure
+        if not data_path:
+            old_value = current_data.copy()
+            new_value = current_data.copy()
+            new_value[prop_name] = default_value
+        
         # Find the content widget (next widget after the toggle button)
         container = widget.parent()
         content_widget = None
@@ -4754,8 +4761,13 @@ class EntityToolGUI(QMainWindow):
                 if item_widget and item_widget != widget:
                     content_widget = item_widget
                     break
+                    
+        # If we can't find the content widget through normal means (like for root properties)
+        # use the widget itself as the content widget
+        if not content_widget:
+            content_widget = widget
         
-        if content_widget and content_widget.layout():
+        if content_widget and (content_widget.layout() or content_widget == widget):
             # Create transform command for the new property
             transform_cmd = AddPropertyCommand(
                 self,
@@ -4772,6 +4784,10 @@ class EntityToolGUI(QMainWindow):
             
             self.command_stack.push(transform_cmd)
             self.update_save_button()
+            
+            # For root properties, refresh the entire schema view
+            if not data_path:
+                self.refresh_schema_view(file_path)
 
     def delete_property(self, widget: QWidget, property_name: str):
         """Delete a property from an object"""
