@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 from research_view import ResearchTreeView
 import os
-from command_stack import CommandStack, EditValueCommand, AddPropertyCommand, DeleteArrayItemCommand, DeletePropertyCommand, CompositeCommand, TransformWidgetCommand, AddArrayItemCommand
+from command_stack import CommandStack, EditValueCommand, AddPropertyCommand, DeleteArrayItemCommand, DeletePropertyCommand, CompositeCommand, TransformWidgetCommand, AddArrayItemCommand, CreateFileFromCopy
 from typing import List, Any
 import sounddevice as sd
 import soundfile as sf
@@ -1507,8 +1507,10 @@ class EntityToolGUI(QMainWindow):
         # Buttons
         button_box = QHBoxLayout()
         select_btn = QPushButton("Select")
+        copy_btn = QPushButton("Copy...")
         cancel_btn = QPushButton("Cancel")
         button_box.addWidget(select_btn)
+        button_box.addWidget(copy_btn)
         button_box.addWidget(cancel_btn)
         layout.addLayout(button_box)
         
@@ -1517,8 +1519,89 @@ class EntityToolGUI(QMainWindow):
                 new_value = file_list.currentItem().text()
                 self.on_select_value(target_widget, new_value)
                 dialog.accept()
+                
+        def on_copy():
+            if not file_list.currentItem():
+                return
+                
+            source_file = file_list.currentItem().text()
+            file_type = type_combo.currentText()
+            is_base_game = file_list.currentItem().foreground().color().getRgb()[:3] == (150, 150, 150)
+            
+            # Show copy dialog
+            copy_dialog = QDialog(dialog)
+            copy_dialog.setWindowTitle("Copy File")
+            copy_layout = QVBoxLayout(copy_dialog)
+            
+            # Add option to overwrite if it's a base game file
+            overwrite = False
+            if is_base_game:
+                overwrite_check = QCheckBox("Overwrite in mod (keep same name)")
+                copy_layout.addWidget(overwrite_check)
+                
+                def on_overwrite_changed(state):
+                    nonlocal overwrite
+                    overwrite = state == Qt.CheckState.Checked.value
+                    name_edit.setEnabled(not overwrite)
+                    name_edit.setText(source_file if overwrite else "")
+                    
+                overwrite_check.stateChanged.connect(on_overwrite_changed)
+            
+            # Add name input
+            name_layout = QHBoxLayout()
+            name_layout.addWidget(QLabel("New Name:"))
+            name_edit = QLineEdit()
+            name_layout.addWidget(name_edit)
+            copy_layout.addLayout(name_layout)
+            
+            # Add copy/cancel buttons
+            copy_buttons = QHBoxLayout()
+            copy_ok = QPushButton("Copy")
+            copy_cancel = QPushButton("Cancel")
+            copy_buttons.addWidget(copy_ok)
+            copy_buttons.addWidget(copy_cancel)
+            copy_layout.addLayout(copy_buttons)
+            
+            def do_copy():
+                new_name = name_edit.text().strip()
+                if not new_name:
+                    QMessageBox.warning(copy_dialog, "Error", "Please enter a name for the copy")
+                    return
+                    
+                try:
+                    # Create and execute the copy command
+                    command = CreateFileFromCopy(
+                        self,
+                        source_file,
+                        file_type,
+                        new_name,
+                        overwrite
+                    )
+                    
+                    if command.execute():
+                        # Update the file list
+                        update_file_list()
+                        # Select the new file
+                        for i in range(file_list.count()):
+                            if file_list.item(i).text() == new_name:
+                                file_list.setCurrentRow(i)
+                                break
+                        # Add command to stack
+                        self.command_stack.push(command)
+                        copy_dialog.accept()
+                    else:
+                        QMessageBox.warning(copy_dialog, "Error", "Failed to create file copy")
+                        
+                except Exception as e:
+                    QMessageBox.warning(copy_dialog, "Error", str(e))
+            
+            copy_ok.clicked.connect(do_copy)
+            copy_cancel.clicked.connect(copy_dialog.reject)
+            
+            copy_dialog.exec()
         
         select_btn.clicked.connect(on_select)
+        copy_btn.clicked.connect(on_copy)
         cancel_btn.clicked.connect(dialog.reject)
         file_list.itemDoubleClicked.connect(on_select)
         

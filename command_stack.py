@@ -1400,3 +1400,117 @@ class DeletePropertyCommand(Command):
         """Refresh any schema views affected by this command"""
         if hasattr(self, 'file_path') and self.file_path:
             self.gui.refresh_schema_view(self.file_path)
+
+class CreateFileFromCopy(Command):
+    """Command for creating a copy of a file and updating manifests"""
+    def __init__(self, gui, source_file: str, source_type: str, new_name: str, overwrite: bool = False):
+        super().__init__(None, None, None, None)  # We don't use the standard command values
+        self.gui = gui
+        self.source_file = source_file  # Original file ID (e.g. "scout_frigate")
+        self.source_type = source_type  # File type (e.g. "unit", "weapon")
+        self.new_name = new_name  # New file ID for the copy
+        self.overwrite = overwrite  # Whether to overwrite an existing mod file
+        self.old_manifest_data = None  # Store original manifest data for undo
+        self.new_manifest_data = None  # Store new manifest data for redo
+        self.created_file_path = None  # Store path of created file
+        self.manifest_file_path = None  # Store path of manifest file
+        
+    def execute(self):
+        """Execute the file copy operation"""
+        try:
+            # Determine source and target paths
+            source_data = None
+            is_base_game = False
+            
+            # Try to get source data from mod first
+            if self.source_file in self.gui.manifest_data['mod'].get(self.source_type, {}):
+                source_data = self.gui.manifest_data['mod'][self.source_type][self.source_file]
+                is_base_game = False
+            # Then try base game
+            elif self.source_file in self.gui.manifest_data['base_game'].get(self.source_type, {}):
+                source_data = self.gui.manifest_data['base_game'][self.source_type][self.source_file]
+                is_base_game = True
+                
+            if not source_data:
+                raise ValueError(f"Could not find source file {self.source_file} of type {self.source_type}")
+                
+            # Create target file path
+            target_file = self.gui.current_folder / "entities" / f"{self.new_name}.{self.source_type}"
+            self.created_file_path = target_file
+            
+            # Create entities folder if it doesn't exist
+            target_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Check if target exists and we're not overwriting
+            if target_file.exists() and not self.overwrite:
+                raise ValueError(f"Target file {target_file} already exists")
+                
+            # Create manifest file path
+            manifest_file = self.gui.current_folder / "entities" / f"{self.source_type}.entity_manifest"
+            self.manifest_file_path = manifest_file
+            
+            # Load or create manifest data
+            manifest_data = {"ids": []}
+            if manifest_file.exists():
+                with open(manifest_file, 'r', encoding='utf-8') as f:
+                    manifest_data = json.load(f)
+                    
+            # Store old manifest data for undo
+            self.old_manifest_data = manifest_data.copy()
+            
+            # Update manifest if not overwriting
+            if not self.overwrite and self.new_name not in manifest_data["ids"]:
+                manifest_data["ids"].append(self.new_name)
+                manifest_data["ids"].sort()  # Keep IDs sorted
+                
+            # Store new manifest data for redo
+            self.new_manifest_data = manifest_data.copy()
+            
+            # Write the new file
+            with open(target_file, 'w', encoding='utf-8') as f:
+                json.dump(source_data, f, indent=4)
+                
+            # Write the manifest file
+            with open(manifest_file, 'w', encoding='utf-8') as f:
+                json.dump(manifest_data, f, indent=4)
+                
+            # Update the GUI's manifest data
+            if self.source_type not in self.gui.manifest_data['mod']:
+                self.gui.manifest_data['mod'][self.source_type] = {}
+            self.gui.manifest_data['mod'][self.source_type][self.new_name] = source_data
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error executing file copy: {str(e)}")
+            return False
+            
+    def undo(self):
+        """Undo the file copy operation"""
+        try:
+            # Delete the created file
+            if self.created_file_path and self.created_file_path.exists():
+                self.created_file_path.unlink()
+                
+            # Restore old manifest data
+            if self.manifest_file_path and self.old_manifest_data:
+                with open(self.manifest_file_path, 'w', encoding='utf-8') as f:
+                    json.dump(self.old_manifest_data, f, indent=4)
+                    
+            # Remove from GUI's manifest data
+            if self.source_type in self.gui.manifest_data['mod']:
+                self.gui.manifest_data['mod'][self.source_type].pop(self.new_name, None)
+                
+            return True
+            
+        except Exception as e:
+            print(f"Error undoing file copy: {str(e)}")
+            return False
+            
+    def redo(self):
+        """Redo the file copy operation"""
+        try:
+            return self.execute()
+        except Exception as e:
+            print(f"Error redoing file copy: {str(e)}")
+            return False
