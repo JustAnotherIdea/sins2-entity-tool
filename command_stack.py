@@ -1022,7 +1022,12 @@ class AddPropertyCommand(Command):
             if self.data_path is not None:
                 self.gui.update_data_value(self.data_path, self.new_value)
                 
-            # Create and add the widget
+            # For root properties, refresh the entire schema view and return early
+            if self.data_path == []:
+                self.gui.refresh_schema_view(self.file_path)
+                return
+                
+            # Create and add the widget (only for non-root properties)
             if self.schema and self.prop_name and self.parent_layout:
                 # Create container for the new property
                 row_widget = QWidget()
@@ -1147,7 +1152,7 @@ class AddPropertyCommand(Command):
         """Undo the property addition"""
         try:
             # Update the data
-            if self.data_path is not None and self.data_path != []:
+            if self.data_path is not None:
                 self.gui.update_data_value(self.data_path, self.old_value)
                 
             # For root properties, find and remove the schema view widget

@@ -4785,9 +4785,9 @@ class EntityToolGUI(QMainWindow):
             self.command_stack.push(transform_cmd)
             self.update_save_button()
             
-            # For root properties, refresh the entire schema view
-            if not data_path:
-                self.refresh_schema_view(file_path)
+            # # For root properties, refresh the entire schema view
+            # if not data_path:
+            #     self.refresh_schema_view(file_path)
 
     def delete_property(self, widget: QWidget, property_name: str):
         """Delete a property from an object"""
