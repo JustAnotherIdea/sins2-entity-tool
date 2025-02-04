@@ -4741,15 +4741,16 @@ class EntityToolGUI(QMainWindow):
         default_value = self.get_default_value(resolved_schema)
         
         # Create old and new values for the object
-        old_value = target.copy()
-        new_value = target.copy()
-        new_value[prop_name] = default_value
-        
-        # For root properties, we need to update the entire data structure
         if not data_path:
-            old_value = current_data.copy()
-            new_value = current_data.copy()
-            new_value[prop_name] = default_value
+            # For root properties, we need to store the entire data structure
+            old_value = current_data.copy()  # Store the data before adding the property
+            new_value = current_data.copy()  # Make a new copy for the modified data
+            new_value[prop_name] = default_value  # Add the new property
+        else:
+            # For nested properties, we only need to store the target object
+            old_value = target.copy()  # Store the object before adding the property
+            new_value = target.copy()  # Make a new copy for the modified data
+            new_value[prop_name] = default_value  # Add the new property
         
         # Find the content widget (next widget after the toggle button)
         container = widget.parent()

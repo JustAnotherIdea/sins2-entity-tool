@@ -998,6 +998,8 @@ class DeleteArrayItemCommand(Command):
 class AddPropertyCommand(Command):
     """Command for adding a property to an object"""
     def __init__(self, gui, widget, old_value, new_value):
+        # For root properties, old_value should be the entire data structure before the property was added
+        # and new_value should be the entire data structure with the property added
         super().__init__(None, None, old_value, new_value)  # File path and data path set later
         self.gui = gui
         
@@ -1153,7 +1155,12 @@ class AddPropertyCommand(Command):
         try:
             # Update the data
             if self.data_path is not None:
-                self.gui.update_data_value(self.data_path, self.old_value)
+                if self.data_path == []:
+                    # For root properties, update the entire data structure
+                    self.gui.update_data_value([], self.old_value)
+                else:
+                    # For non-root properties, update just the property
+                    self.gui.update_data_value(self.data_path, self.old_value)
                 
             # For root properties, find and remove the schema view widget
             if self.data_path == []:
