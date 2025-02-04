@@ -373,6 +373,14 @@ class TransformWidgetCommand:
         self.new_array = None
         self.added_widget = None
         
+        # Store information for undo/redo of texture transformations
+        self.is_texture = False
+        self.old_container = None
+        self.new_container = None
+        self.parent_container = None
+        self.container_index = -1
+        self.preserved_index_label = None
+
     def replace_widget(self, new_widget):
         """Replace all widgets in container with new widget"""
         if not self.container_layout or not new_widget:
@@ -439,7 +447,12 @@ class TransformWidgetCommand:
                                     break
                     has_texture = has_label and has_edit
 
+            has_texture = True
             if has_texture:
+                # Store texture transformation info
+                self.is_texture = True
+                self.parent_container = parent_container
+                
                 # For texture transformations, preserve the parent container
                 if parent_container and parent_container.parent():
                     parent = parent_container.parent()
@@ -452,21 +465,29 @@ class TransformWidgetCommand:
                                 break
                         
                         if index >= 0:
+                            # Store container index for undo/redo
+                            self.container_index = index
+                            
                             # Create a new container to hold the index label and new widget
                             container = QWidget()
                             container_layout = QHBoxLayout(container)
                             container_layout.setContentsMargins(0, 0, 0, 0)
                             container_layout.setSpacing(4)
 
+                            # Store old container for undo
+                            self.old_container = parent.layout().itemAt(index).widget()
+
                             # Check if we have an index label to preserve
                             existing_index_label = None
-                            old_container = parent.layout().itemAt(index).widget()
-                            if old_container and old_container.layout():
-                                for i in range(old_container.layout().count()):
-                                    widget = old_container.layout().itemAt(i).widget()
+                            if self.old_container and self.old_container.layout():
+                                for i in range(self.old_container.layout().count()):
+                                    widget = self.old_container.layout().itemAt(i).widget()
                                     if isinstance(widget, QLabel) and widget.text().startswith('[') and widget.text().endswith(']'):
                                         existing_index_label = widget
                                         break
+
+                            # Store preserved index label
+                            self.preserved_index_label = existing_index_label
 
                             # Remove old container
                             item = parent.layout().takeAt(index)
@@ -475,7 +496,9 @@ class TransformWidgetCommand:
                                 if existing_index_label:
                                     existing_index_label.setParent(None)
                                 item.widget().hide()
-                                item.widget().deleteLater()
+                                # Don't delete old container yet, we need it for undo
+                                self.old_container = item.widget()
+                                self.old_container.hide()
 
                             # If we have an index label, add it to new container
                             if existing_index_label:
@@ -484,6 +507,9 @@ class TransformWidgetCommand:
                             # Add new widget and stretch
                             container_layout.addWidget(new_widget)
                             container_layout.addStretch()
+                            
+                            # Store new container for undo/redo
+                            self.new_container = container
                             
                             # Add new container at same index
                             parent.layout().insertWidget(index, container)
@@ -543,29 +569,77 @@ class TransformWidgetCommand:
     def undo(self):
         """Undo the transformation"""
         try:
-            if not self.is_array_item:
-                # Handle normal widget transformation
-                new_widget = self.gui.create_widget_for_value(self.old_value, {"type": "string"}, self.is_base_game, self.data_path)
-                return self.replace_widget(new_widget)
+            if self.is_texture and self.old_container and self.parent_container and self.parent_container.parent():
+                parent = self.parent_container.parent()
+                if parent and parent.layout():
+                    # Remove new container
+                    for i in range(parent.layout().count()):
+                        if parent.layout().itemAt(i).widget() == self.new_container:
+                            item = parent.layout().takeAt(i)
+                            if item.widget():
+                                # Preserve index label if it exists
+                                if self.preserved_index_label:
+                                    self.preserved_index_label.setParent(None)
+                                item.widget().hide()
+                                item.widget().deleteLater()
+                            break
+                    
+                    # Show and restore old container
+                    self.old_container.show()
+                    if self.preserved_index_label:
+                        # Find the right spot to add the index label back
+                        if self.old_container.layout():
+                            self.old_container.layout().insertWidget(0, self.preserved_index_label)
+                    
+                    # Add old container back at original index
+                    parent.layout().insertWidget(self.container_index, self.old_container)
             else:
-                # Handle array item removal
-                if self.array_data is not None:
-                    self.gui.update_data_value(self.data_path[:-1], self.array_data)
-                if self.container_layout.count() > 0:
-                    item = self.container_layout.takeAt(self.container_layout.count() - 1)
-                    if item.widget():
-                        item.widget().hide()
-                        item.widget().deleteLater()
-                        self.added_widget = None
+                # Handle non-texture undo
+                new_widget = self.gui.create_widget_for_value(
+                    self.old_value,
+                    {"type": "string"},
+                    self.is_base_game,
+                    self.data_path
+                )
+                return self.replace_widget(new_widget)
         except Exception as e:
             print(f"Error undoing transform command: {str(e)}")
-        
+            import traceback
+            traceback.print_exc()
+
     def redo(self):
-        """Redo the transformation (same as execute)"""
+        """Redo the transformation"""
         try:
-            return self.execute()
+            if self.is_texture and self.new_container and self.parent_container and self.parent_container.parent():
+                parent = self.parent_container.parent()
+                if parent and parent.layout():
+                    # Remove old container
+                    for i in range(parent.layout().count()):
+                        if parent.layout().itemAt(i).widget() == self.old_container:
+                            item = parent.layout().takeAt(i)
+                            if item.widget():
+                                if self.preserved_index_label:
+                                    self.preserved_index_label.setParent(None)
+                                item.widget().hide()
+                            break
+                    
+                    # Show and restore new container
+                    self.new_container.show()
+                    if self.preserved_index_label:
+                        # Find the right spot to add the index label back
+                        if self.new_container.layout():
+                            self.new_container.layout().insertWidget(0, self.preserved_index_label)
+                    
+                    # Add new container back at original index
+                    parent.layout().insertWidget(self.container_index, self.new_container)
+                    return self.new_container
+            else:
+                # Handle non-texture redo
+                return self.execute()
         except Exception as e:
             print(f"Error redoing transform command: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return None
 
 class EditValueCommand(Command):
