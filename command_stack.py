@@ -2,7 +2,8 @@ from typing import Any, List, Dict, Set, Callable
 from pathlib import Path
 import json
 import logging
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QToolButton, QGroupBox, QLineEdit
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QToolButton, QGroupBox, QLineEdit, QListWidgetItem
+from PyQt6.QtGui import QColor
 from PyQt6.QtCore import Qt
 
 class Command:
@@ -1479,6 +1480,9 @@ class CreateFileFromCopy(Command):
                 self.gui.manifest_data['mod'][self.source_type] = {}
             self.gui.manifest_data['mod'][self.source_type][self.new_name] = source_data
             
+            # Update the appropriate list based on file type
+            self.update_list_for_type()
+            
             return True
             
         except Exception as e:
@@ -1501,6 +1505,9 @@ class CreateFileFromCopy(Command):
             if self.source_type in self.gui.manifest_data['mod']:
                 self.gui.manifest_data['mod'][self.source_type].pop(self.new_name, None)
                 
+            # Update the appropriate list based on file type
+            self.update_list_for_type()
+            
             return True
             
         except Exception as e:
@@ -1514,3 +1521,95 @@ class CreateFileFromCopy(Command):
         except Exception as e:
             print(f"Error redoing file copy: {str(e)}")
             return False
+            
+    def update_list_for_type(self):
+        """Update the appropriate list widget based on the file type"""
+        try:
+            # Special handling for units to filter by type
+            if self.source_type == 'unit':
+                # Update all units list first
+                self.gui.all_units_list.clear()
+                # Add mod files first
+                for file_id in sorted(self.gui.manifest_data['mod'].get('unit', {})):
+                    item = QListWidgetItem(file_id)
+                    self.gui.all_units_list.addItem(item)
+                # Then add base game files (grayed out)
+                for file_id in sorted(self.gui.manifest_data['base_game'].get('unit', {})):
+                    if file_id not in self.gui.manifest_data['mod'].get('unit', {}):
+                        item = QListWidgetItem(file_id)
+                        item.setForeground(QColor(150, 150, 150))
+                        font = item.font()
+                        font.setItalic(True)
+                        item.setFont(font)
+                        self.gui.all_units_list.addItem(item)
+
+                # Update buildable units list
+                if hasattr(self.gui, 'current_data') and self.gui.current_data:
+                    self.gui.units_list.clear()
+                    buildable_units = self.gui.current_data.get('buildable_units', [])
+                    for unit_id in sorted(buildable_units):
+                        item = QListWidgetItem(unit_id)
+                        # Style as base game if it doesn't exist in mod folder
+                        if (unit_id not in self.gui.manifest_data['mod'].get('unit', {}) and 
+                            unit_id in self.gui.manifest_data['base_game'].get('unit', {})):
+                            item.setForeground(QColor(150, 150, 150))
+                            font = item.font()
+                            font.setItalic(True)
+                            item.setFont(font)
+                        self.gui.units_list.addItem(item)
+
+                    # Update buildable strikecraft list
+                    self.gui.strikecraft_list.clear()
+                    buildable_strikecraft = self.gui.current_data.get('buildable_strikecraft', [])
+                    for unit_id in sorted(buildable_strikecraft):
+                        item = QListWidgetItem(unit_id)
+                        # Style as base game if it doesn't exist in mod folder
+                        if (unit_id not in self.gui.manifest_data['mod'].get('unit', {}) and 
+                            unit_id in self.gui.manifest_data['base_game'].get('unit', {})):
+                            item.setForeground(QColor(150, 150, 150))
+                            font = item.font()
+                            font.setItalic(True)
+                            item.setFont(font)
+                        self.gui.strikecraft_list.addItem(item)
+                return
+
+            # For other types, use the standard mapping
+            type_to_list = {
+                'unit_item': [self.gui.items_list],
+                'ability': [self.gui.ability_list],
+                'action_data_source': [self.gui.action_list],
+                'buff': [self.gui.buff_list],
+                'formation': [self.gui.formations_list],
+                'flight_pattern': [self.gui.patterns_list],
+                'npc_reward': [self.gui.rewards_list],
+                'exotic': [self.gui.exotics_list],
+                'uniform': [self.gui.uniforms_list]
+            }
+            
+            # Get the list widgets to update
+            list_widgets = type_to_list.get(self.source_type, [])
+            if not list_widgets:
+                return
+                
+            # Update each list widget
+            for list_widget in list_widgets:
+                # Clear and repopulate the list
+                list_widget.clear()
+                
+                # Add mod files first
+                for file_id in sorted(self.gui.manifest_data['mod'].get(self.source_type, {})):
+                    item = QListWidgetItem(file_id)
+                    list_widget.addItem(item)
+                
+                # Then add base game files (grayed out)
+                for file_id in sorted(self.gui.manifest_data['base_game'].get(self.source_type, {})):
+                    if file_id not in self.gui.manifest_data['mod'].get(self.source_type, {}):
+                        item = QListWidgetItem(file_id)
+                        item.setForeground(QColor(150, 150, 150))
+                        font = item.font()
+                        font.setItalic(True)
+                        item.setFont(font)
+                        list_widget.addItem(item)
+                        
+        except Exception as e:
+            print(f"Error updating list for type {self.source_type}: {str(e)}")
