@@ -1569,8 +1569,12 @@ class EntityToolGUI(QMainWindow):
                     return
                     
                 try:
-                    # Create and execute the copy command
-                    command = CreateFileFromCopy(
+                    # Get the file path and data path from the target widget
+                    file_path = self.get_schema_view_file_path(target_widget)
+                    data_path = target_widget.property("data_path")
+                    
+                    # Create the copy command
+                    copy_command = CreateFileFromCopy(
                         self,
                         source_file,
                         file_type,
@@ -1578,19 +1582,36 @@ class EntityToolGUI(QMainWindow):
                         overwrite
                     )
                     
-                    if command.execute():
-                        # Update the file list
-                        update_file_list()
-                        # Select the new file
-                        for i in range(file_list.count()):
-                            if file_list.item(i).text() == new_name:
-                                file_list.setCurrentRow(i)
-                                break
-                        # Add command to stack
-                        self.command_stack.push(command)
-                        copy_dialog.accept()
-                    else:
-                        QMessageBox.warning(copy_dialog, "Error", "Failed to create file copy")
+                    # Prepare and validate the command
+                    if not copy_command.prepare():
+                        QMessageBox.warning(copy_dialog, "Error", "Failed to prepare file copy")
+                        return
+                        
+                    # Create transform command for the widget
+                    transform_cmd = TransformWidgetCommand(self, target_widget, source_file, new_name)
+                    transform_cmd.file_path = file_path
+                    transform_cmd.data_path = data_path
+                    
+                    # Create composite command with both operations
+                    composite_cmd = CompositeCommand([copy_command, transform_cmd])
+                    composite_cmd.file_path = file_path
+                    composite_cmd.data_path = data_path
+                    
+                    # Close both dialogs before executing command
+                    copy_dialog.accept()
+                    dialog.accept()
+                    
+                    # Add command to stack (this will execute it)
+                    self.command_stack.push(composite_cmd)
+                    
+                    # Update the file list
+                    update_file_list()
+                    
+                    # Select the new file
+                    for i in range(file_list.count()):
+                        if file_list.item(i).text() == new_name:
+                            file_list.setCurrentRow(i)
+                            break
                         
                 except Exception as e:
                     QMessageBox.warning(copy_dialog, "Error", str(e))

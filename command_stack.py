@@ -1415,70 +1415,80 @@ class CreateFileFromCopy(Command):
         self.new_manifest_data = None  # Store new manifest data for redo
         self.created_file_path = None  # Store path of created file
         self.manifest_file_path = None  # Store path of manifest file
+        self.source_data = None  # Store the source data for the copy
         
-    def execute(self):
-        """Execute the file copy operation"""
+    def prepare(self) -> bool:
+        """Prepare the command by gathering necessary data and validating the operation"""
         try:
             # Determine source and target paths
-            source_data = None
+            self.source_data = None
             is_base_game = False
             
             # Try to get source data from mod first
             if self.source_file in self.gui.manifest_data['mod'].get(self.source_type, {}):
-                source_data = self.gui.manifest_data['mod'][self.source_type][self.source_file]
+                self.source_data = self.gui.manifest_data['mod'][self.source_type][self.source_file]
                 is_base_game = False
             # Then try base game
             elif self.source_file in self.gui.manifest_data['base_game'].get(self.source_type, {}):
-                source_data = self.gui.manifest_data['base_game'][self.source_type][self.source_file]
+                self.source_data = self.gui.manifest_data['base_game'][self.source_type][self.source_file]
                 is_base_game = True
                 
-            if not source_data:
+            if not self.source_data:
                 raise ValueError(f"Could not find source file {self.source_file} of type {self.source_type}")
                 
             # Create target file path
-            target_file = self.gui.current_folder / "entities" / f"{self.new_name}.{self.source_type}"
-            self.created_file_path = target_file
-            
-            # Create entities folder if it doesn't exist
-            target_file.parent.mkdir(parents=True, exist_ok=True)
+            self.created_file_path = self.gui.current_folder / "entities" / f"{self.new_name}.{self.source_type}"
             
             # Check if target exists and we're not overwriting
-            if target_file.exists() and not self.overwrite:
-                raise ValueError(f"Target file {target_file} already exists")
+            if self.created_file_path.exists() and not self.overwrite:
+                raise ValueError(f"Target file {self.created_file_path} already exists")
                 
             # Create manifest file path
-            manifest_file = self.gui.current_folder / "entities" / f"{self.source_type}.entity_manifest"
-            self.manifest_file_path = manifest_file
+            self.manifest_file_path = self.gui.current_folder / "entities" / f"{self.source_type}.entity_manifest"
             
             # Load or create manifest data
             manifest_data = {"ids": []}
-            if manifest_file.exists():
-                with open(manifest_file, 'r', encoding='utf-8') as f:
+            if self.manifest_file_path.exists():
+                with open(self.manifest_file_path, 'r', encoding='utf-8') as f:
                     manifest_data = json.load(f)
                     
             # Store old manifest data for undo
             self.old_manifest_data = manifest_data.copy()
             
-            # Update manifest if not overwriting
-            if not self.overwrite and self.new_name not in manifest_data["ids"]:
-                manifest_data["ids"].append(self.new_name)
-                manifest_data["ids"].sort()  # Keep IDs sorted
-                
-            # Store new manifest data for redo
+            # Create new manifest data
             self.new_manifest_data = manifest_data.copy()
+            if not self.overwrite and self.new_name not in self.new_manifest_data["ids"]:
+                self.new_manifest_data["ids"].append(self.new_name)
+                self.new_manifest_data["ids"].sort()  # Keep IDs sorted
+                
+            return True
+            
+        except Exception as e:
+            print(f"Error preparing file copy: {str(e)}")
+            return False
+        
+    def execute(self):
+        """Execute the file copy operation"""
+        try:
+            if not self.source_data:
+                if not self.prepare():
+                    return False
+                    
+            # Create entities folder if it doesn't exist
+            self.created_file_path.parent.mkdir(parents=True, exist_ok=True)
             
             # Write the new file
-            with open(target_file, 'w', encoding='utf-8') as f:
-                json.dump(source_data, f, indent=4)
+            with open(self.created_file_path, 'w', encoding='utf-8') as f:
+                json.dump(self.source_data, f, indent=4)
                 
             # Write the manifest file
-            with open(manifest_file, 'w', encoding='utf-8') as f:
-                json.dump(manifest_data, f, indent=4)
+            with open(self.manifest_file_path, 'w', encoding='utf-8') as f:
+                json.dump(self.new_manifest_data, f, indent=4)
                 
             # Update the GUI's manifest data
             if self.source_type not in self.gui.manifest_data['mod']:
                 self.gui.manifest_data['mod'][self.source_type] = {}
-            self.gui.manifest_data['mod'][self.source_type][self.new_name] = source_data
+            self.gui.manifest_data['mod'][self.source_type][self.new_name] = self.source_data
             
             # Update the appropriate list based on file type
             self.update_list_for_type()
@@ -1492,26 +1502,52 @@ class CreateFileFromCopy(Command):
     def undo(self):
         """Undo the file copy operation"""
         try:
+            print("Undoing file copy operation")
             # Delete the created file
             if self.created_file_path and self.created_file_path.exists():
+                print(f"Deleting created file: {self.created_file_path}")
                 self.created_file_path.unlink()
                 
             # Restore old manifest data
             if self.manifest_file_path and self.old_manifest_data:
+                print(f"Restoring old manifest data to: {self.manifest_file_path}")
+                print(f"Old manifest data: {self.old_manifest_data}")
                 with open(self.manifest_file_path, 'w', encoding='utf-8') as f:
                     json.dump(self.old_manifest_data, f, indent=4)
                     
             # Remove from GUI's manifest data
             if self.source_type in self.gui.manifest_data['mod']:
+                print(f"Removing {self.new_name} from GUI manifest data")
                 self.gui.manifest_data['mod'][self.source_type].pop(self.new_name, None)
                 
             # Update the appropriate list based on file type
             self.update_list_for_type()
             
+            # Remove from command stack's file data
+            if self.created_file_path:
+                print(f"Removing file data from command stack")
+                self.gui.command_stack.file_data.pop(self.created_file_path, None)
+            
+            # Remove from modified files set
+            if self.created_file_path:
+                print(f"Removing from modified files set")
+                self.gui.command_stack.modified_files.discard(self.created_file_path)
+            
+            if self.manifest_file_path:
+                print(f"Removing manifest from modified files set")
+                self.gui.command_stack.modified_files.discard(self.manifest_file_path)
+                
+            # Update command stack data for manifest file
+            if self.manifest_file_path:
+                print(f"Updating manifest data in command stack")
+                self.gui.command_stack.update_file_data(self.manifest_file_path, self.old_manifest_data)
+                
             return True
             
         except Exception as e:
             print(f"Error undoing file copy: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
             
     def redo(self):
