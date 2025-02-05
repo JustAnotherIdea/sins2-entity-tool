@@ -1164,25 +1164,29 @@ class AddPropertyCommand(Command):
                 # Update the command stack data first
                 self.gui.command_stack.update_file_data(self.file_path, self.old_value)
                 # Then update the data value (this will trigger any callbacks)
-                self.gui.update_data_value(self.data_path, self.old_value)
+                self.gui.update_data_value([], self.old_value)
                 # Finally refresh the schema view
                 self.gui.refresh_schema_view(self.file_path)
-                return
-                
-            # For non-root properties, update the data normally
+                return True
+
+            # For non-root properties, continue with normal undo
+            # Update the data first
             if self.data_path is not None:
+                print(f"Undoing deletion at path: {self.data_path}")
                 self.gui.update_data_value(self.data_path, self.old_value)
-                
-            # For non-root properties, just remove the added widget
+            
+            # If we have the added widget, try to remove it
             if self.added_widget:
                 self.added_widget.setParent(None)
-                self.added_widget.deleteLater()
                 self.added_widget = None
-                
+            
+            return True
+            
         except Exception as e:
             print(f"Error undoing add property command: {str(e)}")
             import traceback
             traceback.print_exc()
+            return False
             
     def redo(self):
         """Redo the property addition"""
@@ -1261,11 +1265,24 @@ class DeletePropertyCommand(Command):
             print(f"Full path: {self.full_path}")
             print(f"Parent path for update: {self.data_path}")
 
+            # For root properties, update the data and refresh the schema view
+            if not self.data_path or self.data_path == []:
+                # Update the command stack data first
+                self.gui.command_stack.update_file_data(self.file_path, self.new_value)
+                # Then update the data value (this will trigger any callbacks)
+                self.gui.update_data_value([], self.new_value)
+                # Finally refresh the schema view
+                self.gui.refresh_schema_view(self.file_path)
+                return True
+
+            # For non-root properties, continue with normal deletion
             # Remove the property from the data
             if self.data_path != []:
-                self.new_value.pop(self.full_path[-1])
+                if self.full_path[-1] in self.new_value:
+                    self.new_value.pop(self.full_path[-1])
             else:
-                self.new_value.pop(self.full_path[0])
+                if self.full_path[0] in self.new_value:
+                    self.new_value.pop(self.full_path[0])
                 
             # Update the data
             if self.data_path is not None:
@@ -1282,7 +1299,7 @@ class DeletePropertyCommand(Command):
 
             if not schema_view:
                 print("Could not find schema view")
-                return
+                return True
 
             # For array properties, we need to find the array's collapsible section
             if isinstance(self.property_widget, QToolButton):
@@ -1321,7 +1338,7 @@ class DeletePropertyCommand(Command):
 
             if not collapsible_widget:
                 print("Could not find widget to remove")
-                return
+                return True
 
             # Store the widget and its parent for undo
             self.removed_widget = collapsible_widget
@@ -1333,15 +1350,28 @@ class DeletePropertyCommand(Command):
             collapsible_widget.hide()
             collapsible_widget.setParent(None)  # Detach but don't delete
             
+            return True
+            
         except Exception as e:
             print(f"Error executing delete property command: {str(e)}")
             import traceback
             traceback.print_exc()
-            return None
+            return False
             
     def undo(self):
         """Undo the property deletion"""
         try:
+            # For root properties, update the data and refresh the schema view
+            if not self.data_path or self.data_path == []:
+                # Update the command stack data first
+                self.gui.command_stack.update_file_data(self.file_path, self.old_value)
+                # Then update the data value (this will trigger any callbacks)
+                self.gui.update_data_value([], self.old_value)
+                # Finally refresh the schema view
+                self.gui.refresh_schema_view(self.file_path)
+                return True
+
+            # For non-root properties, continue with normal undo
             # Update the data first
             if self.data_path is not None:
                 print(f"Undoing deletion at path: {self.data_path}")
@@ -1388,10 +1418,13 @@ class DeletePropertyCommand(Command):
                                 parent_container.layout().addWidget(new_widget)
                                 new_widget.show()
             
+            return True
+            
         except Exception as e:
             print(f"Error undoing delete property command: {str(e)}")
             import traceback
             traceback.print_exc()
+            return False
             
     def redo(self):
         """Redo the property deletion"""
