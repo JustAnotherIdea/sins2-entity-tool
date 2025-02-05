@@ -5580,20 +5580,25 @@ class EntityToolGUI(QMainWindow):
             QMessageBox.warning(self, "Error", "Cannot delete base game research subjects")
             return
 
-        # Ask for confirmation
-        reply = QMessageBox.question(
-            self,
-            "Confirm Delete",
-            f"Are you sure you want to delete research subject '{subject_id}'?\n\n" +
-            "This will:\n" +
-            "1. Remove it from the research tree\n" +
-            "2. Delete the research subject file\n" +
-            "3. Remove it from the research subject manifest",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No
-        )
+        # Ask user what they want to delete
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("Delete Research Subject")
+        msg_box.setText(f"How would you like to delete research subject '{subject_id}'?")
+        msg_box.setIcon(QMessageBox.Icon.Question)
+        
+        # Add custom buttons
+        full_delete_btn = msg_box.addButton("Full Delete", QMessageBox.ButtonRole.ActionRole)
+        full_delete_btn.setToolTip("Delete file, remove from manifest, and remove from research tree")
+        
+        tree_only_btn = msg_box.addButton("Remove from Tree Only", QMessageBox.ButtonRole.ActionRole) 
+        tree_only_btn.setToolTip("Only remove from research tree, keep the file and manifest entry")
+        
+        cancel_btn = msg_box.addButton(QMessageBox.StandardButton.Cancel)
+        
+        msg_box.exec()
+        clicked_button = msg_box.clickedButton()
 
-        if reply != QMessageBox.StandardButton.Yes:
+        if clicked_button == cancel_btn:
             return
 
         try:
@@ -5623,20 +5628,21 @@ class EntityToolGUI(QMainWindow):
             delete_cmd.file_path = self.current_file
             delete_cmd.data_path = array_path
 
-            # Delete the file and update manifest
-            subject_file.unlink()
-            manifest_file = self.current_folder / "entities" / "research_subject.entity_manifest"
-            if manifest_file.exists():
-                with open(manifest_file, 'r', encoding='utf-8') as f:
-                    manifest_data = json.load(f)
-                if "ids" in manifest_data and subject_id in manifest_data["ids"]:
-                    manifest_data["ids"].remove(subject_id)
-                    with open(manifest_file, 'w', encoding='utf-8') as f:
-                        json.dump(manifest_data, f, indent=4)
+            # If full delete was selected, also delete file and update manifest
+            if clicked_button == full_delete_btn:
+                subject_file.unlink()
+                manifest_file = self.current_folder / "entities" / "research_subject.entity_manifest"
+                if manifest_file.exists():
+                    with open(manifest_file, 'r', encoding='utf-8') as f:
+                        manifest_data = json.load(f)
+                    if "ids" in manifest_data and subject_id in manifest_data["ids"]:
+                        manifest_data["ids"].remove(subject_id)
+                        with open(manifest_file, 'w', encoding='utf-8') as f:
+                            json.dump(manifest_data, f, indent=4)
 
-            # Remove from GUI's manifest data
-            if 'research_subject' in self.manifest_data['mod']:
-                self.manifest_data['mod']['research_subject'].pop(subject_id, None)
+                # Remove from GUI's manifest data
+                if 'research_subject' in self.manifest_data['mod']:
+                    self.manifest_data['mod']['research_subject'].pop(subject_id, None)
 
             # Execute command and refresh view
             self.command_stack.push(delete_cmd)
