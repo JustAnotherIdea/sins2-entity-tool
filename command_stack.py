@@ -1826,12 +1826,11 @@ class CreateResearchSubjectCommand(Command):
                 print("Failed to execute file copy command")
                 return False
 
-            # Update the research data
-            print(f"Old value research array: {self.old_value['research'].get(self.array_path[-1], [])}")
-            print(f"New value research array: {self.new_value['research'].get(self.array_path[-1], [])}")
-            
+            # Update only the specific research array
             self.gui.command_stack.update_file_data(self.file_path, self.new_value)
-            self.gui.update_data_value([], self.new_value)
+            self.gui.update_data_value(self.array_path, self.new_value['research'][self.array_path[-1]])
+            # Mark player file as modified
+            self.gui.command_stack.modified_files.add(self.file_path)
 
             # Update the save button
             self.gui.update_save_button()
@@ -1842,7 +1841,6 @@ class CreateResearchSubjectCommand(Command):
             return True
 
         except Exception as e:
-
             print(f"Error executing create research subject command: {str(e)}")
             return False
 
@@ -1852,16 +1850,166 @@ class CreateResearchSubjectCommand(Command):
             # Undo the file copy first
             self.copy_command.undo()
 
-            # Restore the old research data
+            # Restore only the specific research array
             self.gui.command_stack.update_file_data(self.file_path, self.old_value)
-            self.gui.update_data_value([], self.old_value)
-            
+            self.gui.update_data_value(self.array_path, self.old_value['research'][self.array_path[-1]])
+            # Mark player file as modified
+            self.gui.command_stack.modified_files.add(self.file_path)
+
             # Refresh the research view
             self.gui.refresh_research_view()
             return True
 
         except Exception as e:
             print(f"Error undoing create research subject command: {str(e)}")
+            return False
+
+    def redo(self):
+        """Redo the command"""
+        return self.execute()
+
+class DeleteResearchSubjectCommand(Command):
+    """Command for deleting a research subject from the research tree and optionally the file system"""
+    def __init__(self, gui, subject_id: str, array_path: list, full_delete: bool = True):
+        super().__init__(None, None, None, None)  # We'll set these later
+        self.gui = gui
+        self.subject_id = subject_id
+        self.array_path = array_path
+        self.full_delete = full_delete
+        self.subject_file = gui.current_folder / "entities" / f"{subject_id}.research_subject"
+        self.manifest_file = gui.current_folder / "entities" / "research_subject.entity_manifest"
+        self.manifest_data = None
+        self.subject_data = None
+        
+    def prepare(self) -> bool:
+        """Prepare the command by gathering necessary data and validating the operation"""
+        try:
+            # Get the player file path
+            self.file_path = self.gui.current_file
+            if not self.file_path:
+                raise ValueError("No player file is currently loaded")
+
+            # Get current research data
+            self.old_value = self.gui.command_stack.get_file_data(self.file_path)
+            if not self.old_value or 'research' not in self.old_value:
+                raise ValueError("Current file has no research data")
+
+            # Create copy of research data for new value
+            self.new_value = self.old_value.copy()
+            
+            # Get current array
+            current = self.new_value
+            for key in self.array_path[:-1]:
+                if key not in current:
+                    current[key] = {}
+                current = current[key]
+            
+            array_key = self.array_path[-1]
+            if array_key not in current:
+                raise ValueError(f"Research array {array_key} not found")
+                
+            current_array = current[array_key]
+            if self.subject_id not in current_array:
+                raise ValueError(f"Subject {self.subject_id} not found in research array")
+
+            # Create updated array without the subject
+            updated_array = [x for x in current_array if x != self.subject_id]
+            current[array_key] = updated_array
+
+            if self.full_delete:
+                # Store subject data for undo
+                if self.subject_file.exists():
+                    with open(self.subject_file, 'r', encoding='utf-8') as f:
+                        self.subject_data = json.load(f)
+
+                # Store manifest data for undo
+                if self.manifest_file.exists():
+                    with open(self.manifest_file, 'r', encoding='utf-8') as f:
+                        self.manifest_data = json.load(f)
+
+            return True
+
+        except Exception as e:
+            print(f"Error preparing delete research subject command: {str(e)}")
+            return False
+
+    def execute(self):
+        """Execute the command"""
+        try:
+            print(f"Executing DeleteResearchSubjectCommand for {self.subject_id}")
+            
+            # Update only the specific research array
+            self.gui.command_stack.update_file_data(self.file_path, self.new_value)
+            self.gui.update_data_value(self.array_path, self.new_value['research'][self.array_path[-1]])
+            # Mark player file as modified
+            self.gui.command_stack.modified_files.add(self.file_path)
+
+            if self.full_delete:
+                # Delete the subject file
+                if self.subject_file.exists():
+                    self.subject_file.unlink()
+
+                # Update the manifest file
+                if self.manifest_file.exists() and self.manifest_data:
+                    manifest_data = self.manifest_data.copy()
+                    if "ids" in manifest_data and self.subject_id in manifest_data["ids"]:
+                        manifest_data["ids"].remove(self.subject_id)
+                        with open(self.manifest_file, 'w', encoding='utf-8') as f:
+                            json.dump(manifest_data, f, indent=4)
+                        # Mark manifest file as modified
+                        self.gui.command_stack.modified_files.add(self.manifest_file)
+
+                    # Remove from GUI's manifest data
+                    if 'research_subject' in self.gui.manifest_data['mod']:
+                        self.gui.manifest_data['mod']['research_subject'].pop(self.subject_id, None)
+
+            # Update the save button
+            self.gui.update_save_button()
+
+            # Refresh the research view
+            self.gui.refresh_research_view()
+            print("Successfully executed DeleteResearchSubjectCommand")
+            return True
+
+        except Exception as e:
+            print(f"Error executing delete research subject command: {str(e)}")
+            return False
+
+    def undo(self):
+        """Undo the command"""
+        try:
+            # Restore only the specific research array
+            self.gui.command_stack.update_file_data(self.file_path, self.old_value)
+            self.gui.update_data_value(self.array_path, self.old_value['research'][self.array_path[-1]])
+            # Mark player file as modified
+            self.gui.command_stack.modified_files.add(self.file_path)
+
+            if self.full_delete:
+                # Restore the subject file
+                if self.subject_data:
+                    self.subject_file.parent.mkdir(parents=True, exist_ok=True)
+                    with open(self.subject_file, 'w', encoding='utf-8') as f:
+                        json.dump(self.subject_data, f, indent=4)
+
+                # Restore the manifest file
+                if self.manifest_data:
+                    with open(self.manifest_file, 'w', encoding='utf-8') as f:
+                        json.dump(self.manifest_data, f, indent=4)
+                    # Mark manifest file as modified
+                    self.gui.command_stack.modified_files.add(self.manifest_file)
+
+                    # Restore GUI's manifest data
+                    if self.subject_data:
+                        if 'research_subject' not in self.gui.manifest_data['mod']:
+                            self.gui.manifest_data['mod']['research_subject'] = {}
+                        self.gui.manifest_data['mod']['research_subject'][self.subject_id] = self.subject_data
+
+            # Refresh the research view
+            self.gui.refresh_research_view()
+            return True
+
+        except Exception as e:
+            print(f"Error undoing delete research subject command: {str(e)}")
             return False
 
     def redo(self):

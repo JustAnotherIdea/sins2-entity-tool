@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 from research_view import ResearchTreeView
 import os
-from command_stack import CommandStack, EditValueCommand, AddPropertyCommand, DeleteArrayItemCommand, DeletePropertyCommand, CompositeCommand, TransformWidgetCommand, AddArrayItemCommand, CreateFileFromCopy, CreateLocalizedText, CreateResearchSubjectCommand
+from command_stack import CommandStack, EditValueCommand, AddPropertyCommand, DeleteArrayItemCommand, DeletePropertyCommand, CompositeCommand, TransformWidgetCommand, AddArrayItemCommand, CreateFileFromCopy, CreateLocalizedText, CreateResearchSubjectCommand, DeleteResearchSubjectCommand
 from typing import List, Any
 import sounddevice as sd
 import soundfile as sf
@@ -5614,39 +5614,25 @@ class EntityToolGUI(QMainWindow):
                 QMessageBox.warning(self, "Error", "Research subject not found in research tree")
                 return
 
-            # Get the array and find the subject's index
-            array_data = self.current_data['research'][array_path[-1]]
-            subject_index = array_data.index(subject_id)
-
-            # Create delete array item command
-            delete_cmd = DeleteArrayItemCommand(
+            # Create and execute the delete command
+            command = DeleteResearchSubjectCommand(
                 self,
-                None,  # No widget needed as we'll refresh the view
-                array_data,
-                subject_index
+                subject_id,
+                array_path,
+                clicked_button == full_delete_btn  # True for full delete, False for tree-only
             )
-            delete_cmd.file_path = self.current_file
-            delete_cmd.data_path = array_path
 
-            # If full delete was selected, also delete file and update manifest
-            if clicked_button == full_delete_btn:
-                subject_file.unlink()
-                manifest_file = self.current_folder / "entities" / "research_subject.entity_manifest"
-                if manifest_file.exists():
-                    with open(manifest_file, 'r', encoding='utf-8') as f:
-                        manifest_data = json.load(f)
-                    if "ids" in manifest_data and subject_id in manifest_data["ids"]:
-                        manifest_data["ids"].remove(subject_id)
-                        with open(manifest_file, 'w', encoding='utf-8') as f:
-                            json.dump(manifest_data, f, indent=4)
+            # Prepare and execute the command
+            if not command.prepare():
+                QMessageBox.warning(self, "Error", "Failed to prepare research subject deletion")
+                return
 
-                # Remove from GUI's manifest data
-                if 'research_subject' in self.manifest_data['mod']:
-                    self.manifest_data['mod']['research_subject'].pop(subject_id, None)
+            if not command.execute():
+                QMessageBox.warning(self, "Error", "Failed to delete research subject")
+                return
 
-            # Execute command and refresh view
-            self.command_stack.push(delete_cmd)
-            self.refresh_research_view()
+            # Add command to stack for undo/redo
+            self.command_stack.push(command)
 
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to delete research subject: {str(e)}")
