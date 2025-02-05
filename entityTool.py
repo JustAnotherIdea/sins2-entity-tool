@@ -270,6 +270,14 @@ class EntityToolGUI(QMainWindow):
         self.player_selector.setFixedWidth(200)
         self.player_selector.currentTextChanged.connect(self.on_player_selected)
         toolbar_layout.addWidget(self.player_selector)
+
+        # Add Player button
+        add_player_btn = QPushButton()
+        add_player_btn.setIcon(QIcon(str(Path(__file__).parent / "icons" / "add.png")))
+        add_player_btn.setToolTip('Add New Player')
+        add_player_btn.setFixedSize(32, 32)
+        add_player_btn.clicked.connect(self.show_add_player_dialog)
+        toolbar_layout.addWidget(add_player_btn)
         
         main_layout.addWidget(toolbar)
         
@@ -5195,3 +5203,149 @@ class EntityToolGUI(QMainWindow):
         
         self.command_stack.push(command)
         self.update_save_button()
+
+    def show_add_player_dialog(self):
+        """Show dialog to create a new player by copying an existing one"""
+        if not self.current_folder:
+            QMessageBox.warning(self, "Error", "Please open a mod folder first")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add New Player")
+        dialog.resize(800, 600)  # Make the dialog larger
+        layout = QVBoxLayout(dialog)
+
+        # Add search box
+        search_box = QLineEdit()
+        search_box.setPlaceholderText("Search players...")
+        layout.addWidget(search_box)
+
+        # Player list
+        player_list = QListWidget()
+        layout.addWidget(player_list)
+
+        def update_player_list(search=""):
+            player_list.clear()
+            search = search.lower()
+
+            # Add mod players first
+            for player_id in sorted(self.manifest_data['mod'].get('player', {})):
+                if search in player_id.lower():
+                    item = QListWidgetItem(player_id)
+                    player_list.addItem(item)
+
+            # Then add base game players
+            for player_id in sorted(self.manifest_data['base_game'].get('player', {})):
+                if (player_id not in self.manifest_data['mod'].get('player', {}) and 
+                    search in player_id.lower()):
+                    item = QListWidgetItem(player_id)
+                    item.setForeground(QColor(150, 150, 150))
+                    font = item.font()
+                    font.setItalic(True)
+                    item.setFont(font)
+                    player_list.addItem(item)
+
+        search_box.textChanged.connect(update_player_list)
+        update_player_list()  # Initial population
+
+        # Buttons
+        button_box = QHBoxLayout()
+        copy_btn = QPushButton("Copy...")
+        cancel_btn = QPushButton("Cancel")
+        button_box.addStretch()
+
+        button_box.addWidget(copy_btn)
+        button_box.addWidget(cancel_btn)
+        layout.addLayout(button_box)
+
+        def on_copy():
+            if not player_list.currentItem():
+                return
+
+            source_file = player_list.currentItem().text()
+            is_base_game = player_list.currentItem().foreground().color().getRgb()[:3] == (150, 150, 150)
+
+            # Show copy dialog
+            copy_dialog = QDialog(dialog)
+            copy_dialog.setWindowTitle("Copy Player")
+            copy_layout = QVBoxLayout(copy_dialog)
+
+            # Add option to overwrite if it's a base game file
+            overwrite = False
+            if is_base_game:
+                overwrite_check = QCheckBox("Overwrite in mod (keep same name)")
+                copy_layout.addWidget(overwrite_check)
+
+                def on_overwrite_changed(state):
+                    nonlocal overwrite
+                    overwrite = state == Qt.CheckState.Checked.value
+                    name_edit.setEnabled(not overwrite)
+                    name_edit.setText(source_file if overwrite else "")
+
+                overwrite_check.stateChanged.connect(on_overwrite_changed)
+
+            # Add name input
+            name_layout = QHBoxLayout()
+            name_layout.addWidget(QLabel("New Name:"))
+            name_edit = QLineEdit()
+            name_layout.addWidget(name_edit)
+            copy_layout.addLayout(name_layout)
+
+            # Add copy/cancel buttons
+            copy_buttons = QHBoxLayout()
+            copy_ok = QPushButton("Copy")
+            copy_cancel = QPushButton("Cancel")
+            copy_buttons.addWidget(copy_ok)
+            copy_buttons.addWidget(copy_cancel)
+            copy_layout.addLayout(copy_buttons)
+
+            def do_copy():
+                new_name = name_edit.text().strip()
+                if not new_name:
+                    QMessageBox.warning(copy_dialog, "Error", "Please enter a name for the copy")
+                    return
+
+                try:
+                    # Create the copy command
+                    copy_command = CreateFileFromCopy(
+                        self,
+                        source_file,
+                        "player",
+                        new_name,
+                        overwrite
+                    )
+
+                    # Prepare and validate the command
+                    if not copy_command.prepare():
+                        QMessageBox.warning(copy_dialog, "Error", "Failed to prepare player copy")
+                        return
+
+                    # Execute the copy command
+                    if not copy_command.execute():
+                        QMessageBox.warning(copy_dialog, "Error", "Failed to create player copy")
+                        return
+
+                    # Add command to stack for undo/redo
+                    self.command_stack.push(copy_command)
+
+                    # Close both dialogs
+                    copy_dialog.accept()
+                    dialog.accept()
+
+                    # Update the player selector and select the new player
+                    self.player_selector.addItem(new_name)
+                    self.player_selector.setCurrentText(new_name)
+                    self.on_player_selected(new_name)
+
+                except Exception as e:
+                    QMessageBox.warning(copy_dialog, "Error", str(e))
+
+            copy_ok.clicked.connect(do_copy)
+            copy_cancel.clicked.connect(copy_dialog.reject)
+
+            copy_dialog.exec()
+
+        copy_btn.clicked.connect(on_copy)
+        cancel_btn.clicked.connect(dialog.reject)
+
+        dialog.exec()
