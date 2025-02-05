@@ -1587,21 +1587,26 @@ class EntityToolGUI(QMainWindow):
                         QMessageBox.warning(copy_dialog, "Error", "Failed to prepare file copy")
                         return
                         
+                    # Execute the copy command first to create the file
+                    if not copy_command.execute():
+                        QMessageBox.warning(copy_dialog, "Error", "Failed to create file copy")
+                        return
+                        
                     # Create transform command for the widget
                     transform_cmd = TransformWidgetCommand(self, target_widget, source_file, new_name)
                     transform_cmd.file_path = file_path
                     transform_cmd.data_path = data_path
                     
-                    # Create composite command with both operations
+                    # Create composite command with both operations in the correct order
                     composite_cmd = CompositeCommand([copy_command, transform_cmd])
                     composite_cmd.file_path = file_path
                     composite_cmd.data_path = data_path
                     
-                    # Close both dialogs before executing command
+                    # Close both dialogs before adding to command stack
                     copy_dialog.accept()
                     dialog.accept()
                     
-                    # Add command to stack (this will execute it)
+                    # Add command to stack for undo/redo
                     self.command_stack.push(composite_cmd)
                     
                     # Update the file list
