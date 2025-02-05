@@ -1452,11 +1452,11 @@ class CreateFileFromCopy(Command):
                 with open(self.manifest_file_path, 'r', encoding='utf-8') as f:
                     manifest_data = json.load(f)
                     
-            # Store old manifest data for undo
-            self.old_manifest_data = manifest_data.copy()
+            # Store old manifest data for undo (deep copy)
+            self.old_manifest_data = json.loads(json.dumps(manifest_data))
             
-            # Create new manifest data
-            self.new_manifest_data = manifest_data.copy()
+            # Create new manifest data (deep copy)
+            self.new_manifest_data = json.loads(json.dumps(manifest_data))
             if not self.overwrite and self.new_name not in self.new_manifest_data["ids"]:
                 self.new_manifest_data["ids"].append(self.new_name)
                 self.new_manifest_data["ids"].sort()  # Keep IDs sorted
