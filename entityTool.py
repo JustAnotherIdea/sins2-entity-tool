@@ -3116,32 +3116,6 @@ class EntityToolGUI(QMainWindow):
                     if item.widget():
                         item.widget().deleteLater()
                 
-                # Add name if available
-                if "name" in new_data:
-                    logging.debug("Adding name field")
-                    name_text, is_base_game_name = self.get_localized_text(new_data["name"])
-                    name_label = QLabel(name_text)
-                    name_label.setStyleSheet("font-size: 16px; font-weight: bold;")
-                    if is_base_game or is_base_game_name:
-                        name_label.setStyleSheet(name_label.styleSheet() + "; color: #666666; font-style: italic;")
-                    main_layout.addWidget(name_label)
-                
-                # Add description if available
-                if "description" in new_data:
-                    logging.debug("Adding description field")
-                    desc_text, is_base_game_desc = self.get_localized_text(new_data["description"])
-                    desc_label = QLabel(desc_text)
-                    desc_label.setWordWrap(True)
-                    if is_base_game or is_base_game_desc:
-                        desc_label.setStyleSheet("color: #666666; font-style: italic;")
-                    main_layout.addWidget(desc_label)
-                
-                # Add picture if available
-                if "tooltip_picture" in new_data:
-                    logging.debug("Adding tooltip picture")
-                    picture_label = self.create_texture_label(new_data["tooltip_picture"], max_size=256)
-                    main_layout.addWidget(picture_label)
-                
                 # Create the main details widget using the schema
                 title = f"{file_type.replace('-', ' ').title()} Details (Base Game)" if is_base_game else f"{file_type.replace('-', ' ').title()} Details"
                 print(f"Creating details group with title: {title}")
@@ -3821,13 +3795,19 @@ class EntityToolGUI(QMainWindow):
                     lambda pos, w=key_edit, v=value_str: self.show_context_menu(w, pos, v)
                 )
                 # Style key if from base game
-                if is_base_game:
+                if is_base:
                     key_edit.setStyleSheet("font-style: italic;")
+
+                # Make key non-editable if base game
+                if is_base_game:
+                    key_edit.setReadOnly(True)
+                    key_edit.setStyleSheet("color: #666666;")
                 
                 # Get the current value from command stack if available
                 text_file = self.current_folder / "localized_text" / f"{self.current_language}.localized_text"
                 current_text = localized_text
                 if self.command_stack.get_file_data(text_file):
+
                     current_text = self.command_stack.get_file_data(text_file).get(value_str, localized_text)
                 
                 # Add editable field for the text
