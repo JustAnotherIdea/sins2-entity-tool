@@ -1199,6 +1199,9 @@ class AddPropertyCommand(Command):
 class DeletePropertyCommand(Command):
     """Command for deleting a property from an object"""
     def __init__(self, gui, property_widget, property_name, parent_data):
+        # Strip off array index suffix if present (e.g., "ability_created_units_(1)" -> "ability_created_units")
+        self.property_name = property_name.split("_(")[0]
+        
         # Get the full data path from the widget
         data_path = property_widget.property("data_path")
         if not data_path:
@@ -1208,6 +1211,7 @@ class DeletePropertyCommand(Command):
                 data_path = parent.property("data_path")
         
         print(f"Full data path from widget: {data_path}")
+        print(f"Property name after stripping suffix: {self.property_name}")
         
         # Store the old and new values
         if data_path:
@@ -1221,15 +1225,15 @@ class DeletePropertyCommand(Command):
                     current = current[part]
             
             # Now current is the parent object containing our property
-            if isinstance(current, dict) and property_name in current:
+            if isinstance(current, dict) and self.property_name in current:
                 old_data = current.copy()
                 new_data = current.copy()
-                del new_data[property_name]
+                del new_data[self.property_name]
             else:
                 old_data = parent_data.copy()
                 new_data = parent_data.copy()
-                if property_name in new_data:
-                    del new_data[property_name]
+                if self.property_name in new_data:
+                    del new_data[self.property_name]
         else:
             # For root properties, get the entire data structure
             file_path = gui.get_schema_view_file_path(property_widget)
@@ -1238,23 +1242,22 @@ class DeletePropertyCommand(Command):
                 if old_data:
                     old_data = old_data.copy()
                     new_data = old_data.copy()
-                    if property_name in new_data:
-                        del new_data[property_name]
+                    if self.property_name in new_data:
+                        del new_data[self.property_name]
                 else:
                     old_data = parent_data.copy()
                     new_data = parent_data.copy()
-                    if property_name in new_data:
-                        del new_data[property_name]
+                    if self.property_name in new_data:
+                        del new_data[self.property_name]
             else:
                 old_data = parent_data.copy()
                 new_data = parent_data.copy()
-                if property_name in new_data:
-                    del new_data[property_name]
+                if self.property_name in new_data:
+                    del new_data[self.property_name]
         
         super().__init__(gui.get_schema_view_file_path(property_widget), data_path[:-1], old_data, new_value=new_data)
         self.gui = gui
         self.property_widget = property_widget
-        self.property_name = property_name
         self.full_path = data_path  # Store the complete path including property name
         self.removed_widget = None  # Store the removed widget for undo
         
