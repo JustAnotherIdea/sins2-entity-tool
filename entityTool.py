@@ -1468,6 +1468,7 @@ class EntityToolGUI(QMainWindow):
         """Show a dialog to select a file from mod or base game"""
         dialog = QDialog(self)
         dialog.setWindowTitle("Select File")
+        dialog.resize(800, 600)  # Make the dialog larger
         layout = QVBoxLayout(dialog)
         
         # File type selector
@@ -1480,6 +1481,11 @@ class EntityToolGUI(QMainWindow):
         type_layout.addWidget(type_combo)
         layout.addLayout(type_layout)
         
+        # Add search box
+        search_box = QLineEdit()
+        search_box.setPlaceholderText("Search files...")
+        layout.addWidget(search_box)
+        
         # File list
         file_list = QListWidget()
         layout.addWidget(file_list)
@@ -1487,13 +1493,18 @@ class EntityToolGUI(QMainWindow):
         def update_file_list():
             file_list.clear()
             file_type = type_combo.currentText()
+            search_text = search_box.text().lower()
+            
             # Add mod files first
             for file_id in sorted(self.manifest_data['mod'].get(file_type, {})):
-                item = QListWidgetItem(file_id)
-                file_list.addItem(item)
+                if search_text in file_id.lower():
+                    item = QListWidgetItem(file_id)
+                    file_list.addItem(item)
+                    
             # Then add base game files (grayed out)
             for file_id in sorted(self.manifest_data['base_game'].get(file_type, {})):
-                if file_id not in self.manifest_data['mod'].get(file_type, {}):
+                if (file_id not in self.manifest_data['mod'].get(file_type, {}) and 
+                    search_text in file_id.lower()):
                     item = QListWidgetItem(file_id)
                     item.setForeground(QColor(150, 150, 150))
                     font = item.font()
@@ -1502,13 +1513,16 @@ class EntityToolGUI(QMainWindow):
                     file_list.addItem(item)
         
         type_combo.currentTextChanged.connect(update_file_list)
+        search_box.textChanged.connect(update_file_list)
         update_file_list()  # Initial population
         
         # Buttons
         button_box = QHBoxLayout()
         select_btn = QPushButton("Select")
+        select_btn.setEnabled(False)  # Disabled until an item is selected
         copy_btn = QPushButton("Copy...")
         cancel_btn = QPushButton("Cancel")
+        button_box.addStretch()
         button_box.addWidget(select_btn)
         button_box.addWidget(copy_btn)
         button_box.addWidget(cancel_btn)
@@ -1626,10 +1640,14 @@ class EntityToolGUI(QMainWindow):
             
             copy_dialog.exec()
         
+        def on_current_item_changed(current, previous):
+            select_btn.setEnabled(current is not None)
+        
         select_btn.clicked.connect(on_select)
         copy_btn.clicked.connect(on_copy)
         cancel_btn.clicked.connect(dialog.reject)
         file_list.itemDoubleClicked.connect(on_select)
+        file_list.currentItemChanged.connect(on_current_item_changed)
         
         dialog.exec()
 
