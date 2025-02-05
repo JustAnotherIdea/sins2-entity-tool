@@ -1685,3 +1685,64 @@ class CreateFileFromCopy(Command):
                         
         except Exception as e:
             print(f"Error updating list for type {self.source_type}: {str(e)}")
+
+class CreateLocalizedText(Command):
+    """Command for creating a new localized text entry"""
+    def __init__(self, gui, key: str, text: str, language: str):
+        # Get the localized text file path
+        text_file = gui.current_folder / "localized_text" / f"{language}.localized_text"
+        
+        # Load or create initial data
+        try:
+            with open(text_file, 'r', encoding='utf-8') as f:
+                old_data = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            old_data = {}
+            
+        # Create new data with the added text
+        new_data = old_data.copy()
+        new_data[key] = text
+        
+        super().__init__(text_file, [], old_data, new_data)
+        self.gui = gui
+        self.key = key
+        self.text = text
+        self.language = language
+        
+    def execute(self):
+        """Execute the command (called by command stack)"""
+        try:
+            # Ensure the localized_text directory exists
+            self.file_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Update the GUI's in-memory strings
+            if self.language not in self.gui.all_localized_strings['mod']:
+                self.gui.all_localized_strings['mod'][self.language] = {}
+            self.gui.all_localized_strings['mod'][self.language][self.key] = self.text
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error executing create localized text command: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+            
+    def undo(self):
+        """Undo the command (called by command stack)"""
+        try:
+            # Remove the key from GUI's in-memory strings
+            if self.language in self.gui.all_localized_strings['mod']:
+                self.gui.all_localized_strings['mod'][self.language].pop(self.key, None)
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error undoing create localized text command: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return False
+            
+    def redo(self):
+        """Redo the command (called by command stack)"""
+        return self.execute()

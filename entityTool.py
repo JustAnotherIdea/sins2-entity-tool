@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 from research_view import ResearchTreeView
 import os
-from command_stack import CommandStack, EditValueCommand, AddPropertyCommand, DeleteArrayItemCommand, DeletePropertyCommand, CompositeCommand, TransformWidgetCommand, AddArrayItemCommand, CreateFileFromCopy
+from command_stack import CommandStack, EditValueCommand, AddPropertyCommand, DeleteArrayItemCommand, DeletePropertyCommand, CompositeCommand, TransformWidgetCommand, AddArrayItemCommand, CreateFileFromCopy, CreateLocalizedText
 from typing import List, Any
 import sounddevice as sd
 import soundfile as sf
@@ -1852,11 +1852,94 @@ class EntityToolGUI(QMainWindow):
         button_box = QHBoxLayout()
         select_btn = QPushButton("Select")
         select_btn.setEnabled(False)  # Disabled until an item is selected
+        create_btn = QPushButton("Create New...")
         cancel_btn = QPushButton("Cancel")
         button_box.addStretch()
+        button_box.addWidget(create_btn)
         button_box.addWidget(select_btn)
         button_box.addWidget(cancel_btn)
         layout.addLayout(button_box)
+        
+        def show_create_dialog():
+            create_dialog = QDialog(dialog)
+            create_dialog.setWindowTitle("Create New Localized Text")
+            create_layout = QVBoxLayout(create_dialog)
+            
+            # Key input
+            key_layout = QHBoxLayout()
+            key_label = QLabel("Key:")
+            key_edit = QLineEdit()
+            key_layout.addWidget(key_label)
+            key_layout.addWidget(key_edit)
+            create_layout.addLayout(key_layout)
+            
+            # Text input
+            text_layout = QVBoxLayout()
+            text_label = QLabel("Text:")
+            text_edit = QPlainTextEdit()
+            text_edit.setFixedHeight(100)  # Set a reasonable height for the text input
+            text_layout.addWidget(text_label)
+            text_layout.addWidget(text_edit)
+            create_layout.addLayout(text_layout)
+            
+            # Create/Cancel buttons
+            create_buttons = QHBoxLayout()
+            create_ok = QPushButton("Create")
+            create_cancel = QPushButton("Cancel")
+            create_buttons.addStretch()
+            create_buttons.addWidget(create_ok)
+            create_buttons.addWidget(create_cancel)
+            create_layout.addLayout(create_buttons)
+            
+            def on_create():
+                key = key_edit.text().strip()
+                text = text_edit.toPlainText().strip()
+                
+                if not key:
+                    QMessageBox.warning(create_dialog, "Error", "Please enter a key")
+                    return
+                    
+                if not text:
+                    QMessageBox.warning(create_dialog, "Error", "Please enter text")
+                    return
+                    
+                # Check if key already exists
+                current_lang = lang_combo.currentText()
+                if (current_lang in self.all_localized_strings['mod'] and 
+                    key in self.all_localized_strings['mod'][current_lang]):
+                    QMessageBox.warning(create_dialog, "Error", "Key already exists in mod")
+                    return
+                    
+                if (current_lang in self.all_localized_strings['base_game'] and 
+                    key in self.all_localized_strings['base_game'][current_lang]):
+                    reply = QMessageBox.question(
+                        create_dialog,
+                        "Key Exists in Base Game",
+                        "This key exists in the base game. Do you want to override it?",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.No
+                    )
+                    if reply != QMessageBox.StandardButton.Yes:
+                        return
+                
+                # Create the command
+                command = CreateLocalizedText(self, key, text, current_lang)
+                self.command_stack.push(command)
+                
+                # Update the list and select the new item
+                update_text_list()
+                for i in range(text_list.count()):
+                    item = text_list.item(i)
+                    if item.data(Qt.ItemDataRole.UserRole) == key:
+                        text_list.setCurrentItem(item)
+                        break
+                
+                create_dialog.accept()
+            
+            create_ok.clicked.connect(on_create)
+            create_cancel.clicked.connect(create_dialog.reject)
+            
+            create_dialog.exec()
         
         def on_item_selected():
             item = text_list.currentItem()
@@ -1875,6 +1958,7 @@ class EntityToolGUI(QMainWindow):
         text_list.currentItemChanged.connect(on_current_item_changed)
         text_list.itemDoubleClicked.connect(on_item_double_clicked)
         select_btn.clicked.connect(on_item_selected)
+        create_btn.clicked.connect(show_create_dialog)
         cancel_btn.clicked.connect(dialog.reject)
         
         dialog.exec()
