@@ -12,7 +12,7 @@ import logging
 from pathlib import Path
 from research_view import ResearchTreeView
 import os
-from command_stack import CommandStack, EditValueCommand, AddPropertyCommand, DeleteArrayItemCommand, DeletePropertyCommand, CompositeCommand, TransformWidgetCommand, AddArrayItemCommand, CreateFileFromCopy, CreateLocalizedText
+from command_stack import CommandStack, EditValueCommand, AddPropertyCommand, DeleteArrayItemCommand, DeletePropertyCommand, CompositeCommand, TransformWidgetCommand, AddArrayItemCommand, CreateFileFromCopy, CreateLocalizedText, CreateResearchSubjectCommand
 from typing import List, Any
 import sounddevice as sd
 import soundfile as sf
@@ -2725,6 +2725,8 @@ class EntityToolGUI(QMainWindow):
         # Create research tree view
         tree_view = ResearchTreeView()
         tree_view.node_clicked.connect(self.load_research_subject)
+        tree_view.node_delete_requested.connect(lambda subject_id: self.delete_research_subject(subject_id))
+        tree_view.add_subject_requested.connect(lambda subject_type: self.add_research_subject(subject_type))
         
         # Create split layout for tree and details
         split_widget = QWidget()
@@ -5418,3 +5420,227 @@ class EntityToolGUI(QMainWindow):
         
         self.command_stack.push(command)
         self.update_save_button()
+
+    def add_research_subject(self, subject_type: str):
+        """Show dialog to add a new research subject"""
+        if not self.current_folder:
+            QMessageBox.warning(self, "Error", "Please open a mod folder first")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add Research Subject")
+        dialog.resize(800, 600)  # Make the dialog larger
+        layout = QVBoxLayout(dialog)
+
+        # Add search box
+        search_box = QLineEdit()
+        search_box.setPlaceholderText("Search research subjects...")
+        layout.addWidget(search_box)
+
+        # Research subject list
+        subject_list = QListWidget()
+        layout.addWidget(subject_list)
+
+        def update_subject_list(search=""):
+            subject_list.clear()
+            search = search.lower()
+
+            # Add mod subjects first
+            for subject_id in sorted(self.manifest_data['mod'].get('research_subject', {})):
+                if search in subject_id.lower():
+                    item = QListWidgetItem(subject_id)
+                    subject_list.addItem(item)
+
+            # Then add base game subjects
+            for subject_id in sorted(self.manifest_data['base_game'].get('research_subject', {})):
+                if (subject_id not in self.manifest_data['mod'].get('research_subject', {}) and 
+                    search in subject_id.lower()):
+                    item = QListWidgetItem(subject_id)
+                    item.setForeground(QColor(150, 150, 150))
+                    font = item.font()
+                    font.setItalic(True)
+                    item.setFont(font)
+                    subject_list.addItem(item)
+
+        search_box.textChanged.connect(update_subject_list)
+        update_subject_list()  # Initial population
+
+        # Buttons
+        button_box = QHBoxLayout()
+        select_btn = QPushButton("Select")
+        select_btn.setEnabled(False)  # Initially disabled
+        copy_btn = QPushButton("Copy...")
+        cancel_btn = QPushButton("Cancel")
+        button_box.addStretch()
+        button_box.addWidget(select_btn)
+        button_box.addWidget(copy_btn)
+        button_box.addWidget(cancel_btn)
+        layout.addLayout(button_box)
+
+        def on_copy():
+            if not subject_list.currentItem():
+                return
+
+            source_file = subject_list.currentItem().text()
+            is_base_game = subject_list.currentItem().foreground().color().getRgb()[:3] == (150, 150, 150)
+
+            # Show copy dialog
+            copy_dialog = QDialog(dialog)
+            copy_dialog.setWindowTitle("Copy Research Subject")
+            copy_layout = QVBoxLayout(copy_dialog)
+
+            # Add option to overwrite if it's a base game file
+            overwrite = False
+            if is_base_game:
+                overwrite_check = QCheckBox("Overwrite in mod (keep same name)")
+                copy_layout.addWidget(overwrite_check)
+
+                def on_overwrite_changed(state):
+                    nonlocal overwrite
+                    overwrite = state == Qt.CheckState.Checked.value
+                    name_edit.setEnabled(not overwrite)
+                    name_edit.setText(source_file if overwrite else "")
+
+                overwrite_check.stateChanged.connect(on_overwrite_changed)
+
+            # Add name input
+            name_layout = QHBoxLayout()
+            name_layout.addWidget(QLabel("New Name:"))
+            name_edit = QLineEdit()
+            name_layout.addWidget(name_edit)
+            copy_layout.addLayout(name_layout)
+
+            # Add copy/cancel buttons
+            copy_buttons = QHBoxLayout()
+            copy_ok = QPushButton("Copy")
+            copy_cancel = QPushButton("Cancel")
+            copy_buttons.addWidget(copy_ok)
+            copy_buttons.addWidget(copy_cancel)
+            copy_layout.addLayout(copy_buttons)
+
+            def do_copy():
+                new_name = name_edit.text().strip()
+                if not new_name:
+                    QMessageBox.warning(copy_dialog, "Error", "Please enter a name for the copy")
+                    return
+
+                try:
+                    # Create and prepare the command
+                    command = CreateResearchSubjectCommand(
+                        self,
+                        source_file,
+                        new_name,
+                        subject_type,
+                        overwrite
+                    )
+
+                    # Prepare and validate the command
+                    if not command.prepare():
+                        QMessageBox.warning(copy_dialog, "Error", "Failed to prepare research subject creation")
+                        return
+
+                    # Execute the command
+                    if not command.execute():
+                        QMessageBox.warning(copy_dialog, "Error", "Failed to create research subject")
+                        return
+
+                    # Add command to stack for undo/redo
+                    self.command_stack.push(command)
+
+                    # Close both dialogs
+                    copy_dialog.accept()
+                    dialog.accept()
+
+                except Exception as e:
+                    QMessageBox.warning(copy_dialog, "Error", str(e))
+
+            copy_ok.clicked.connect(do_copy)
+            copy_cancel.clicked.connect(copy_dialog.reject)
+
+            copy_dialog.exec()
+
+        def on_current_item_changed(current, previous):
+            select_btn.setEnabled(current is not None)
+
+        select_btn.clicked.connect(on_copy)  # Select button acts like copy
+        copy_btn.clicked.connect(on_copy)
+        cancel_btn.clicked.connect(dialog.reject)
+        subject_list.currentItemChanged.connect(on_current_item_changed)
+
+        dialog.exec()
+
+    def delete_research_subject(self, subject_id: str):
+        """Delete a research subject"""
+        if not self.current_folder:
+            return
+
+        # Check if subject exists in mod folder
+        subject_file = self.current_folder / "entities" / f"{subject_id}.research_subject"
+        if not subject_file.exists():
+            QMessageBox.warning(self, "Error", "Cannot delete base game research subjects")
+            return
+
+        # Ask for confirmation
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to delete research subject '{subject_id}'?\n\n" +
+            "This will:\n" +
+            "1. Remove it from the research tree\n" +
+            "2. Delete the research subject file\n" +
+            "3. Remove it from the research subject manifest",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            # Find which array contains the subject
+            array_path = None
+            if 'research' in self.current_data:
+                if 'research_subjects' in self.current_data['research'] and subject_id in self.current_data['research']['research_subjects']:
+                    array_path = ['research', 'research_subjects']
+                elif 'faction_research_subjects' in self.current_data['research'] and subject_id in self.current_data['research']['faction_research_subjects']:
+                    array_path = ['research', 'faction_research_subjects']
+
+            if not array_path:
+                QMessageBox.warning(self, "Error", "Research subject not found in research tree")
+                return
+
+            # Get the array and find the subject's index
+            array_data = self.current_data['research'][array_path[-1]]
+            subject_index = array_data.index(subject_id)
+
+            # Create delete array item command
+            delete_cmd = DeleteArrayItemCommand(
+                self,
+                None,  # No widget needed as we'll refresh the view
+                array_data,
+                subject_index
+            )
+            delete_cmd.file_path = self.current_file
+            delete_cmd.data_path = array_path
+
+            # Delete the file and update manifest
+            subject_file.unlink()
+            manifest_file = self.current_folder / "entities" / "research_subject.entity_manifest"
+            if manifest_file.exists():
+                with open(manifest_file, 'r', encoding='utf-8') as f:
+                    manifest_data = json.load(f)
+                if "ids" in manifest_data and subject_id in manifest_data["ids"]:
+                    manifest_data["ids"].remove(subject_id)
+                    with open(manifest_file, 'w', encoding='utf-8') as f:
+                        json.dump(manifest_data, f, indent=4)
+
+            # Remove from GUI's manifest data
+            if 'research_subject' in self.manifest_data['mod']:
+                self.manifest_data['mod']['research_subject'].pop(subject_id, None)
+
+            # Execute command and refresh view
+            self.command_stack.push(delete_cmd)
+            self.refresh_research_view()
+
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to delete research subject: {str(e)}")

@@ -1746,3 +1746,124 @@ class CreateLocalizedText(Command):
     def redo(self):
         """Redo the command (called by command stack)"""
         return self.execute()
+
+class CreateResearchSubjectCommand(Command):
+    """Command for creating a new research subject and adding it to the research tree"""
+    def __init__(self, gui, source_file: str, new_name: str, subject_type: str, overwrite: bool = False):
+        super().__init__(None, None, None, None)  # We'll set these later
+        self.gui = gui
+        self.source_file = source_file
+        self.new_name = new_name
+        self.subject_type = subject_type  # "faction" or "regular"
+        self.overwrite = overwrite
+        self.array_path = ['research', 'faction_research_subjects' if subject_type == "faction" else 'research_subjects']
+        
+    def prepare(self) -> bool:
+        """Prepare the command by gathering necessary data and validating the operation"""
+        try:
+            # Get the player file path (where research data is stored)
+            self.file_path = self.gui.current_file
+            if not self.file_path:
+                raise ValueError("No player file is currently loaded")
+
+            # Get current research data
+            self.old_value = self.gui.command_stack.get_file_data(self.file_path)
+            if not self.old_value or 'research' not in self.old_value:
+                raise ValueError("Current file has no research data")
+
+            # Create copy of research data for new value
+            self.new_value = self.old_value.copy()
+            
+            # Get current array
+            current_array = []
+            if 'research' in self.old_value:
+                array_key = self.array_path[-1]  # 'research_subjects' or 'faction_research_subjects'
+                if array_key in self.old_value['research']:
+                    current_array = self.old_value['research'][array_key]
+                else:
+                    # Initialize the array if it doesn't exist
+                    self.old_value['research'][array_key] = []
+                    self.new_value['research'][array_key] = []
+
+            # Create updated array with new subject
+            updated_array = current_array + [self.new_name]
+            
+            # Update new_value with the updated array
+            current = self.new_value
+            for key in self.array_path[:-1]:
+                if key not in current:
+                    current[key] = {}
+                current = current[key]
+            current[self.array_path[-1]] = updated_array
+
+            # Create the file copy command
+            self.copy_command = CreateFileFromCopy(
+                self.gui,
+                self.source_file,
+                "research_subject",
+                self.new_name,
+                self.overwrite
+            )
+
+            # Prepare the copy command
+            if not self.copy_command.prepare():
+                raise ValueError("Failed to prepare research subject copy")
+
+            return True
+
+        except Exception as e:
+            print(f"Error preparing create research subject command: {str(e)}")
+            return False
+
+    def execute(self):
+        """Execute the command"""
+        try:
+            print(f"Executing CreateResearchSubjectCommand for {self.new_name}")
+            print(f"Array path: {self.array_path}")
+            
+            # Execute the file copy first
+            if not self.copy_command.execute():
+                print("Failed to execute file copy command")
+                return False
+
+            # Update the research data
+            print(f"Old value research array: {self.old_value['research'].get(self.array_path[-1], [])}")
+            print(f"New value research array: {self.new_value['research'].get(self.array_path[-1], [])}")
+            
+            self.gui.command_stack.update_file_data(self.file_path, self.new_value)
+            self.gui.update_data_value([], self.new_value)
+
+            # Update the save button
+            self.gui.update_save_button()
+
+            # Refresh the research view
+            self.gui.refresh_research_view()
+            print("Successfully executed CreateResearchSubjectCommand")
+            return True
+
+        except Exception as e:
+
+            print(f"Error executing create research subject command: {str(e)}")
+            return False
+
+    def undo(self):
+        """Undo the command"""
+        try:
+            # Undo the file copy first
+            self.copy_command.undo()
+
+            # Restore the old research data
+            self.gui.command_stack.update_file_data(self.file_path, self.old_value)
+            self.gui.update_data_value([], self.old_value)
+            
+            # Refresh the research view
+            self.gui.refresh_research_view()
+            return True
+
+        except Exception as e:
+            print(f"Error undoing create research subject command: {str(e)}")
+            return False
+
+    def redo(self):
+        """Redo the command"""
+        return self.execute()

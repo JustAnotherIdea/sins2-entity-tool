@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                             QGraphicsScene, QGraphicsView, QGraphicsItem, QGraphicsPathItem, 
-                            QGraphicsTextItem, QGraphicsPixmapItem, QGraphicsRectItem)
-from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal, QRect
+                            QGraphicsTextItem, QGraphicsPixmapItem, QGraphicsRectItem, QMenu)
+from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal, QRect, QPoint
 from PyQt6.QtGui import (QPixmap, QPainter, QPen, QColor, QBrush, 
                         QPainterPath, QLinearGradient)
 
@@ -91,9 +91,14 @@ class ResearchNode(QGraphicsItem):
         super().mousePressEvent(event)
         if event.button() == Qt.MouseButton.LeftButton:
             self.scene().views()[0].node_clicked.emit(self.subject_id)
+        elif event.button() == Qt.MouseButton.RightButton and not self.is_base_game:
+            # Only show context menu for mod subjects
+            self.scene().views()[0].show_node_context_menu(self, event.screenPos())
 
 class ResearchTreeView(QGraphicsView):
     node_clicked = pyqtSignal(str)  # Signal emitted when a node is clicked, passes subject_id
+    node_delete_requested = pyqtSignal(str)  # Signal emitted when node deletion is requested
+    add_subject_requested = pyqtSignal(str)  # Signal emitted when adding a subject is requested, passes faction type
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -409,4 +414,36 @@ class ResearchTreeView(QGraphicsView):
         # Maintain zoom level when resizing
         current_zoom = self.transform().m11()
         self.fitInView(self.scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
-        self.scale(current_zoom / self.transform().m11(), current_zoom / self.transform().m11()) 
+        self.scale(current_zoom / self.transform().m11(), current_zoom / self.transform().m11())
+    
+    def mousePressEvent(self, event):
+        """Handle mouse press events"""
+        super().mousePressEvent(event)
+        if event.button() == Qt.MouseButton.RightButton:
+            # Only show context menu if we didn't click on a node
+            item = self.scene.itemAt(self.mapToScene(event.pos()), self.transform())
+            if not item or not isinstance(item, ResearchNode):
+                self.show_view_context_menu(event.globalPosition().toPoint())
+
+    def show_node_context_menu(self, node: ResearchNode, pos: QPoint):
+        """Show context menu for a research node"""
+        menu = QMenu(self)  # Create menu with parent
+        delete_action = menu.addAction("Delete")
+        delete_action.triggered.connect(lambda: self.node_delete_requested.emit(node.subject_id))
+        menu.exec(pos)
+
+    def show_view_context_menu(self, pos: QPoint):
+        """Show context menu for the view itself"""
+        menu = QMenu(self)  # Create menu with parent
+        
+        # Add submenu for different research types
+        add_menu = menu.addMenu("Add Research Subject")
+        
+        # Add options for faction and regular research
+        faction_action = add_menu.addAction("Add Faction Research")
+        faction_action.triggered.connect(lambda: self.add_subject_requested.emit("faction"))
+        
+        regular_action = add_menu.addAction("Add Regular Research")
+        regular_action.triggered.connect(lambda: self.add_subject_requested.emit("regular"))
+        
+        menu.exec(pos) 
