@@ -271,11 +271,11 @@ class EntityToolGUI(QMainWindow):
         self.player_selector.currentTextChanged.connect(self.on_player_selected)
         toolbar_layout.addWidget(self.player_selector)
 
-        # Add Player button
+        # Add/Delete Player button
         add_player_btn = QPushButton()
-        add_player_btn.setIcon(QIcon(str(Path(__file__).parent / "icons" / "add.png")))
-        add_player_btn.setToolTip('Add New Player')
-        add_player_btn.setFixedSize(32, 32)
+        add_player_btn.setIcon(QIcon(str(Path(__file__).parent / "icons" / "add_delete.png")))
+        add_player_btn.setToolTip('Add/Delete Player')
+        add_player_btn.setFixedSize(20, 20)
         add_player_btn.clicked.connect(self.show_add_player_dialog)
         toolbar_layout.addWidget(add_player_btn)
         
@@ -5211,7 +5211,7 @@ class EntityToolGUI(QMainWindow):
             return
 
         dialog = QDialog(self)
-        dialog.setWindowTitle("Add New Player")
+        dialog.setWindowTitle("Add/Delete Player")
         dialog.resize(800, 600)  # Make the dialog larger
         layout = QVBoxLayout(dialog)
 
@@ -5250,6 +5250,9 @@ class EntityToolGUI(QMainWindow):
 
         # Buttons
         button_box = QHBoxLayout()
+        delete_btn = QPushButton("Delete")
+        delete_btn.setEnabled(False)  # Initially disabled
+        button_box.addWidget(delete_btn)
         copy_btn = QPushButton("Copy...")
         cancel_btn = QPushButton("Cancel")
         button_box.addStretch()
@@ -5345,6 +5348,72 @@ class EntityToolGUI(QMainWindow):
 
             copy_dialog.exec()
 
+        def on_delete():
+            if not player_list.currentItem():
+                return
+
+            player_id = player_list.currentItem().text()
+            is_base_game = player_list.currentItem().foreground().color().getRgb()[:3] == (150, 150, 150)
+
+            if is_base_game:
+                QMessageBox.warning(dialog, "Error", "Cannot delete base game players")
+                return
+
+            reply = QMessageBox.question(
+                dialog,
+                "Confirm Delete",
+                f"Are you sure you want to delete player '{player_id}'?\nThis cannot be undone.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+            try:
+                # Delete the player file
+                player_file = self.current_folder / "entities" / f"{player_id}.player"
+                if player_file.exists():
+                    player_file.unlink()
+
+                # Update the manifest file
+                manifest_file = self.current_folder / "entities" / "player.entity_manifest"
+                if manifest_file.exists():
+                    with open(manifest_file, 'r', encoding='utf-8') as f:
+                        manifest_data = json.load(f)
+                    if "ids" in manifest_data and player_id in manifest_data["ids"]:
+                        manifest_data["ids"].remove(player_id)
+                        with open(manifest_file, 'w', encoding='utf-8') as f:
+                            json.dump(manifest_data, f, indent=4)
+
+                # Remove from GUI's manifest data
+                if 'player' in self.manifest_data['mod']:
+                    self.manifest_data['mod']['player'].pop(player_id, None)
+
+                # Remove from player selector
+                index = self.player_selector.findText(player_id)
+                if index >= 0:
+                    self.player_selector.removeItem(index)
+
+                # Remove from list and select another item
+                row = player_list.row(player_list.currentItem())
+                player_list.takeItem(row)
+                if player_list.count() > 0:
+                    player_list.setCurrentRow(min(row, player_list.count() - 1))
+
+                # Close dialog
+                dialog.accept()
+
+            except Exception as e:
+                QMessageBox.warning(dialog, "Error", f"Failed to delete player: {str(e)}")
+
+        def on_current_item_changed(current, previous):
+            if current:
+                is_base_game = current.foreground().color().getRgb()[:3] == (150, 150, 150)
+                delete_btn.setEnabled(not is_base_game)
+
+        player_list.currentItemChanged.connect(on_current_item_changed)
+        delete_btn.clicked.connect(on_delete)
         copy_btn.clicked.connect(on_copy)
         cancel_btn.clicked.connect(dialog.reject)
 
