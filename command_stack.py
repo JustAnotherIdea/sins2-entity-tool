@@ -2,7 +2,7 @@ from typing import Any, List, Dict, Set, Callable
 from pathlib import Path
 import json
 import logging
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QToolButton, QGroupBox, QLineEdit, QListWidgetItem
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QToolButton, QGroupBox, QLineEdit, QListWidgetItem, QApplication
 from PyQt6.QtGui import QColor
 from PyQt6.QtCore import Qt
 
@@ -1890,12 +1890,13 @@ class DeleteResearchSubjectCommand(Command):
                 raise ValueError("No player file is currently loaded")
 
             # Get current research data
-            self.old_value = self.gui.command_stack.get_file_data(self.file_path)
-            if not self.old_value or 'research' not in self.old_value:
+            data = self.gui.command_stack.get_file_data(self.file_path)
+            if not data or 'research' not in data:
                 raise ValueError("Current file has no research data")
 
-            # Create copy of research data for new value
-            self.new_value = self.old_value.copy()
+            # Create deep copies of research data for old and new values
+            self.old_value = json.loads(json.dumps(data))
+            self.new_value = json.loads(json.dumps(data))
             
             # Get current array
             current = self.new_value
@@ -1938,10 +1939,8 @@ class DeleteResearchSubjectCommand(Command):
         try:
             print(f"Executing DeleteResearchSubjectCommand for {self.subject_id}")
             
-            # Update only the specific research array
+            # Update command stack data first
             self.gui.command_stack.update_file_data(self.file_path, self.new_value)
-            self.gui.update_data_value(self.array_path, self.new_value['research'][self.array_path[-1]])
-            # Mark player file as modified
             self.gui.command_stack.modified_files.add(self.file_path)
 
             if self.full_delete:
@@ -1951,23 +1950,26 @@ class DeleteResearchSubjectCommand(Command):
 
                 # Update the manifest file
                 if self.manifest_file.exists() and self.manifest_data:
-                    manifest_data = self.manifest_data.copy()
+                    manifest_data = json.loads(json.dumps(self.manifest_data))  # Deep copy
                     if "ids" in manifest_data and self.subject_id in manifest_data["ids"]:
                         manifest_data["ids"].remove(self.subject_id)
+                        # Update command stack's file data for manifest
+                        self.gui.command_stack.update_file_data(self.manifest_file, manifest_data)
+                        self.gui.command_stack.modified_files.add(self.manifest_file)
+                        
+                        # Write to file
                         with open(self.manifest_file, 'w', encoding='utf-8') as f:
                             json.dump(manifest_data, f, indent=4)
-                        # Mark manifest file as modified
-                        self.gui.command_stack.modified_files.add(self.manifest_file)
 
                     # Remove from GUI's manifest data
                     if 'research_subject' in self.gui.manifest_data['mod']:
                         self.gui.manifest_data['mod']['research_subject'].pop(self.subject_id, None)
 
-            # Update the save button
+            # Now do UI updates
+            self.gui.update_data_value(self.array_path, self.new_value['research'][self.array_path[-1]])
             self.gui.update_save_button()
-
-            # Refresh the research view
             self.gui.refresh_research_view()
+            
             print("Successfully executed DeleteResearchSubjectCommand")
             return True
 
@@ -1978,10 +1980,8 @@ class DeleteResearchSubjectCommand(Command):
     def undo(self):
         """Undo the command"""
         try:
-            # Restore only the specific research array
+            # Update command stack data first
             self.gui.command_stack.update_file_data(self.file_path, self.old_value)
-            self.gui.update_data_value(self.array_path, self.old_value['research'][self.array_path[-1]])
-            # Mark player file as modified
             self.gui.command_stack.modified_files.add(self.file_path)
 
             if self.full_delete:
@@ -1993,10 +1993,13 @@ class DeleteResearchSubjectCommand(Command):
 
                 # Restore the manifest file
                 if self.manifest_data:
+                    # Update command stack's file data for manifest
+                    self.gui.command_stack.update_file_data(self.manifest_file, self.manifest_data)
+                    self.gui.command_stack.modified_files.add(self.manifest_file)
+                    
+                    # Write to file
                     with open(self.manifest_file, 'w', encoding='utf-8') as f:
                         json.dump(self.manifest_data, f, indent=4)
-                    # Mark manifest file as modified
-                    self.gui.command_stack.modified_files.add(self.manifest_file)
 
                     # Restore GUI's manifest data
                     if self.subject_data:
@@ -2004,8 +2007,10 @@ class DeleteResearchSubjectCommand(Command):
                             self.gui.manifest_data['mod']['research_subject'] = {}
                         self.gui.manifest_data['mod']['research_subject'][self.subject_id] = self.subject_data
 
-            # Refresh the research view
+            # Now do UI updates
+            self.gui.update_data_value(self.array_path, self.old_value['research'][self.array_path[-1]])
             self.gui.refresh_research_view()
+            
             return True
 
         except Exception as e:
