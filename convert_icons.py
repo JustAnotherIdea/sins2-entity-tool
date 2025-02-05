@@ -7,9 +7,11 @@ def convert_icons():
     
     for svg_file in icons_dir.glob("*.svg"):
         png_file = svg_file.with_suffix(".png")
-        # Special case for add_delete icon
+        # Special case for specific icons
         if svg_file.stem == "add_delete":
             output_size = 20
+        elif svg_file.stem == "refresh":
+            output_size = 18
         else:
             output_size = 32
         cairosvg.svg2png(url=str(svg_file), write_to=str(png_file), output_width=output_size, output_height=output_size)

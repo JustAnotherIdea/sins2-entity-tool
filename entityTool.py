@@ -2272,6 +2272,221 @@ class EntityToolGUI(QMainWindow):
         # Clean up pygame mixer
         pygame.mixer.quit()
 
+    def show_add_player_dialog(self):
+        """Show dialog to create a new player by copying an existing one"""
+        if not self.current_folder:
+            QMessageBox.warning(self, "Error", "Please open a mod folder first")
+            return
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Add/Delete Player")
+        dialog.resize(800, 600)  # Make the dialog larger
+        layout = QVBoxLayout(dialog)
+
+        # Add search box
+        search_box = QLineEdit()
+        search_box.setPlaceholderText("Search players...")
+        layout.addWidget(search_box)
+
+        # Player list
+        player_list = QListWidget()
+        layout.addWidget(player_list)
+
+        def update_player_list(search=""):
+            player_list.clear()
+            search = search.lower()
+
+            # Add mod players first
+            for player_id in sorted(self.manifest_data['mod'].get('player', {})):
+                if search in player_id.lower():
+                    item = QListWidgetItem(player_id)
+                    player_list.addItem(item)
+
+            # Then add base game players
+            for player_id in sorted(self.manifest_data['base_game'].get('player', {})):
+                if (player_id not in self.manifest_data['mod'].get('player', {}) and 
+                    search in player_id.lower()):
+                    item = QListWidgetItem(player_id)
+                    item.setForeground(QColor(150, 150, 150))
+                    font = item.font()
+                    font.setItalic(True)
+                    item.setFont(font)
+                    player_list.addItem(item)
+
+        search_box.textChanged.connect(update_player_list)
+        update_player_list()  # Initial population
+
+        # Buttons
+        button_box = QHBoxLayout()
+        delete_btn = QPushButton("Delete")
+        delete_btn.setEnabled(False)  # Initially disabled
+        button_box.addWidget(delete_btn)
+        copy_btn = QPushButton("Copy...")
+        cancel_btn = QPushButton("Cancel")
+        button_box.addStretch()
+
+        button_box.addWidget(copy_btn)
+        button_box.addWidget(cancel_btn)
+        layout.addLayout(button_box)
+
+        def on_copy():
+            if not player_list.currentItem():
+                return
+
+            source_file = player_list.currentItem().text()
+            is_base_game = player_list.currentItem().foreground().color().getRgb()[:3] == (150, 150, 150)
+
+            # Show copy dialog
+            copy_dialog = QDialog(dialog)
+            copy_dialog.setWindowTitle("Copy Player")
+            copy_layout = QVBoxLayout(copy_dialog)
+
+            # Add option to overwrite if it's a base game file
+            overwrite = False
+            if is_base_game:
+                overwrite_check = QCheckBox("Overwrite in mod (keep same name)")
+                copy_layout.addWidget(overwrite_check)
+
+                def on_overwrite_changed(state):
+                    nonlocal overwrite
+                    overwrite = state == Qt.CheckState.Checked.value
+                    name_edit.setEnabled(not overwrite)
+                    name_edit.setText(source_file if overwrite else "")
+
+                overwrite_check.stateChanged.connect(on_overwrite_changed)
+
+            # Add name input
+            name_layout = QHBoxLayout()
+            name_layout.addWidget(QLabel("New Name:"))
+            name_edit = QLineEdit()
+            name_layout.addWidget(name_edit)
+            copy_layout.addLayout(name_layout)
+
+            # Add copy/cancel buttons
+            copy_buttons = QHBoxLayout()
+            copy_ok = QPushButton("Copy")
+            copy_cancel = QPushButton("Cancel")
+            copy_buttons.addWidget(copy_ok)
+            copy_buttons.addWidget(copy_cancel)
+            copy_layout.addLayout(copy_buttons)
+
+            def do_copy():
+                new_name = name_edit.text().strip()
+                if not new_name:
+                    QMessageBox.warning(copy_dialog, "Error", "Please enter a name for the copy")
+                    return
+
+                try:
+                    # Create the copy command
+                    copy_command = CreateFileFromCopy(
+                        self,
+                        source_file,
+                        "player",
+                        new_name,
+                        overwrite
+                    )
+
+                    # Prepare and validate the command
+                    if not copy_command.prepare():
+                        QMessageBox.warning(copy_dialog, "Error", "Failed to prepare player copy")
+                        return
+
+                    # Execute the copy command
+                    if not copy_command.execute():
+                        QMessageBox.warning(copy_dialog, "Error", "Failed to create player copy")
+                        return
+
+                    # Add command to stack for undo/redo
+                    self.command_stack.push(copy_command)
+
+                    # Close both dialogs
+                    copy_dialog.accept()
+                    dialog.accept()
+
+                    # Update the player selector and select the new player
+                    self.player_selector.addItem(new_name)
+                    self.player_selector.setCurrentText(new_name)
+                    self.on_player_selected(new_name)
+
+                except Exception as e:
+                    QMessageBox.warning(copy_dialog, "Error", str(e))
+
+            copy_ok.clicked.connect(do_copy)
+            copy_cancel.clicked.connect(copy_dialog.reject)
+
+            copy_dialog.exec()
+
+        def on_delete():
+            if not player_list.currentItem():
+                return
+
+            player_id = player_list.currentItem().text()
+            is_base_game = player_list.currentItem().foreground().color().getRgb()[:3] == (150, 150, 150)
+
+            if is_base_game:
+                QMessageBox.warning(dialog, "Error", "Cannot delete base game players")
+                return
+
+            reply = QMessageBox.question(
+                dialog,
+                "Confirm Delete",
+                f"Are you sure you want to delete player '{player_id}'?\nThis cannot be undone.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+            try:
+                # Delete the player file
+                player_file = self.current_folder / "entities" / f"{player_id}.player"
+                if player_file.exists():
+                    player_file.unlink()
+
+                # Update the manifest file
+                manifest_file = self.current_folder / "entities" / "player.entity_manifest"
+                if manifest_file.exists():
+                    with open(manifest_file, 'r', encoding='utf-8') as f:
+                        manifest_data = json.load(f)
+                    if "ids" in manifest_data and player_id in manifest_data["ids"]:
+                        manifest_data["ids"].remove(player_id)
+                        with open(manifest_file, 'w', encoding='utf-8') as f:
+                            json.dump(manifest_data, f, indent=4)
+
+                # Remove from GUI's manifest data
+                if 'player' in self.manifest_data['mod']:
+                    self.manifest_data['mod']['player'].pop(player_id, None)
+
+                # Remove from player selector
+                index = self.player_selector.findText(player_id)
+                if index >= 0:
+                    self.player_selector.removeItem(index)
+
+                # Remove from list and select another item
+                row = player_list.row(player_list.currentItem())
+                player_list.takeItem(row)
+                if player_list.count() > 0:
+                    player_list.setCurrentRow(min(row, player_list.count() - 1))
+
+                # Close dialog
+                dialog.accept()
+
+            except Exception as e:
+                QMessageBox.warning(dialog, "Error", f"Failed to delete player: {str(e)}")
+
+        def on_current_item_changed(current, previous):
+            if current:
+                is_base_game = current.foreground().color().getRgb()[:3] == (150, 150, 150)
+                delete_btn.setEnabled(not is_base_game)
+
+        player_list.currentItemChanged.connect(on_current_item_changed)
+        delete_btn.clicked.connect(on_delete)
+        copy_btn.clicked.connect(on_copy)
+        cancel_btn.clicked.connect(dialog.reject)
+
+        dialog.exec()
+
     def undo(self):
         """Undo the last command"""
         self.command_stack.undo()
@@ -2498,7 +2713,15 @@ class EntityToolGUI(QMainWindow):
         domain_widget = QWidget()
         domain_layout = QHBoxLayout(domain_widget)
         domain_layout.setContentsMargins(0, 0, 0, 10)  # Add some bottom margin
-        
+
+        # Add refresh button on the right side
+        refresh_btn = QPushButton()
+        refresh_btn.setIcon(QIcon(str(Path(__file__).parent / "icons" / "refresh.png")))
+        refresh_btn.setToolTip('Refresh Research View')
+        refresh_btn.setFixedSize(18, 18)
+        refresh_btn.clicked.connect(lambda: self.refresh_research_view())
+        domain_layout.addWidget(refresh_btn)
+
         # Create research tree view
         tree_view = ResearchTreeView()
         tree_view.node_clicked.connect(self.load_research_subject)
@@ -4639,6 +4862,18 @@ class EntityToolGUI(QMainWindow):
             layout.replaceWidget(schema_view, new_view)
             schema_view.deleteLater()
 
+    def refresh_research_view(self):
+        """Refresh the research view with current data"""
+        if not self.current_folder or not self.current_data or "research" not in self.current_data:
+            return
+            
+        # Clear existing research view
+        self.clear_layout(self.research_layout)
+        
+        # Create and add new research view
+        research_view = self.create_research_view(self.current_data["research"])
+        self.research_layout.addWidget(research_view)
+
     def clear_layout(self, layout):
         """Clear a layout and all its widgets"""
         if layout is not None:
@@ -5183,218 +5418,3 @@ class EntityToolGUI(QMainWindow):
         
         self.command_stack.push(command)
         self.update_save_button()
-
-    def show_add_player_dialog(self):
-        """Show dialog to create a new player by copying an existing one"""
-        if not self.current_folder:
-            QMessageBox.warning(self, "Error", "Please open a mod folder first")
-            return
-
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Add/Delete Player")
-        dialog.resize(800, 600)  # Make the dialog larger
-        layout = QVBoxLayout(dialog)
-
-        # Add search box
-        search_box = QLineEdit()
-        search_box.setPlaceholderText("Search players...")
-        layout.addWidget(search_box)
-
-        # Player list
-        player_list = QListWidget()
-        layout.addWidget(player_list)
-
-        def update_player_list(search=""):
-            player_list.clear()
-            search = search.lower()
-
-            # Add mod players first
-            for player_id in sorted(self.manifest_data['mod'].get('player', {})):
-                if search in player_id.lower():
-                    item = QListWidgetItem(player_id)
-                    player_list.addItem(item)
-
-            # Then add base game players
-            for player_id in sorted(self.manifest_data['base_game'].get('player', {})):
-                if (player_id not in self.manifest_data['mod'].get('player', {}) and 
-                    search in player_id.lower()):
-                    item = QListWidgetItem(player_id)
-                    item.setForeground(QColor(150, 150, 150))
-                    font = item.font()
-                    font.setItalic(True)
-                    item.setFont(font)
-                    player_list.addItem(item)
-
-        search_box.textChanged.connect(update_player_list)
-        update_player_list()  # Initial population
-
-        # Buttons
-        button_box = QHBoxLayout()
-        delete_btn = QPushButton("Delete")
-        delete_btn.setEnabled(False)  # Initially disabled
-        button_box.addWidget(delete_btn)
-        copy_btn = QPushButton("Copy...")
-        cancel_btn = QPushButton("Cancel")
-        button_box.addStretch()
-
-        button_box.addWidget(copy_btn)
-        button_box.addWidget(cancel_btn)
-        layout.addLayout(button_box)
-
-        def on_copy():
-            if not player_list.currentItem():
-                return
-
-            source_file = player_list.currentItem().text()
-            is_base_game = player_list.currentItem().foreground().color().getRgb()[:3] == (150, 150, 150)
-
-            # Show copy dialog
-            copy_dialog = QDialog(dialog)
-            copy_dialog.setWindowTitle("Copy Player")
-            copy_layout = QVBoxLayout(copy_dialog)
-
-            # Add option to overwrite if it's a base game file
-            overwrite = False
-            if is_base_game:
-                overwrite_check = QCheckBox("Overwrite in mod (keep same name)")
-                copy_layout.addWidget(overwrite_check)
-
-                def on_overwrite_changed(state):
-                    nonlocal overwrite
-                    overwrite = state == Qt.CheckState.Checked.value
-                    name_edit.setEnabled(not overwrite)
-                    name_edit.setText(source_file if overwrite else "")
-
-                overwrite_check.stateChanged.connect(on_overwrite_changed)
-
-            # Add name input
-            name_layout = QHBoxLayout()
-            name_layout.addWidget(QLabel("New Name:"))
-            name_edit = QLineEdit()
-            name_layout.addWidget(name_edit)
-            copy_layout.addLayout(name_layout)
-
-            # Add copy/cancel buttons
-            copy_buttons = QHBoxLayout()
-            copy_ok = QPushButton("Copy")
-            copy_cancel = QPushButton("Cancel")
-            copy_buttons.addWidget(copy_ok)
-            copy_buttons.addWidget(copy_cancel)
-            copy_layout.addLayout(copy_buttons)
-
-            def do_copy():
-                new_name = name_edit.text().strip()
-                if not new_name:
-                    QMessageBox.warning(copy_dialog, "Error", "Please enter a name for the copy")
-                    return
-
-                try:
-                    # Create the copy command
-                    copy_command = CreateFileFromCopy(
-                        self,
-                        source_file,
-                        "player",
-                        new_name,
-                        overwrite
-                    )
-
-                    # Prepare and validate the command
-                    if not copy_command.prepare():
-                        QMessageBox.warning(copy_dialog, "Error", "Failed to prepare player copy")
-                        return
-
-                    # Execute the copy command
-                    if not copy_command.execute():
-                        QMessageBox.warning(copy_dialog, "Error", "Failed to create player copy")
-                        return
-
-                    # Add command to stack for undo/redo
-                    self.command_stack.push(copy_command)
-
-                    # Close both dialogs
-                    copy_dialog.accept()
-                    dialog.accept()
-
-                    # Update the player selector and select the new player
-                    self.player_selector.addItem(new_name)
-                    self.player_selector.setCurrentText(new_name)
-                    self.on_player_selected(new_name)
-
-                except Exception as e:
-                    QMessageBox.warning(copy_dialog, "Error", str(e))
-
-            copy_ok.clicked.connect(do_copy)
-            copy_cancel.clicked.connect(copy_dialog.reject)
-
-            copy_dialog.exec()
-
-        def on_delete():
-            if not player_list.currentItem():
-                return
-
-            player_id = player_list.currentItem().text()
-            is_base_game = player_list.currentItem().foreground().color().getRgb()[:3] == (150, 150, 150)
-
-            if is_base_game:
-                QMessageBox.warning(dialog, "Error", "Cannot delete base game players")
-                return
-
-            reply = QMessageBox.question(
-                dialog,
-                "Confirm Delete",
-                f"Are you sure you want to delete player '{player_id}'?\nThis cannot be undone.",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No
-            )
-
-            if reply != QMessageBox.StandardButton.Yes:
-                return
-
-            try:
-                # Delete the player file
-                player_file = self.current_folder / "entities" / f"{player_id}.player"
-                if player_file.exists():
-                    player_file.unlink()
-
-                # Update the manifest file
-                manifest_file = self.current_folder / "entities" / "player.entity_manifest"
-                if manifest_file.exists():
-                    with open(manifest_file, 'r', encoding='utf-8') as f:
-                        manifest_data = json.load(f)
-                    if "ids" in manifest_data and player_id in manifest_data["ids"]:
-                        manifest_data["ids"].remove(player_id)
-                        with open(manifest_file, 'w', encoding='utf-8') as f:
-                            json.dump(manifest_data, f, indent=4)
-
-                # Remove from GUI's manifest data
-                if 'player' in self.manifest_data['mod']:
-                    self.manifest_data['mod']['player'].pop(player_id, None)
-
-                # Remove from player selector
-                index = self.player_selector.findText(player_id)
-                if index >= 0:
-                    self.player_selector.removeItem(index)
-
-                # Remove from list and select another item
-                row = player_list.row(player_list.currentItem())
-                player_list.takeItem(row)
-                if player_list.count() > 0:
-                    player_list.setCurrentRow(min(row, player_list.count() - 1))
-
-                # Close dialog
-                dialog.accept()
-
-            except Exception as e:
-                QMessageBox.warning(dialog, "Error", f"Failed to delete player: {str(e)}")
-
-        def on_current_item_changed(current, previous):
-            if current:
-                is_base_game = current.foreground().color().getRgb()[:3] == (150, 150, 150)
-                delete_btn.setEnabled(not is_base_game)
-
-        player_list.currentItemChanged.connect(on_current_item_changed)
-        delete_btn.clicked.connect(on_delete)
-        copy_btn.clicked.connect(on_copy)
-        cancel_btn.clicked.connect(dialog.reject)
-
-        dialog.exec()
