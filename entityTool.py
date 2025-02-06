@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
                             QLineEdit, QListWidget, QComboBox, QTabWidget, QScrollArea, QGroupBox, QDialog, QSplitter, QToolButton,
                             QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem, QMenu, QTreeWidget, QTreeWidgetItem, QPlainTextEdit, QProgressBar, QApplication, QFormLayout, QInputDialog)
-from PyQt6.QtCore import (Qt, QTimer, QUrl)
+from PyQt6.QtCore import (Qt, QTimer, QUrl, QObject, QEvent)
 from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QPixmap, QIcon, QKeySequence,
                         QColor, QShortcut, QFont)
 from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput, QSoundEffect
@@ -71,6 +71,15 @@ class LoadingDialog(QDialog):
 class EntityToolGUI(QMainWindow):
     def __init__(self):
         super().__init__()
+        
+        # Create event filter for spinboxes and comboboxes
+        class WheelEventFilter(QObject):
+            def eventFilter(self, obj, event):
+                if event.type() == QEvent.Type.Wheel:
+                        return True  # Block wheel events when widget doesn't have focus
+                return False  # Let other events pass through
+                
+        self.wheel_filter = WheelEventFilter()
         
         # Show loading screen
         self.loading = LoadingDialog(self)
@@ -4157,6 +4166,9 @@ class EntityToolGUI(QMainWindow):
                     # Connect currentTextChanged signal to command creation
                     combo.currentTextChanged.connect(lambda text: self.on_combo_changed(combo, text))
                 
+                # Install wheel event filter
+                combo.installEventFilter(self.wheel_filter)
+                
                 # Store path and original value
                 combo.setProperty("data_path", path)
                 combo.setProperty("original_value", value)
@@ -4207,6 +4219,9 @@ class EntityToolGUI(QMainWindow):
                 # Connect valueChanged signal to command creation
                 spin.valueChanged.connect(lambda value: self.on_spin_changed(spin, value))
             
+            # Install wheel event filter
+            spin.installEventFilter(self.wheel_filter)
+            
             # Store path and original value
             spin.setProperty("data_path", path)
             spin.setProperty("original_value", current_value)
@@ -4241,6 +4256,9 @@ class EntityToolGUI(QMainWindow):
             else:
                 # Connect valueChanged signal to command creation
                 spin.valueChanged.connect(lambda value: self.on_spin_changed(spin, value))
+            
+            # Install wheel event filter
+            spin.installEventFilter(self.wheel_filter)
             
             # Store path and original value
             spin.setProperty("data_path", path)
