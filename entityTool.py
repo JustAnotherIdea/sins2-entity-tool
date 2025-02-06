@@ -3347,11 +3347,26 @@ class EntityToolGUI(QMainWindow):
                 details_group = QGroupBox(title)
                 if is_base_game:
                     details_group.setStyleSheet("QGroupBox { color: #666666; font-style: italic; }")
+
+                # Create title layout with refresh button
+                if file_path:
+                    title_layout = QHBoxLayout()
+                    title_layout.setContentsMargins(0, 0, 0, 0)
+                    title_layout.addStretch()
+                    
+                    refresh_btn = QPushButton()
+                    refresh_btn.setIcon(QIcon(str(Path(__file__).parent / "icons" / "refresh.png")))
+                    refresh_btn.setToolTip('Refresh View')
+                    refresh_btn.setFixedSize(18, 18)
+                    refresh_btn.clicked.connect(lambda: self.refresh_schema_view(file_path))
+                    title_layout.addWidget(refresh_btn)
                 
                 # Create the content widget using the schema, passing an empty path to start tracking
                 logging.debug("Creating schema content widget")
                 details_widget = self.create_widget_for_schema(new_data, self.current_schema, is_base_game, [])
                 details_layout = QVBoxLayout()
+                if file_path:
+                    details_layout.addLayout(title_layout)
                 details_layout.addWidget(details_widget)
                 details_group.setLayout(details_layout)
                 main_layout.addWidget(details_group)
