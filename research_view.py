@@ -72,21 +72,27 @@ class ResearchNode(QGraphicsItem):
         painter.setPen(QPen(border_color, 2))
         painter.drawPath(path)
         
-        # Draw text with semi-transparent background
-        text_rect = self.boundingRect().adjusted(0, self.height/2 - 25, 0, -2)
-        text_bg_path = QPainterPath()
-        text_bg_path.addRect(text_rect)
-        painter.fillPath(text_bg_path, QBrush(QColor(0, 0, 0, 180)))  # Semi-transparent black background
-        
         # Draw text
+        font = painter.font()
+        font.setBold(True)
+        font.setPointSize(8)  # Set smaller font size for better fit
+        painter.setFont(font)
+
+        # Position text at bottom of node
+        text_rect = self.boundingRect().adjusted(2, self.height/2 - 18, -2, -2)
+
+        # Draw text outline by drawing text multiple times with slight offsets
+        painter.setPen(QPen(QColor(0, 0, 0), 1))
+        for dx, dy in [(-1, -1), (-1, 1), (1, -1), (1, 1)]:
+            offset_rect = text_rect.translated(dx, dy)
+            painter.drawText(offset_rect, Qt.AlignmentFlag.AlignCenter, self.name)
+        
+        # Draw main text
         if self.is_base_game:
             painter.setPen(QPen(QColor(150, 150, 150)))
-            font = painter.font()
-            font.setItalic(True)
             painter.setFont(font)
         else:
             painter.setPen(QPen(Qt.GlobalColor.white))
-        
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, self.name)
     
     def hoverEnterEvent(self, event):
