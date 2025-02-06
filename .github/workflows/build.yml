@@ -36,7 +36,7 @@ jobs:
     
     - name: Build with PyInstaller
       run: |
-        python -m PyInstaller --onefile --windowed --name entity-tool main.py
+        python -m PyInstaller entity-tool.spec
     
     - name: Upload Release Asset
       uses: actions/upload-release-asset@v1

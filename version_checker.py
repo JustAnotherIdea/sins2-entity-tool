@@ -45,46 +45,42 @@ class VersionChecker:
             response = requests.get(url, stream=True)
             response.raise_for_status()
             
-            # Create temp directory in app directory
-            temp_dir = Path(self.app_dir) / "temp"
-            temp_dir.mkdir(exist_ok=True)
+            # Get the path to the current executable
+            if not getattr(sys, 'frozen', False):
+                logging.error("Update only supported for frozen executables")
+                return False
+                
+            current_exe = Path(sys.executable)
+            temp_update = current_exe.with_name('update.exe.tmp')
             
-            # Download to a temporary file first
-            temp_update = temp_dir / "update.exe.tmp"
+            # Download to a temporary file
             with open(temp_update, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=8192):
                     f.write(chunk)
             
-            # Get the path to the current executable
-            if getattr(sys, 'frozen', False):
-                current_exe = Path(sys.executable)
-                new_exe = temp_dir / "update.exe"
-                
-                # Rename the downloaded file to its final name
-                if new_exe.exists():
-                    new_exe.unlink()
-                temp_update.rename(new_exe)
-                
-                # Create a batch file to:
-                # 1. Wait for our process to exit
-                # 2. Delete the old exe
-                # 3. Move the new exe
-                # 4. Start the new exe
-                # 5. Delete itself
-                batch_file = temp_dir / "update.bat"
-                batch_contents = f'''@echo off
+            # Create batch file in the same directory
+            batch_file = current_exe.with_name('update.bat')
+            batch_contents = f'''@echo off
+:wait
 timeout /t 1 /nobreak >nul
+tasklist /FI "IMAGENAME eq {current_exe.name}" 2>NUL | find /I /N "{current_exe.name}">NUL
+if "%ERRORLEVEL%"=="0" goto wait
 del /f "{current_exe}"
-move "{new_exe}" "{current_exe}"
+move "{temp_update}" "{current_exe}"
 start "" "{current_exe}"
 del "%~f0"
 '''
-                batch_file.write_text(batch_contents)
-                
-                # Run the batch file and exit
-                os.startfile(str(batch_file))
-                sys.exit(0)
+            batch_file.write_text(batch_contents)
+            
+            # Run the batch file and exit
+            os.startfile(str(batch_file))
+            sys.exit(0)
             
         except Exception as e:
             logging.error(f"Failed to download update: {e}")
+            if 'temp_update' in locals() and temp_update.exists():
+                try:
+                    temp_update.unlink()
+                except:
+                    pass
             return False 
