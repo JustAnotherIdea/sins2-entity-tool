@@ -127,9 +127,9 @@ class ResearchTreeView(QGraphicsView):
         # Node layout settings
         self.field_width = 400  # Width for field background/label area
         self.horizontal_spacing = 150  # Spacing between columns (reduced since we have 10 columns)
-        self.vertical_spacing = 400  # Spacing between fields
+        self.vertical_spacing = 1400  # Increased spacing between fields for more room
         self.node_vertical_spacing = 100  # Spacing between rows
-        self.top_margin = 50  # Space from top of scene to first field
+        self.top_margin = 150  # Increased space from top of scene to first field
         self.nodes = {}  # Store nodes by subject_id
         self.current_domain = None
         self.domains = set()  # Track available domains
@@ -146,19 +146,33 @@ class ResearchTreeView(QGraphicsView):
     
     def add_tier_headers(self):
         """Add tier headers to the scene"""
-        for i in range(1, 6):
-            text = QGraphicsTextItem(f"Tier {i}")
+        for i in range(5):  # 0-4 for tiers
+            # Create header for the tier (spans two columns)
+            text = QGraphicsTextItem(f"Tier {i + 1}")
             text.setDefaultTextColor(QColor(0, 200, 255))
             font = text.font()
             font.setPointSize(12)
             font.setBold(True)
             text.setFont(font)
             
-            # Position header above the tier's nodes, offset by field area width
-            x = self.field_width + i * self.horizontal_spacing - text.boundingRect().width() / 2
-            y = -100  # Increased margin above nodes
-            text.setPos(x, y)
+            # Position header above the tier's two columns
+            # Calculate center position between the two columns of this tier
+            x = self.field_width + (i * 2 * self.horizontal_spacing) + self.horizontal_spacing
+            y = self.top_margin - 100  # Position above the first field
+            text.setPos(x - text.boundingRect().width() / 2, y)
             self.scene.addItem(text)
+            
+            # Add vertical grid lines for this tier's columns
+            for col in range(2):
+                line = QGraphicsPathItem()
+                path = QPainterPath()
+                x_pos = self.field_width + ((i * 2 + col) * self.horizontal_spacing)
+                path.moveTo(x_pos, self.top_margin - 50)  # Start below headers
+                path.lineTo(x_pos, 5000)  # Long enough to cover all fields
+                line.setPath(path)
+                line.setPen(QPen(QColor(0, 100, 150, 50), 1, Qt.PenStyle.DashLine))  # Semi-transparent, dashed line
+                line.setZValue(-3)  # Behind everything else
+                self.scene.addItem(line)
     
     def set_field_backgrounds(self, field_data: dict):
         """Set background images for research fields"""
@@ -199,28 +213,41 @@ class ResearchTreeView(QGraphicsView):
     
     def add_field_labels(self):
         """Add field labels for the current domain"""
-        # Clear existing field labels
+        # Clear existing field labels and field separators
         for item in self.scene.items():
-            if isinstance(item, QGraphicsTextItem) and hasattr(item, 'is_field_label'):
+            if (isinstance(item, QGraphicsTextItem) and hasattr(item, 'is_field_label')) or \
+               (isinstance(item, QGraphicsPathItem) and hasattr(item, 'is_field_separator')):
                 self.scene.removeItem(item)
         
         if self.current_domain not in self.fields_by_domain:
             return
             
         for field, y_pos in sorted(self.fields_by_domain[self.current_domain].items()):
+            # Add field label
             text = QGraphicsTextItem(field)
             text.setDefaultTextColor(QColor(0, 200, 255))
             font = text.font()
-            font.setPointSize(14)  # Increased font size
+            font.setPointSize(14)
             font.setBold(True)
             text.setFont(font)
-            text.is_field_label = True  # Mark as field label
+            text.is_field_label = True
             
             # Position label on the left side
-            x = 20  # Small margin from left edge
+            x = 20
             y = y_pos - text.boundingRect().height() / 2
             text.setPos(x, y)
             self.scene.addItem(text)
+            
+            # Add horizontal separator line above field
+            separator = QGraphicsPathItem()
+            separator.is_field_separator = True
+            path = QPainterPath()
+            path.moveTo(0, y_pos - self.vertical_spacing/2)
+            path.lineTo(2000, y_pos - self.vertical_spacing/2)  # Wide enough to cover all columns
+            separator.setPath(path)
+            separator.setPen(QPen(QColor(0, 100, 150, 50), 1, Qt.PenStyle.DashLine))  # Semi-transparent, dashed line
+            separator.setZValue(-3)  # Behind everything else
+            self.scene.addItem(separator)
     
     def set_domain(self, domain: str):
         """Switch to displaying a different domain"""
