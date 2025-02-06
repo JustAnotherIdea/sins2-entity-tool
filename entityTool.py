@@ -5613,14 +5613,36 @@ class EntityToolGUI(QMainWindow):
         def get_research_fields():
             """Get available research fields from the current player file"""
             fields = {'military': [], 'civilian': []}
-            if 'research' in self.current_data and 'research_domains' in self.current_data['research']:
-                for domain in ['military', 'civilian']:
-                    if domain in self.current_data['research']['research_domains']:
-                        domain_data = self.current_data['research']['research_domains'][domain]
-                        if 'research_fields' in domain_data:
-                            for field in domain_data['research_fields']:
-                                if 'id' in field:
-                                    fields[domain].append(field['id'])
+            print("Getting research fields from current data...")
+            if not self.current_data:
+                print("No current data available")
+                return fields
+                
+            if 'research' not in self.current_data:
+                print("No research data in current data")
+                return fields
+                
+            research_data = self.current_data['research']
+            if 'research_domains' not in research_data:
+                print("No research_domains in research data")
+                return fields
+                
+            domains = research_data['research_domains']
+            print(f"Found domains: {list(domains.keys())}")
+            
+            for domain in ['military', 'civilian']:
+                if domain in domains:
+                    domain_data = domains[domain]
+                    print(f"Processing domain {domain}...")
+                    if 'research_fields' in domain_data:
+                        research_fields = domain_data['research_fields']
+                        print(f"Found {len(research_fields)} fields in {domain}")
+                        for field in research_fields:
+                            if isinstance(field, dict) and 'id' in field:
+                                fields[domain].append(field['id'])
+                                print(f"Added field {field['id']} to {domain}")
+            
+            print(f"Final fields structure: {fields}")
             return fields
 
         def on_selection_changed():
