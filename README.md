@@ -59,14 +59,15 @@ pip install -r requirements.txt
 2. First-time Setup:
     - Set your base game folder path in the settings
     - Set your mod folder path
-    - Configure any additional settings as needed
 
 3. Basic Operations:
     - Open mod folder by clicking the "Open Mod Folder" button or dragging and dropping the mod folder onto the application
+        - If you are starting a fresh mod, or are new to modding, you can use another mod as a template.
     - Make changes using the intuitive form interface
     - Save changes using the Save button or Ctrl+S
     - Undo/Redo using Ctrl+Z and Ctrl+Y or the buttons in the toolbar
     - Select the player faction using the dropdown in the top right corner
+
     - Create or delete a player faction by clicking the "+/-" button
     - Refresh any view with the refresh button in the corner (this is needed when making changes to the research tree, and can help fix some issues).
 
@@ -145,7 +146,8 @@ The application stores its configuration in `config.json`, which includes:
 
 ## Acknowledgments
 
-- Sins of a Solar Empire II developers and community
+- Sins of a Solar Empire II developers for the amazing game and the tools they have provided
+- All the modders who created the mods that I have used in testing
 - PyQt6 framework
 - Pygame (for the sound preview)
 
