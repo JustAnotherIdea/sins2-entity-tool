@@ -1348,56 +1348,29 @@ class EntityToolGUI(QMainWindow):
                 schema = self.resolve_schema_references(schema)
                 print(f"Resolved top-level schema reference: {schema}")
         
-        # Add Delete Property option if this is a property widget
+        # Add Delete Property option if this is a property label/header
         property_name = None
+        is_property_label = (isinstance(widget, (QLabel, QToolButton)) and 
+                           not isinstance(widget.parent(), QHBoxLayout) and
+                           not widget.property("is_array_index"))
         
-        # Try to find property name from various widget types and layouts
-        def find_property_name_in_layout(layout):
-            if layout and layout.count() > 0:
-                first_widget = layout.itemAt(0).widget()
-                if isinstance(first_widget, QLabel):
-                    return first_widget.text().replace(":", "").replace(" ", "_").lower()
-                elif isinstance(first_widget, QToolButton):
-                    return first_widget.text().replace(" ", "_").lower()
-            return None
+        if is_property_label:
+            # Try to find property name from various widget types
+            if isinstance(widget, QLabel):
+                property_name = widget.text().replace(":", "").replace(" ", "_").lower()
+            elif isinstance(widget, QToolButton):
+                property_name = widget.text().replace(" ", "_").lower()
             
-        def find_property_name_in_hierarchy(widget):
-            # Check if widget itself is a QToolButton (collapsible header)
-            if isinstance(widget, QToolButton):
-                return widget.text().replace(" ", "_").lower()
-                
-            # Check widget's direct parent
-            if widget.parent():
-                parent = widget.parent()
-                
-                # Try parent's layout
-                if parent.layout():
-                    name = find_property_name_in_layout(parent.layout())
-                    if name:
-                        return name
-                        
-                # If parent is a container widget, try its parent
-                if parent.parent():
-                    grandparent = parent.parent()
-                    if grandparent.layout():
-                        name = find_property_name_in_layout(grandparent.layout())
-                        if name:
-                            return name
-            return None
-            
-        # Try to find property name
-        property_name = find_property_name_in_hierarchy(widget)
-        
-        if property_name and data_path:
-            # Don't allow deletion of required properties
-            parent_schema = self.get_schema_for_path(data_path[:-1])  # Get parent object's schema
-            if not parent_schema or "required" not in parent_schema or property_name not in parent_schema["required"]:
-                if len(menu.actions()) > 0:
-                    menu.addSeparator()
-                action = menu.addAction("Delete Property")
-                action.triggered.connect(
-                    lambda checked, w=widget, n=property_name: self.delete_property(w, n)
-                )
+            if property_name and data_path:
+                # Don't allow deletion of required properties
+                parent_schema = self.get_schema_for_path(data_path[:-1])  # Get parent object's schema
+                if not parent_schema or "required" not in parent_schema or property_name not in parent_schema["required"]:
+                    if len(menu.actions()) > 0:
+                        menu.addSeparator()
+                    action = menu.addAction("Delete Property")
+                    action.triggered.connect(
+                        lambda checked, w=widget, n=property_name: self.delete_property(w, n)
+                    )
                 
         # Add property/item menu if this is an object or array
         if schema and isinstance(current_value, (dict, list)):
