@@ -2,11 +2,9 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
                             QLineEdit, QListWidget, QComboBox, QTabWidget, QScrollArea, QGroupBox, QDialog, QSplitter, QToolButton,
                             QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem, QMenu, QTreeWidget, QTreeWidgetItem, QPlainTextEdit, QProgressBar, QApplication, QFormLayout, QInputDialog)
-from PyQt6.QtCore import (Qt, QTimer, QUrl, QObject, QEvent)
+from PyQt6.QtCore import (Qt, QTimer, QObject, QEvent)
 from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QPixmap, QIcon, QKeySequence,
                         QColor, QShortcut, QFont)
-from PyQt6.QtMultimedia import QMediaPlayer, QAudioOutput, QSoundEffect
-from playsound import playsound
 import json
 import logging
 from pathlib import Path
@@ -14,11 +12,8 @@ from research_view import ResearchTreeView
 import os
 from command_stack import CommandStack, EditValueCommand, AddPropertyCommand, DeleteArrayItemCommand, DeletePropertyCommand, CompositeCommand, TransformWidgetCommand, AddArrayItemCommand, CreateFileFromCopy, CreateLocalizedText, CreateResearchSubjectCommand, DeleteResearchSubjectCommand
 from typing import List, Any
-import sounddevice as sd
-import soundfile as sf
 import threading
 import pygame.mixer
-import ast
 
 
 # add debug logging

@@ -1,5 +1,4 @@
 import requests
-import json
 from pathlib import Path
 import sys
 import os
@@ -9,7 +8,7 @@ from packaging import version
 class VersionChecker:
     def __init__(self):
         self.github_api = "https://api.github.com/repos/JustAnotherIdea/sins2-entity-tool/releases/latest"
-        self.current_version = "1.0.0"  # This will be updated during build
+        self.current_version = "0.0.1"  # This will be updated during build
         self.app_dir = self._get_app_directory()
         
     def _get_app_directory(self):

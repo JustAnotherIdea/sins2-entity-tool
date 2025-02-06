@@ -1,8 +1,7 @@
 from typing import Any, List, Dict, Set, Callable
 from pathlib import Path
 import json
-import logging
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QToolButton, QGroupBox, QLineEdit, QListWidgetItem, QApplication
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QToolButton, QListWidgetItem
 from PyQt6.QtGui import QColor
 from PyQt6.QtCore import Qt
 

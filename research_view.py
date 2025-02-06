@@ -1,6 +1,5 @@
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-                            QGraphicsScene, QGraphicsView, QGraphicsItem, QGraphicsPathItem, 
-                            QGraphicsTextItem, QGraphicsPixmapItem, QGraphicsRectItem, QMenu)
+from PyQt6.QtWidgets import (QGraphicsScene, QGraphicsView, QGraphicsItem, QGraphicsPathItem, 
+                            QGraphicsTextItem, QGraphicsPixmapItem, QMenu)
 from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal, QRect, QPoint
 from PyQt6.QtGui import (QPixmap, QPainter, QPen, QColor, QBrush, 
                         QPainterPath, QLinearGradient)
