@@ -1348,7 +1348,7 @@ class EntityToolGUI(QMainWindow):
                 schema = self.resolve_schema_references(schema)
                 print(f"Resolved top-level schema reference: {schema}")
         
-        # Add Delete Property option if this is a property label/header
+        # Check if this is a property label/header for later use
         property_name = None
         is_property_label = (isinstance(widget, (QLabel, QToolButton)) and 
                            not isinstance(widget.parent(), QHBoxLayout) and
@@ -1360,17 +1360,6 @@ class EntityToolGUI(QMainWindow):
                 property_name = widget.text().replace(":", "").replace(" ", "_").lower()
             elif isinstance(widget, QToolButton):
                 property_name = widget.text().replace(" ", "_").lower()
-            
-            if property_name and data_path:
-                # Don't allow deletion of required properties
-                parent_schema = self.get_schema_for_path(data_path[:-1])  # Get parent object's schema
-                if not parent_schema or "required" not in parent_schema or property_name not in parent_schema["required"]:
-                    if len(menu.actions()) > 0:
-                        menu.addSeparator()
-                    action = menu.addAction("Delete Property")
-                    action.triggered.connect(
-                        lambda checked, w=widget, n=property_name: self.delete_property(w, n)
-                    )
                 
         # Add property/item menu if this is an object or array
         if schema and isinstance(current_value, (dict, list)):
@@ -1442,6 +1431,18 @@ class EntityToolGUI(QMainWindow):
             # Sound selection action
             sound_action = select_menu.addAction("Sounds...")
             sound_action.triggered.connect(lambda: self.show_sound_selector(widget))
+            
+        # Add Delete Property option at the end if this is a property label/header
+        if is_property_label and property_name and data_path:
+            # Don't allow deletion of required properties
+            parent_schema = self.get_schema_for_path(data_path[:-1])  # Get parent object's schema
+            if not parent_schema or "required" not in parent_schema or property_name not in parent_schema["required"]:
+                if len(menu.actions()) > 0:
+                    menu.addSeparator()
+                action = menu.addAction("Delete Property")
+                action.triggered.connect(
+                    lambda checked, w=widget, n=property_name: self.delete_property(w, n)
+                )
             
         return menu
 
