@@ -123,6 +123,9 @@ class ResearchTreeView(QGraphicsView):
         self.scene = QGraphicsScene(self)
         self.setScene(self.scene)
         
+        # Store viewport center for preserving scroll position
+        self.last_viewport_center = None
+        
         # Style settings
         self.setRenderHint(QPainter.RenderHint.Antialiasing)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -269,6 +272,9 @@ class ResearchTreeView(QGraphicsView):
     
     def set_domain(self, domain: str):
         """Switch to displaying a different domain"""
+        # Store current viewport center
+        self.last_viewport_center = self.mapToScene(self.viewport().rect().center())
+        
         self.current_domain = domain
         
         # Hide nodes from other domains
@@ -287,6 +293,11 @@ class ResearchTreeView(QGraphicsView):
         if visible_items:
             rect = self.scene.itemsBoundingRect()
             self.scene.setSceneRect(rect.adjusted(-150, -200, 150, 100))
+            
+        # Restore viewport center if we have one
+        if self.last_viewport_center:
+            self.centerOn(self.last_viewport_center)
+            self.last_viewport_center = None
     
     def add_research_subject(self, subject_id: str, name: str, icon: QPixmap, 
                            domain: str, field: str, tier: int, is_base_game: bool,

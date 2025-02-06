@@ -4922,12 +4922,96 @@ class EntityToolGUI(QMainWindow):
         if not self.current_folder or not self.current_data or "research" not in self.current_data:
             return
             
-        # Clear existing research view
-        self.clear_layout(self.research_layout)
+        # Find the current research view
+        current_view = None
+        if self.research_layout.count() > 0:
+            container = self.research_layout.itemAt(0).widget()
+            # Find the ResearchTreeView within the container
+            for child in container.findChildren(ResearchTreeView):
+                current_view = child
+                break
+                
+        if not current_view:
+            return
+            
+        # Store current view state
+        viewport_center = current_view.mapToScene(current_view.viewport().rect().center())
+        current_zoom = current_view.transform().m11()
+        current_domain = current_view.current_domain
         
-        # Create and add new research view
-        research_view = self.create_research_view(self.current_data["research"])
-        self.research_layout.addWidget(research_view)
+        # Clear existing nodes but keep the view
+        for node in list(current_view.nodes.values()):
+            current_view.scene.removeItem(node)
+        current_view.nodes.clear()
+        current_view.nodes_by_field.clear()
+        current_view.field_max_rows.clear()
+        current_view.domains.clear()
+        current_view.fields_by_domain.clear()
+        
+        # Load field backgrounds from research data
+        field_backgrounds = {}
+        if "research_domains" in self.current_data["research"]:
+            for domain_name, domain_data in self.current_data["research"]["research_domains"].items():
+                if "research_fields" in domain_data:
+                    for field_data in domain_data["research_fields"]:
+                        field_id = field_data.get("id")
+                        picture = field_data.get("picture")
+                        if field_id and picture:
+                            pixmap, is_base_game = self.load_texture(picture)
+                            if not pixmap.isNull():
+                                field_backgrounds[field_id] = pixmap
+        
+        # Set field backgrounds in tree view
+        current_view.set_field_backgrounds(field_backgrounds)
+        
+        # Add research subjects to the view
+        if "research_subjects" in self.current_data["research"]:
+            # First pass: collect all subjects and sort by tier
+            subjects_by_tier = {}
+            for subject_id in self.current_data["research"]["research_subjects"]:
+                subject_file = self.current_folder / "entities" / f"{subject_id}.research_subject"
+                subject_data, is_base_game = self.load_file(subject_file)
+                
+                if subject_data:
+                    tier = subject_data.get("tier", 0)  # Default to tier 0
+                    if tier not in subjects_by_tier:
+                        subjects_by_tier[tier] = []
+                    subjects_by_tier[tier].append((subject_id, subject_data, is_base_game))
+            
+            # Second pass: add nodes tier by tier
+            for tier in sorted(subjects_by_tier.keys()):
+                for subject_id, subject_data, is_base_game in subjects_by_tier[tier]:
+                    name_text, is_base_game_name = self.get_localized_text(subject_data.get("name", subject_id))
+                    icon = None
+                    if "tooltip_picture" in subject_data:
+                        pixmap, _ = self.load_texture(subject_data["tooltip_picture"])
+                        if not pixmap.isNull():
+                            icon = pixmap
+                    elif "hud_icon" in subject_data:
+                        pixmap, _ = self.load_texture(subject_data["hud_icon"])
+                        if not pixmap.isNull():
+                            icon = pixmap
+                    
+                    field = subject_data.get("field", "")
+                    field_coord = subject_data.get("field_coord")
+                    
+                    current_view.add_research_subject(
+                        subject_id=subject_id,
+                        name=name_text,
+                        icon=icon,
+                        domain=subject_data.get("domain", ""),
+                        field=field,
+                        tier=tier,
+                        field_coord=field_coord,
+                        is_base_game=is_base_game or is_base_game_name,
+                        prerequisites=subject_data.get("prerequisites", [])
+                    )
+        
+        # Restore view state
+        if current_domain in current_view.domains:
+            current_view.last_viewport_center = viewport_center
+            current_view.set_domain(current_domain)
+            current_view.scale(current_zoom / current_view.transform().m11(), current_zoom / current_view.transform().m11())
 
     def clear_layout(self, layout):
         """Clear a layout and all its widgets"""
