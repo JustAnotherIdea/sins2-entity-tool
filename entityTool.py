@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
                             QLineEdit, QListWidget, QComboBox, QTabWidget, QScrollArea, QGroupBox, QDialog, QSplitter, QToolButton,
-                            QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem, QMenu, QTreeWidget, QTreeWidgetItem, QPlainTextEdit, QProgressBar, QApplication, QFormLayout)
+                            QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem, QMenu, QTreeWidget, QTreeWidgetItem, QPlainTextEdit, QProgressBar, QApplication, QFormLayout, QInputDialog)
 from PyQt6.QtCore import (Qt, QTimer, QUrl)
 from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QPixmap, QIcon, QKeySequence,
                         QColor, QShortcut, QFont)
@@ -5422,151 +5422,146 @@ class EntityToolGUI(QMainWindow):
         self.update_save_button()
 
     def add_research_subject(self, subject_type: str):
-        """Show dialog to add a new research subject"""
+        """Add a new research subject"""
         if not self.current_folder:
-            QMessageBox.warning(self, "Error", "Please open a mod folder first")
             return
 
         dialog = QDialog(self)
         dialog.setWindowTitle("Add Research Subject")
-        dialog.resize(800, 600)  # Make the dialog larger
+        dialog.setModal(True)
+        dialog.resize(800, 600)
+
         layout = QVBoxLayout(dialog)
 
-        # Add search box
+        # Add note about undo/redo
+        note_label = QLabel("Note: This operation cannot be undone.")
+        note_label.setStyleSheet("QLabel { color: #FFA500; }")  # Orange color for warning
+        layout.addWidget(note_label)
+
+        # Rest of the dialog setup...
         search_box = QLineEdit()
-        search_box.setPlaceholderText("Search research subjects...")
+        search_box.setPlaceholderText("Search subjects...")
         layout.addWidget(search_box)
 
-        # Research subject list
-        subject_list = QListWidget()
-        layout.addWidget(subject_list)
+        list_widget = QListWidget()
+        layout.addWidget(list_widget)
+
+        # Add buttons
+        button_layout = QHBoxLayout()
+        copy_btn = QPushButton("Copy Selected")
+        copy_btn.setEnabled(False)
+        button_layout.addWidget(copy_btn)
+
+        cancel_btn = QPushButton("Cancel")
+        button_layout.addWidget(cancel_btn)
+        layout.addLayout(button_layout)
 
         def update_subject_list(search=""):
-            subject_list.clear()
-            search = search.lower()
-
+            list_widget.clear()
+            
             # Add mod subjects first
             for subject_id in sorted(self.manifest_data['mod'].get('research_subject', {})):
-                if search in subject_id.lower():
+                if search.lower() in subject_id.lower():
                     item = QListWidgetItem(subject_id)
-                    subject_list.addItem(item)
-
+                    list_widget.addItem(item)
+            
             # Then add base game subjects
             for subject_id in sorted(self.manifest_data['base_game'].get('research_subject', {})):
-                if (subject_id not in self.manifest_data['mod'].get('research_subject', {}) and 
-                    search in subject_id.lower()):
+                if search.lower() in subject_id.lower() and subject_id not in self.manifest_data['mod'].get('research_subject', {}):
                     item = QListWidgetItem(subject_id)
                     item.setForeground(QColor(150, 150, 150))
                     font = item.font()
                     font.setItalic(True)
                     item.setFont(font)
-                    subject_list.addItem(item)
-
-        search_box.textChanged.connect(update_subject_list)
-        update_subject_list()  # Initial population
-
-        # Buttons
-        button_box = QHBoxLayout()
-        select_btn = QPushButton("Select")
-        select_btn.setEnabled(False)  # Initially disabled
-        copy_btn = QPushButton("Copy...")
-        cancel_btn = QPushButton("Cancel")
-        button_box.addStretch()
-        button_box.addWidget(select_btn)
-        button_box.addWidget(copy_btn)
-        button_box.addWidget(cancel_btn)
-        layout.addLayout(button_box)
+                    list_widget.addItem(item)
 
         def on_copy():
-            if not subject_list.currentItem():
+            selected_items = list_widget.selectedItems()
+            if not selected_items:
                 return
-
-            source_file = subject_list.currentItem().text()
-            is_base_game = subject_list.currentItem().foreground().color().getRgb()[:3] == (150, 150, 150)
-
-            # Show copy dialog
-            copy_dialog = QDialog(dialog)
-            copy_dialog.setWindowTitle("Copy Research Subject")
-            copy_layout = QVBoxLayout(copy_dialog)
-
-            # Add option to overwrite if it's a base game file
-            overwrite = False
-            if is_base_game:
-                overwrite_check = QCheckBox("Overwrite in mod (keep same name)")
-                copy_layout.addWidget(overwrite_check)
-
+                
+            source_id = selected_items[0].text()
+            
+            # Get new name
+            new_name, ok = QInputDialog.getText(
+                dialog,
+                "New Subject Name",
+                "Enter name for new subject:",
+                text=source_id + "_copy"
+            )
+            
+            if not ok or not new_name:
+                return
+                
+            # Check if subject already exists
+            target_file = self.current_folder / "entities" / f"{new_name}.research_subject"
+            if target_file.exists():
+                # Show overwrite dialog
+                msg_box = QMessageBox(dialog)
+                msg_box.setWindowTitle("Subject Exists")
+                msg_box.setText(f"A subject named '{new_name}' already exists.")
+                msg_box.setInformativeText("Do you want to overwrite it?")
+                msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+                
+                # Add checkbox for overwriting in tree
+                overwrite_box = QCheckBox("Also overwrite in research tree", msg_box)
+                msg_box.setCheckBox(overwrite_box)
+                
                 def on_overwrite_changed(state):
-                    nonlocal overwrite
-                    overwrite = state == Qt.CheckState.Checked.value
-                    name_edit.setEnabled(not overwrite)
-                    name_edit.setText(source_file if overwrite else "")
-
-                overwrite_check.stateChanged.connect(on_overwrite_changed)
-
-            # Add name input
-            name_layout = QHBoxLayout()
-            name_layout.addWidget(QLabel("New Name:"))
-            name_edit = QLineEdit()
-            name_layout.addWidget(name_edit)
-            copy_layout.addLayout(name_layout)
-
-            # Add copy/cancel buttons
-            copy_buttons = QHBoxLayout()
-            copy_ok = QPushButton("Copy")
-            copy_cancel = QPushButton("Cancel")
-            copy_buttons.addWidget(copy_ok)
-            copy_buttons.addWidget(copy_cancel)
-            copy_layout.addLayout(copy_buttons)
-
-            def do_copy():
-                new_name = name_edit.text().strip()
-                if not new_name:
-                    QMessageBox.warning(copy_dialog, "Error", "Please enter a name for the copy")
+                    # Enable/disable Yes button based on checkbox
+                    buttons = msg_box.standardButtons()
+                    yes_button = msg_box.button(QMessageBox.StandardButton.Yes)
+                    if yes_button:
+                        yes_button.setEnabled(state == Qt.CheckState.Checked)
+                
+                overwrite_box.stateChanged.connect(on_overwrite_changed)
+                overwrite_box.setChecked(False)  # Start unchecked
+                
+                if msg_box.exec() != QMessageBox.StandardButton.Yes:
                     return
+                    
+                overwrite = True
+            else:
+                overwrite = False
+            
+            # Create and execute the command
+            command = CreateResearchSubjectCommand(
+                self,
+                source_id,
+                new_name,
+                subject_type,
+                overwrite
+            )
+            
+            # Prepare and execute the command
+            if not command.prepare():
+                QMessageBox.warning(self, "Error", "Failed to prepare research subject creation")
+                return
+                
+            if not command.execute():
+                QMessageBox.warning(self, "Error", "Failed to create research subject")
+                return
+                
+            # Do NOT add command to stack for undo/redo
+            # self.command_stack.push(command)
+            
+            dialog.accept()
 
-                try:
-                    # Create and prepare the command
-                    command = CreateResearchSubjectCommand(
-                        self,
-                        source_file,
-                        new_name,
-                        subject_type,
-                        overwrite
-                    )
-
-                    # Prepare and validate the command
-                    if not command.prepare():
-                        QMessageBox.warning(copy_dialog, "Error", "Failed to prepare research subject creation")
-                        return
-
-                    # Execute the command
-                    if not command.execute():
-                        QMessageBox.warning(copy_dialog, "Error", "Failed to create research subject")
-                        return
-
-                    # Add command to stack for undo/redo
-                    self.command_stack.push(command)
-
-                    # Close both dialogs
-                    copy_dialog.accept()
-                    dialog.accept()
-
-                except Exception as e:
-                    QMessageBox.warning(copy_dialog, "Error", str(e))
-
-            copy_ok.clicked.connect(do_copy)
-            copy_cancel.clicked.connect(copy_dialog.reject)
-
-            copy_dialog.exec()
-
-        def on_current_item_changed(current, previous):
-            select_btn.setEnabled(current is not None)
-
-        select_btn.clicked.connect(on_copy)  # Select button acts like copy
+        # Connect signals
+        search_box.textChanged.connect(update_subject_list)
         copy_btn.clicked.connect(on_copy)
         cancel_btn.clicked.connect(dialog.reject)
-        subject_list.currentItemChanged.connect(on_current_item_changed)
-
+        
+        def on_current_item_changed(current, previous):
+            copy_btn.setEnabled(current is not None)
+            
+        list_widget.currentItemChanged.connect(on_current_item_changed)
+        
+        # Initial population
+        update_subject_list()
+        
+        # Show dialog
         dialog.exec()
 
     def delete_research_subject(self, subject_id: str):
@@ -5583,8 +5578,8 @@ class EntityToolGUI(QMainWindow):
         # Ask user what they want to delete
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("Delete Research Subject")
-        msg_box.setText(f"How would you like to delete research subject '{subject_id}'?")
-        msg_box.setIcon(QMessageBox.Icon.Question)
+        msg_box.setText(f"How would you like to delete research subject '{subject_id}'?\n\nNote: This operation cannot be undone.")
+        msg_box.setIcon(QMessageBox.Icon.Warning)
         
         # Add custom buttons
         full_delete_btn = msg_box.addButton("Full Delete", QMessageBox.ButtonRole.ActionRole)
@@ -5631,8 +5626,8 @@ class EntityToolGUI(QMainWindow):
                 QMessageBox.warning(self, "Error", "Failed to delete research subject")
                 return
 
-            # Add command to stack for undo/redo
-            self.command_stack.push(command)
+            # Do NOT add command to stack for undo/redo
+            # self.command_stack.push(command)
 
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to delete research subject: {str(e)}")
