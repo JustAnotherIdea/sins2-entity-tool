@@ -1661,6 +1661,9 @@ class EntityToolGUI(QMainWindow):
 
     def show_uniforms_selector(self, target_widget):
         """Show a dialog to select a uniform value"""
+        # Set the is_uniform property on the target widget
+        target_widget.setProperty("is_uniform", True)
+        
         dialog = QDialog(self)
         dialog.setWindowTitle("Select Uniform Value")
         dialog.resize(800, 600)
@@ -5055,19 +5058,20 @@ class EntityToolGUI(QMainWindow):
                 data_path,
                 old_value,
                 new_value,
-                lambda v: None,  # No-op since transformation is handled separately
+                lambda v: self.update_text_preserve_cursor(target_widget, str(v)) if isinstance(target_widget, QPlainTextEdit) else target_widget.setText(str(v)),
                 self.update_data_value
             )
             value_cmd.source_widget = target_widget
             
-            # Create transform command
-            transform_cmd = TransformWidgetCommand(self, target_widget, old_value, new_value)
+            # For uniforms, we only need to update the value
+            if isinstance(target_widget, QLineEdit) and target_widget.property("is_uniform"):
+                self.command_stack.push(value_cmd)
+            else:
+                # For other types, we need to transform the widget
+                transform_cmd = TransformWidgetCommand(self, target_widget, old_value, new_value)
+                composite_cmd = CompositeCommand([value_cmd, transform_cmd])
+                self.command_stack.push(composite_cmd)
             
-            # Combine commands
-            composite_cmd = CompositeCommand([value_cmd, transform_cmd])
-            self.command_stack.push(composite_cmd)
-            
-            # Widget cleanup is handled by TransformWidgetCommand
             self.update_save_button()
 
     def get_localized_text(self, text_key: str) -> tuple[str, bool]:
