@@ -161,4 +161,4 @@ For support, please:
 
 ## Roadmap
 
-coming soon
+Check the [GitHub Issues](https://github.com/JustAnotherIdea/sins2-entity-tool/issues) and [project board](https://github.com/users/JustAnotherIdea/projects/6) for the latest updates.
