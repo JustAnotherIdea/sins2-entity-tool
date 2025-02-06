@@ -4948,6 +4948,13 @@ class EntityToolGUI(QMainWindow):
         current_view.domains.clear()
         current_view.fields_by_domain.clear()
         
+        # Clear all scene items (nodes, lines, text, etc.)
+        for item in list(current_view.scene.items()):
+            current_view.scene.removeItem(item)
+            
+        # Re-add tier headers and grid lines
+        current_view.add_tier_headers()
+        
         # Load field backgrounds from research data
         field_backgrounds = {}
         if "research_domains" in self.current_data["research"]:
