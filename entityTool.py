@@ -5475,6 +5475,23 @@ class EntityToolGUI(QMainWindow):
                     item.setFont(font)
                     list_widget.addItem(item)
 
+        def get_research_fields():
+            """Get available research fields from the current player file"""
+            fields = {'military': [], 'civilian': []}
+            if 'research' in self.current_data and 'research_domains' in self.current_data['research']:
+                for domain in ['military', 'civilian']:
+                    if domain in self.current_data['research']['research_domains']:
+                        domain_data = self.current_data['research']['research_domains'][domain]
+                        if 'research_fields' in domain_data:
+                            for field in domain_data['research_fields']:
+                                if 'id' in field:
+                                    fields[domain].append(field['id'])
+            return fields
+
+        def on_selection_changed():
+            """Enable/disable copy button based on selection"""
+            copy_btn.setEnabled(bool(list_widget.selectedItems()))
+
         def on_copy():
             selected_items = list_widget.selectedItems()
             if not selected_items:
@@ -5492,6 +5509,67 @@ class EntityToolGUI(QMainWindow):
             
             if not ok or not new_name:
                 return
+
+            # Create dialog for research settings
+            settings_dialog = QDialog(dialog)
+            settings_dialog.setWindowTitle("Research Subject Settings")
+            settings_layout = QFormLayout(settings_dialog)
+
+            # Domain selection
+            domain_combo = QComboBox()
+            domain_combo.addItems(['military', 'civilian'])
+            settings_layout.addRow("Domain:", domain_combo)
+
+            # Get available fields
+            fields = get_research_fields()
+            field_combo = QComboBox()
+            
+            def update_fields():
+                field_combo.clear()
+                current_domain = domain_combo.currentText()
+                field_combo.addItems(fields[current_domain])
+            
+            domain_combo.currentTextChanged.connect(update_fields)
+            update_fields()  # Initial population
+            settings_layout.addRow("Field:", field_combo)
+
+            # Tier selection (0-4)
+            tier_spin = QSpinBox()
+            tier_spin.setRange(0, 4)
+            settings_layout.addRow("Tier:", tier_spin)
+
+            # Field coordinates
+            coord_widget = QWidget()
+            coord_layout = QHBoxLayout(coord_widget)
+            coord_x = QSpinBox()
+            coord_y = QSpinBox()
+            coord_x.setRange(0, 20)  # Reasonable range for coordinates
+            coord_y.setRange(0, 20)
+            coord_layout.addWidget(QLabel("X:"))
+            coord_layout.addWidget(coord_x)
+            coord_layout.addWidget(QLabel("Y:"))
+            coord_layout.addWidget(coord_y)
+            settings_layout.addRow("Field Coordinates:", coord_widget)
+
+            # Buttons
+            button_box = QHBoxLayout()
+            ok_btn = QPushButton("OK")
+            cancel_btn = QPushButton("Cancel")
+            button_box.addWidget(ok_btn)
+            button_box.addWidget(cancel_btn)
+            settings_layout.addRow(button_box)
+
+            ok_btn.clicked.connect(settings_dialog.accept)
+            cancel_btn.clicked.connect(settings_dialog.reject)
+
+            if settings_dialog.exec() != QDialog.DialogCode.Accepted:
+                return
+
+            # Get the settings
+            domain = domain_combo.currentText()
+            field = field_combo.currentText()
+            tier = tier_spin.value()
+            field_coord = [coord_x.value(), coord_y.value()]
                 
             # Check if subject already exists
             target_file = self.current_folder / "entities" / f"{new_name}.research_subject"
@@ -5531,7 +5609,11 @@ class EntityToolGUI(QMainWindow):
                 source_id,
                 new_name,
                 subject_type,
-                overwrite
+                overwrite,
+                domain=domain,
+                field=field,
+                tier=tier,
+                field_coord=field_coord
             )
             
             # Prepare and execute the command
@@ -5550,18 +5632,13 @@ class EntityToolGUI(QMainWindow):
 
         # Connect signals
         search_box.textChanged.connect(update_subject_list)
+        list_widget.itemSelectionChanged.connect(on_selection_changed)
         copy_btn.clicked.connect(on_copy)
         cancel_btn.clicked.connect(dialog.reject)
-        
-        def on_current_item_changed(current, previous):
-            copy_btn.setEnabled(current is not None)
-            
-        list_widget.currentItemChanged.connect(on_current_item_changed)
         
         # Initial population
         update_subject_list()
         
-        # Show dialog
         dialog.exec()
 
     def delete_research_subject(self, subject_id: str):

@@ -1749,7 +1749,8 @@ class CreateLocalizedText(Command):
 
 class CreateResearchSubjectCommand(Command):
     """Command for creating a new research subject and adding it to the research tree"""
-    def __init__(self, gui, source_file: str, new_name: str, subject_type: str, overwrite: bool = False):
+    def __init__(self, gui, source_file: str, new_name: str, subject_type: str, overwrite: bool = False,
+                 domain: str = None, field: str = None, tier: int = None, field_coord: list = None):
         super().__init__(None, None, None, None)  # We'll set these later
         self.gui = gui
         self.source_file = source_file
@@ -1757,6 +1758,11 @@ class CreateResearchSubjectCommand(Command):
         self.subject_type = subject_type  # "faction" or "regular"
         self.overwrite = overwrite
         self.array_path = ['research', 'faction_research_subjects' if subject_type == "faction" else 'research_subjects']
+        # Store research settings
+        self.domain = domain
+        self.field = field
+        self.tier = tier
+        self.field_coord = field_coord
         
     def prepare(self) -> bool:
         """Prepare the command by gathering necessary data and validating the operation"""
@@ -1767,12 +1773,13 @@ class CreateResearchSubjectCommand(Command):
                 raise ValueError("No player file is currently loaded")
 
             # Get current research data
-            self.old_value = self.gui.command_stack.get_file_data(self.file_path)
-            if not self.old_value or 'research' not in self.old_value:
+            data = self.gui.command_stack.get_file_data(self.file_path)
+            if not data or 'research' not in data:
                 raise ValueError("Current file has no research data")
 
-            # Create copy of research data for new value
-            self.new_value = self.old_value.copy()
+            # Create deep copies of research data for old and new values
+            self.old_value = json.loads(json.dumps(data))
+            self.new_value = json.loads(json.dumps(data))
             
             # Get current array
             current_array = []
@@ -1809,6 +1816,32 @@ class CreateResearchSubjectCommand(Command):
             if not self.copy_command.prepare():
                 raise ValueError("Failed to prepare research subject copy")
 
+            # If we have research settings, prepare to update them
+            if any(x is not None for x in [self.domain, self.field, self.tier, self.field_coord]):
+                # Get the target file path
+                self.subject_file = self.gui.current_folder / "entities" / f"{self.new_name}.research_subject"
+                
+                # Load the source data
+                if self.source_file in self.gui.manifest_data['mod'].get('research_subject', {}):
+                    self.source_data = self.gui.manifest_data['mod']['research_subject'][self.source_file]
+                elif self.source_file in self.gui.manifest_data['base_game'].get('research_subject', {}):
+                    self.source_data = self.gui.manifest_data['base_game']['research_subject'][self.source_file]
+                else:
+                    raise ValueError(f"Could not find source file {self.source_file}")
+                
+                # Create a copy of the source data
+                self.subject_data = json.loads(json.dumps(self.source_data))
+                
+                # Update the research settings
+                if self.domain is not None:
+                    self.subject_data['domain'] = self.domain
+                if self.field is not None:
+                    self.subject_data['field'] = self.field
+                if self.tier is not None:
+                    self.subject_data['tier'] = self.tier
+                if self.field_coord is not None:
+                    self.subject_data['field_coord'] = self.field_coord
+
             return True
 
         except Exception as e:
@@ -1825,6 +1858,11 @@ class CreateResearchSubjectCommand(Command):
             if not self.copy_command.execute():
                 print("Failed to execute file copy command")
                 return False
+
+            # Update the research subject file with new settings if provided
+            if hasattr(self, 'subject_data'):
+                with open(self.subject_file, 'w', encoding='utf-8') as f:
+                    json.dump(self.subject_data, f, indent=4)
 
             # Update only the specific research array
             self.gui.command_stack.update_file_data(self.file_path, self.new_value)
