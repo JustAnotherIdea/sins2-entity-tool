@@ -134,7 +134,7 @@ class EntityToolGUI(QMainWindow):
             self.loading.set_status("Initializing command system...")
             self.command_stack = CommandStack()
             
-            # Load config
+            # Load or create config
             self.loading.set_status("Loading configuration...")
             try:
                 with open('config.json', 'r') as f:
@@ -143,11 +143,11 @@ class EntityToolGUI(QMainWindow):
                         self.base_game_folder = Path(self.config["base_game_folder"])
                         print(f"Loaded base game folder from config: {self.base_game_folder}")
             except FileNotFoundError:
-                self.config = {}
-                logging.warning("No config.json found, using defaults")
+                logging.info("No config.json found, creating default")
+                self.create_default_config()
             except json.JSONDecodeError:
-                self.config = {}
-                logging.error("Error parsing config.json, using defaults")
+                logging.error("Error parsing config.json, creating default")
+                self.create_default_config()
             
             # Load schemas
             self.loading.set_status("Loading schemas...")
@@ -1319,14 +1319,18 @@ class EntityToolGUI(QMainWindow):
         dialog.exec()
                 
     def save_config(self):
-        """Save configuration to file"""
-        config_path = Path(__file__).parent / "config.json"
+        """Save current configuration to config.json"""
         try:
-            with open(config_path, 'w') as f:
-                json.dump(self.config, f, indent=4)
+            config_to_save = {
+                "base_game_folder": str(self.base_game_folder) if self.base_game_folder else "",
+                "schema_folder": str(self.config.get("schema_folder", ""))
+            }
+            with open('config.json', 'w') as f:
+                json.dump(config_to_save, f, indent=4)
             logging.info("Configuration saved successfully")
         except Exception as e:
-            print(f"Error saving config: {str(e)}")
+            logging.error(f"Failed to save config.json: {e}")
+            QMessageBox.warning(self, "Error", f"Failed to save configuration: {str(e)}")
 
     def show_context_menu(self, widget, position, current_value):
         """Show the context menu at the given position"""
@@ -5865,3 +5869,18 @@ class EntityToolGUI(QMainWindow):
 
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Failed to delete research subject: {str(e)}")
+
+    def create_default_config(self):
+        """Create a default config file if it doesn't exist"""
+        default_config = {
+            "base_game_folder": "",
+            "schema_folder": ""
+        }
+        try:
+            with open('config.json', 'w') as f:
+                json.dump(default_config, f, indent=4)
+            self.config = default_config
+            logging.info("Created default config.json")
+        except Exception as e:
+            logging.error(f"Failed to create default config.json: {e}")
+            self.config = default_config
