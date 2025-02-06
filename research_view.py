@@ -41,29 +41,42 @@ class ResearchNode(QGraphicsItem):
             gradient.setColorAt(0, QColor(0, 70, 100))
             gradient.setColorAt(1, QColor(0, 40, 60))
         
-        # Draw background
+        # Create rounded rect path for clipping
         path = QPainterPath()
         path.addRoundedRect(self.boundingRect(), self.border_radius, self.border_radius)
-        painter.fillPath(path, QBrush(gradient))
+        
+        # Set clipping path for icon
+        painter.setClipPath(path)
+        
+        # Draw icon if available, filling the entire node
+        if self.icon and not self.icon.isNull():
+            # Scale icon to fill the node while maintaining aspect ratio
+            scaled_icon = self.icon.scaled(self.width, self.height, 
+                                         Qt.AspectRatioMode.KeepAspectRatio,
+                                         Qt.TransformationMode.SmoothTransformation)
+            
+            # Calculate position to center the scaled icon
+            icon_x = int(-scaled_icon.width() / 2)
+            icon_y = int(-scaled_icon.height() / 2)
+            icon_rect = QRect(icon_x, icon_y, scaled_icon.width(), scaled_icon.height())
+            painter.drawPixmap(icon_rect, scaled_icon)
+        else:
+            # If no icon, fill with gradient
+            painter.fillPath(path, QBrush(gradient))
+        
+        # Reset clipping
+        painter.setClipping(False)
         
         # Draw border
         border_color = QColor(0, 200, 255) if self.isSelected() or self.hovered else QColor(0, 100, 150)
         painter.setPen(QPen(border_color, 2))
         painter.drawPath(path)
         
-        # Draw icon if available
-        if self.icon and not self.icon.isNull():
-            # Scale icon to fit while maintaining aspect ratio
-            icon_size = min(40, self.height - 20)  # Maximum icon size
-            scaled_icon = self.icon.scaled(icon_size, icon_size, 
-                                         Qt.AspectRatioMode.KeepAspectRatio,
-                                         Qt.TransformationMode.SmoothTransformation)
-            
-            # Create a QRect for the icon position and size
-            icon_x = int(-scaled_icon.width() / 2)
-            icon_y = int(-self.height/2 + 10)
-            icon_rect = QRect(icon_x, icon_y, scaled_icon.width(), scaled_icon.height())
-            painter.drawPixmap(icon_rect, scaled_icon)
+        # Draw text with semi-transparent background
+        text_rect = self.boundingRect().adjusted(0, self.height/2 - 25, 0, -2)
+        text_bg_path = QPainterPath()
+        text_bg_path.addRect(text_rect)
+        painter.fillPath(text_bg_path, QBrush(QColor(0, 0, 0, 180)))  # Semi-transparent black background
         
         # Draw text
         if self.is_base_game:
@@ -74,7 +87,6 @@ class ResearchNode(QGraphicsItem):
         else:
             painter.setPen(QPen(Qt.GlobalColor.white))
         
-        text_rect = self.boundingRect().adjusted(0, self.height/2 - 30, 0, -5)
         painter.drawText(text_rect, Qt.AlignmentFlag.AlignCenter, self.name)
     
     def hoverEnterEvent(self, event):
@@ -122,7 +134,7 @@ class ResearchTreeView(QGraphicsView):
         self.zoom_factor = 1.15
         self.min_zoom = 0.1
         self.max_zoom = 3.0
-        self.current_zoom = 0.6  # Default zoom level (60%)
+        self.current_zoom = 0.4  # Default zoom level (40%)
         
         # Node layout settings
         self.field_width = 400  # Width for field background/label area
