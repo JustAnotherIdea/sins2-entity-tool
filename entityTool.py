@@ -1670,29 +1670,41 @@ class EntityToolGUI(QMainWindow):
         file_layout = QHBoxLayout()
         file_label = QLabel("Uniforms File:")
         file_combo = QComboBox()
-        # Add mod files first
-        mod_files = []
-        base_files = []
-        for item in self.uniforms_list.findItems("*", Qt.MatchFlag.MatchWildcard):
-            # Check if file exists in mod folder
-            mod_path = self.current_folder / "uniforms" / f"{item.text()}.uniforms"
-            if mod_path.exists():
-                mod_files.append(item.text())
-            else:
-                base_files.append(item.text())
         
-        # Add mod files first
-        for file_id in sorted(mod_files):
-            file_combo.addItem(file_id)
-        # Then add base game files
-        for file_id in sorted(base_files):
-            file_combo.addItem(file_id)
-            # Style base game items
-            index = file_combo.count() - 1
-            file_combo.setItemData(index, QColor(150, 150, 150), Qt.ItemDataRole.ForegroundRole)
-            font = file_combo.itemData(index, Qt.ItemDataRole.FontRole) or QFont()
-            font.setItalic(True)
-            file_combo.setItemData(index, font, Qt.ItemDataRole.FontRole)
+        # Get all available uniform files from both mod and base game
+        mod_uniforms = set()
+        base_uniforms = set()
+        
+        # Get mod uniforms
+        if self.current_folder:
+            mod_uniforms_dir = self.current_folder / "uniforms"
+            if mod_uniforms_dir.exists():
+                for file_path in mod_uniforms_dir.glob("*.uniforms"):
+                    mod_uniforms.add(file_path.stem)
+        
+        # Get base game uniforms
+        if self.base_game_folder:
+            base_uniforms_dir = self.base_game_folder / "uniforms"
+            if base_uniforms_dir.exists():
+                for file_path in base_uniforms_dir.glob("*.uniforms"):
+                    base_uniforms.add(file_path.stem)
+        
+        # Add all files to combo box, marking their source
+        all_files = sorted(mod_uniforms | base_uniforms)
+        for file_id in all_files:
+            # Add mod version if it exists
+            if file_id in mod_uniforms:
+                file_combo.addItem(f"{file_id} (Mod)")
+            
+            # Add base game version if it exists
+            if file_id in base_uniforms:
+                file_combo.addItem(file_id)
+                # Style base game items
+                index = file_combo.count() - 1
+                file_combo.setItemData(index, QColor(150, 150, 150), Qt.ItemDataRole.ForegroundRole)
+                font = file_combo.itemData(index, Qt.ItemDataRole.FontRole) or QFont()
+                font.setItalic(True)
+                file_combo.setItemData(index, font, Qt.ItemDataRole.FontRole)
         
         file_layout.addWidget(file_label)
         file_layout.addWidget(file_combo)
@@ -1729,23 +1741,44 @@ class EntityToolGUI(QMainWindow):
         
         def update_tree():
             tree.clear()
-            file_id = file_combo.currentText()
-            if not file_id:
+            selected_text = file_combo.currentText()
+            if not selected_text:
                 return
                 
-            try:
-                # Try to load the uniforms file
-                file_path = self.current_folder / "uniforms" / f"{file_id}.uniforms"
-                if not file_path.exists() and self.base_game_folder:
-                    file_path = self.base_game_folder / "uniforms" / f"{file_id}.uniforms"
+            # Determine if this is a mod or base game file
+            is_base_game = not selected_text.endswith(" (Mod)")
+            file_id = selected_text.replace(" (Mod)", "") if not is_base_game else selected_text
                 
-                if file_path.exists():
+            try:
+                # Load the appropriate file based on selection
+                if is_base_game:
+                    file_path = self.base_game_folder / "uniforms" / f"{file_id}.uniforms"
+                else:
+                    file_path = self.current_folder / "uniforms" / f"{file_id}.uniforms"
+                
+                if file_path and file_path.exists():
                     with open(file_path, 'r', encoding='utf-8') as f:
                         data = json.load(f)
                         for key, value in sorted(data.items()):
                             add_item(tree, key, value)
                             
                     tree.expandToDepth(0)  # Expand first level by default
+                    
+                    # Style items if base game
+                    if is_base_game:
+                        def style_items(item):
+                            item.setForeground(0, QColor(150, 150, 150))
+                            item.setForeground(1, QColor(150, 150, 150))
+                            font = item.font(0)
+                            font.setItalic(True)
+                            item.setFont(0, font)
+                            item.setFont(1, font)
+                            for i in range(item.childCount()):
+                                style_items(item.child(i))
+                                
+                        for i in range(tree.topLevelItemCount()):
+                            style_items(tree.topLevelItem(i))
+                            
             except Exception as e:
                 print(f"Error loading uniforms file: {str(e)}")
         
