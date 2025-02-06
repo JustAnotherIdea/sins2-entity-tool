@@ -1,5 +1,6 @@
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QMessageBox
 from entityTool import EntityToolGUI
+from version_checker import VersionChecker
 import sys
 import logging
 from pathlib import Path
@@ -25,6 +26,21 @@ def main():
     # Create and show main window
     window = EntityToolGUI()
     window.show()
+
+    # Check for updates
+    version_checker = VersionChecker()
+    has_update, download_url = version_checker.check_for_updates()
+    if has_update:
+        reply = QMessageBox.question(
+            window,
+            'Update Available',
+            'A new version is available. Would you like to download and install it?',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            version_checker.download_update(download_url)
+    
     sys.exit(app.exec())
 
 if __name__ == '__main__':
