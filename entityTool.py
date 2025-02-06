@@ -5084,6 +5084,10 @@ class EntityToolGUI(QMainWindow):
         data_path = widget.property("data_path")
         old_value = widget.property("original_value")
         
+        # Simplify the number if possible
+        if isinstance(new_value, (int, float)):
+            new_value = self.simplify_number(new_value)
+        
         if data_path is not None and old_value != new_value:
             command = EditValueCommand(
                 file_path,
@@ -5879,3 +5883,15 @@ class EntityToolGUI(QMainWindow):
         except Exception as e:
             logging.error(f"Failed to create default config.json: {e}")
             self.config = default_config
+
+    def simplify_number(self, value: float | int) -> float | int:
+        """Simplify a number to an integer if possible without loss of precision"""
+        try:
+            # Convert to float first to handle string inputs
+            float_val = float(value)
+            # Check if it can be converted to int without loss
+            if float_val.is_integer():
+                return int(float_val)
+            return float_val
+        except (ValueError, TypeError):
+            return value
