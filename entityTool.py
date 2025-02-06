@@ -3249,7 +3249,9 @@ class EntityToolGUI(QMainWindow):
             schema_name = file_path.stem.replace("_", "-") + "-uniforms-schema"
             print(f"Looking for uniform schema: {schema_name}")
         else:
-            schema_name = f"{file_type}-schema"
+            # Convert from snake_case to kebab-case for schema lookup
+            schema_name = file_type.replace("_", "-") + "-schema"
+            print(f"Looking for schema: {schema_name}")
             
         if schema_name not in self.schemas:
             print(f"Schema not found for {schema_name}, using generic schema")
@@ -5185,11 +5187,9 @@ class EntityToolGUI(QMainWindow):
         if not isinstance(target, dict):
             return
             
-        # Resolve schema references and get the full schema
-        resolved_schema = self.resolve_schema_references(prop_schema)
-        
+        # Schema references are already resolved when passed in from create_context_menu
         # Create default value for the new property
-        default_value = self.get_default_value(resolved_schema)
+        default_value = self.get_default_value(prop_schema)
         
         # Create old and new values for the object
         if not data_path:
@@ -5231,7 +5231,7 @@ class EntityToolGUI(QMainWindow):
             transform_cmd.file_path = file_path
             transform_cmd.data_path = data_path
             transform_cmd.source_widget = widget
-            transform_cmd.schema = resolved_schema
+            transform_cmd.schema = prop_schema
             transform_cmd.prop_name = prop_name
             
             self.command_stack.push(transform_cmd)
