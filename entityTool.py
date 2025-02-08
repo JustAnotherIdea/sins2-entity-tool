@@ -5967,6 +5967,7 @@ class EntityToolGUI(QMainWindow):
         msg = "Are you sure you want to delete this file?"
         if remove_manifest:
             msg += "\nThis will also remove it from the manifest."
+        msg += "\nNote: This operation cannot be undone."
         reply = QMessageBox.question(
             self,
             "Confirm Delete",
@@ -5994,6 +5995,9 @@ class EntityToolGUI(QMainWindow):
                 
             # Add command to stack for undo/redo
             self.command_stack.push(command)
+
+            # Update the buttons
+            self.update_save_button()
             
         except Exception as e:
             QMessageBox.warning(self, "Error", str(e))

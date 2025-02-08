@@ -2000,11 +2000,21 @@ class DeleteFileCommand(Command):
             # Handle manifest if needed
             if self.remove_manifest and self.manifest_file_path and self.manifest_file_path.exists():
                 with open(self.manifest_file_path, 'r', encoding='utf-8') as f:
-                    self.old_manifest_data = json.load(f)
-                # Create new manifest data without this file
-                self.new_manifest_data = json.loads(json.dumps(self.old_manifest_data))
+                    manifest_data = json.load(f)
+                # Store old manifest data for undo (deep copy)
+                self.old_manifest_data = json.loads(json.dumps(manifest_data))
+                # Create new manifest data without this file (deep copy)
+                self.new_manifest_data = json.loads(json.dumps(manifest_data))
                 if "ids" in self.new_manifest_data and self.file_id in self.new_manifest_data["ids"]:
                     self.new_manifest_data["ids"].remove(self.file_id)
+
+            # Store current manifest data state for undo
+            if self.file_type in self.gui.manifest_data['mod']:
+                # Store the current data for this specific file ID only
+                if self.file_id in self.gui.manifest_data['mod'][self.file_type]:
+                    self.manifest_mod_data = self.gui.manifest_data['mod'][self.file_type][self.file_id]
+                else:
+                    self.manifest_mod_data = None
 
             return True
 
@@ -2052,11 +2062,11 @@ class DeleteFileCommand(Command):
                 with open(self.manifest_file_path, 'w', encoding='utf-8') as f:
                     json.dump(self.old_manifest_data, f, indent=4)
 
-                # Restore GUI's manifest data
-                if self.file_data:
-                    if self.file_type not in self.gui.manifest_data['mod']:
-                        self.gui.manifest_data['mod'][self.file_type] = {}
-                    self.gui.manifest_data['mod'][self.file_type][self.file_id] = self.file_data
+            # Restore GUI's manifest data
+            if hasattr(self, 'manifest_mod_data') and self.manifest_mod_data is not None:
+                if self.file_type not in self.gui.manifest_data['mod']:
+                    self.gui.manifest_data['mod'][self.file_type] = {}
+                self.gui.manifest_data['mod'][self.file_type][self.file_id] = self.manifest_mod_data
 
             # Update the appropriate list
             self.update_list_for_type()
