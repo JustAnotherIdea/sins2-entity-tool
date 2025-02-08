@@ -10,7 +10,7 @@ import logging
 from pathlib import Path
 from research_view import ResearchTreeView
 import os
-from command_stack import CommandStack, EditValueCommand, AddPropertyCommand, DeleteArrayItemCommand, DeletePropertyCommand, CompositeCommand, TransformWidgetCommand, AddArrayItemCommand, CreateFileFromCopy, CreateLocalizedText, CreateResearchSubjectCommand, DeleteResearchSubjectCommand
+from command_stack import CommandStack, EditValueCommand, AddPropertyCommand, DeleteArrayItemCommand, DeletePropertyCommand, CompositeCommand, TransformWidgetCommand, AddArrayItemCommand, CreateFileFromCopy, CreateLocalizedText, CreateResearchSubjectCommand, DeleteResearchSubjectCommand, DeleteFileCommand
 from typing import List, Any
 import threading
 import pygame.mixer
@@ -5923,14 +5923,79 @@ class EntityToolGUI(QMainWindow):
         """Show context menu for list widgets"""
         menu = QMenu()
         
-        # Only show copy option if an item is selected
+        # Only show options if an item is selected
         if list_widget.currentItem():
+            file_id = list_widget.currentItem().text()
+            is_mod_version = list_widget.currentItem().toolTip() == "Mod version"
+            has_base_game_version = False
+
+            # Check if there's a base game version
+            if file_type == "uniform":
+                base_file = None if not self.base_game_folder else self.base_game_folder / "uniforms" / f"{file_id}.uniforms"
+                has_base_game_version = base_file and base_file.exists()
+            else:
+                has_base_game_version = file_id in self.manifest_data['base_game'].get(file_type, {})
+
+            # Add copy option
             copy_action = menu.addAction("Create Copy...")
             copy_action.triggered.connect(
-                lambda: self.show_copy_dialog(list_widget.currentItem().text(), file_type)
+                lambda: self.show_copy_dialog(file_id, file_type)
             )
+
+            # Only show delete options for mod files
+            if is_mod_version:
+                menu.addSeparator()
+                # If this file doesn't have a base game version, show option to remove from manifest
+                if not has_base_game_version:
+                    delete_with_manifest = menu.addAction("Delete File and Remove from Manifest")
+                    delete_with_manifest.triggered.connect(
+                        lambda: self.delete_file(file_id, file_type, True)
+                    )
+                    menu.addSeparator()
+
+                delete_file = menu.addAction("Delete File Only")
+                delete_file.triggered.connect(
+                    lambda: self.delete_file(file_id, file_type, False)
+                )
             
         menu.exec(list_widget.mapToGlobal(position))
+
+    def delete_file(self, file_id: str, file_type: str, remove_manifest: bool):
+        """Delete a file and optionally its manifest entry"""
+        # Ask for confirmation
+        msg = "Are you sure you want to delete this file?"
+        if remove_manifest:
+            msg += "\nThis will also remove it from the manifest."
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            msg,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            # Create and execute the delete command
+            command = DeleteFileCommand(self, file_id, file_type, remove_manifest)
+            
+            # Prepare and validate the command
+            if not command.prepare():
+                QMessageBox.warning(self, "Error", "Failed to prepare file deletion")
+                return
+                
+            # Execute the delete command
+            if not command.execute():
+                QMessageBox.warning(self, "Error", "Failed to delete file")
+                return
+                
+            # Add command to stack for undo/redo
+            self.command_stack.push(command)
+            
+        except Exception as e:
+            QMessageBox.warning(self, "Error", str(e))
 
     def show_copy_dialog(self, source_file: str, file_type: str):
         """Show dialog to create a copy of a file"""

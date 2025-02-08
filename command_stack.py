@@ -1424,8 +1424,6 @@ class DeletePropertyCommand(Command):
             
         except Exception as e:
             print(f"Error undoing delete property command: {str(e)}")
-            import traceback
-            traceback.print_exc()
             return False
             
     def redo(self):
@@ -1964,6 +1962,119 @@ class CreateResearchSubjectCommand(Command):
     def redo(self):
         """Redo the command"""
         return self.execute()
+
+class DeleteFileCommand(Command):
+    """Command for deleting a file and optionally its manifest entry"""
+    def __init__(self, gui, file_id: str, file_type: str, remove_manifest: bool = False):
+        super().__init__(None, None, None, None)  # We don't use the standard command values
+        self.gui = gui
+        self.file_id = file_id
+        self.file_type = file_type
+        self.remove_manifest = remove_manifest
+        self.file_path = None
+        self.manifest_file_path = None
+        self.old_manifest_data = None
+        self.new_manifest_data = None
+        self.file_data = None  # Store file contents for undo
+        
+    def prepare(self) -> bool:
+        """Prepare the command by gathering necessary data and validating the operation"""
+        try:
+            # Special handling for uniforms
+            if self.file_type == "uniform":
+                self.file_path = self.gui.current_folder / "uniforms" / f"{self.file_id}.uniforms"
+                # No manifest file for uniforms
+                self.manifest_file_path = None
+            else:
+                self.file_path = self.gui.current_folder / "entities" / f"{self.file_id}.{self.file_type}"
+                self.manifest_file_path = self.gui.current_folder / "entities" / f"{self.file_type}.entity_manifest"
+
+            # Check if file exists
+            if not self.file_path.exists():
+                raise ValueError(f"File does not exist: {self.file_path}")
+
+            # Store file contents for undo
+            with open(self.file_path, 'r', encoding='utf-8') as f:
+                self.file_data = json.load(f)
+
+            # Handle manifest if needed
+            if self.remove_manifest and self.manifest_file_path and self.manifest_file_path.exists():
+                with open(self.manifest_file_path, 'r', encoding='utf-8') as f:
+                    self.old_manifest_data = json.load(f)
+                # Create new manifest data without this file
+                self.new_manifest_data = json.loads(json.dumps(self.old_manifest_data))
+                if "ids" in self.new_manifest_data and self.file_id in self.new_manifest_data["ids"]:
+                    self.new_manifest_data["ids"].remove(self.file_id)
+
+            return True
+
+        except Exception as e:
+            print(f"Error preparing delete file command: {str(e)}")
+            return False
+
+    def execute(self):
+        """Execute the file deletion"""
+        try:
+            # Delete the file
+            if self.file_path.exists():
+                self.file_path.unlink()
+
+            # Update manifest if needed
+            if self.remove_manifest and self.manifest_file_path and self.new_manifest_data:
+                with open(self.manifest_file_path, 'w', encoding='utf-8') as f:
+                    json.dump(self.new_manifest_data, f, indent=4)
+
+                # Remove from GUI's manifest data
+                if self.file_type in self.gui.manifest_data['mod']:
+                    self.gui.manifest_data['mod'][self.file_type].pop(self.file_id, None)
+
+            # Update the appropriate list
+            self.update_list_for_type()
+
+            return True
+
+        except Exception as e:
+            print(f"Error executing delete file command: {str(e)}")
+            return False
+
+    def undo(self):
+        """Undo the file deletion"""
+        try:
+            # Restore the file
+            if self.file_data:
+                self.file_path.parent.mkdir(parents=True, exist_ok=True)
+                with open(self.file_path, 'w', encoding='utf-8') as f:
+                    json.dump(self.file_data, f, indent=4)
+
+            # Restore manifest if needed
+            if self.remove_manifest and self.manifest_file_path and self.old_manifest_data:
+                with open(self.manifest_file_path, 'w', encoding='utf-8') as f:
+                    json.dump(self.old_manifest_data, f, indent=4)
+
+                # Restore GUI's manifest data
+                if self.file_data:
+                    if self.file_type not in self.gui.manifest_data['mod']:
+                        self.gui.manifest_data['mod'][self.file_type] = {}
+                    self.gui.manifest_data['mod'][self.file_type][self.file_id] = self.file_data
+
+            # Update the appropriate list
+            self.update_list_for_type()
+
+            return True
+
+        except Exception as e:
+            print(f"Error undoing delete file command: {str(e)}")
+            return False
+
+    def redo(self):
+        """Redo the file deletion"""
+        return self.execute()
+
+    def update_list_for_type(self):
+        """Update the appropriate list widget"""
+        # Create a temporary CreateFileFromCopy command to use its update_list_for_type method
+        temp_cmd = CreateFileFromCopy(self.gui, "", self.file_type, "")
+        temp_cmd.update_list_for_type()
 
 class DeleteResearchSubjectCommand(Command):
     """Command for deleting a research subject from the research tree and optionally the file system"""
