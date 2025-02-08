@@ -1992,6 +1992,7 @@ class DeleteFileCommand(Command):
         self.old_manifest_data = None
         self.new_manifest_data = None
         self.file_data = None  # Store file contents for undo
+        self.manifest_mod_data = None  # Store mod manifest data for undo
         
     def prepare(self) -> bool:
         """Prepare the command by gathering necessary data and validating the operation"""
@@ -2028,9 +2029,9 @@ class DeleteFileCommand(Command):
             if self.file_type in self.gui.manifest_data['mod']:
                 # Store the current data for this specific file ID only
                 if self.file_id in self.gui.manifest_data['mod'][self.file_type]:
-                    self.manifest_mod_data = self.gui.manifest_data['mod'][self.file_type][self.file_id]
-                else:
-                    self.manifest_mod_data = None
+                    self.manifest_mod_data = json.loads(json.dumps(
+                        self.gui.manifest_data['mod'][self.file_type][self.file_id]
+                    ))
 
             return True
 
@@ -2078,11 +2079,11 @@ class DeleteFileCommand(Command):
                 with open(self.manifest_file_path, 'w', encoding='utf-8') as f:
                     json.dump(self.old_manifest_data, f, indent=4)
 
-            # Restore GUI's manifest data
-            if hasattr(self, 'manifest_mod_data') and self.manifest_mod_data is not None:
+            # Restore GUI's manifest data if we had stored it
+            if self.manifest_mod_data is not None:
                 if self.file_type not in self.gui.manifest_data['mod']:
                     self.gui.manifest_data['mod'][self.file_type] = {}
-                self.gui.manifest_data['mod'][self.file_type][self.file_id] = self.manifest_mod_data
+                self.gui.manifest_data['mod'][self.file_type][self.file_id] = json.loads(json.dumps(self.manifest_mod_data))
 
             # Update the appropriate list
             self.update_list_for_type()
@@ -2168,28 +2169,28 @@ class DeleteFileCommand(Command):
                             item.setToolTip("Base game version")
                             self.gui.all_units_list.addItem(item)
 
-                # Update buildable units list
-                if hasattr(self.gui, 'current_data') and self.gui.current_data:
-                    self.gui.units_list.clear()
-                    buildable_units = self.gui.current_data.get('buildable_units', [])
-                    for unit_id in sorted(buildable_units):
-                        # Check mod folder first
-                        mod_file = mod_entities / f"{unit_id}.unit"
-                        if mod_file.exists():
-                            item = QListWidgetItem(unit_id)
-                            item.setToolTip("Mod version")
-                            self.gui.units_list.addItem(item)
-                        # Then check base game folder
-                        elif self.gui.base_game_folder:
-                            base_file = base_entities / f"{unit_id}.unit"
-                            if base_file.exists():
+                    # Update buildable units list
+                    if hasattr(self.gui, 'current_data') and self.gui.current_data:
+                        self.gui.units_list.clear()
+                        buildable_units = self.gui.current_data.get('buildable_units', [])
+                        for unit_id in sorted(buildable_units):
+                            # Check mod folder first
+                            mod_file = mod_entities / f"{unit_id}.unit"
+                            if mod_file.exists():
                                 item = QListWidgetItem(unit_id)
-                                item.setForeground(QColor(150, 150, 150))
-                                font = item.font()
-                                font.setItalic(True)
-                                item.setFont(font)
-                                item.setToolTip("Base game version")
+                                item.setToolTip("Mod version")
                                 self.gui.units_list.addItem(item)
+                            # Then check base game folder
+                            elif self.gui.base_game_folder:
+                                base_file = base_entities / f"{unit_id}.unit"
+                                if base_file.exists():
+                                    item = QListWidgetItem(unit_id)
+                                    item.setForeground(QColor(150, 150, 150))
+                                    font = item.font()
+                                    font.setItalic(True)
+                                    item.setFont(font)
+                                    item.setToolTip("Base game version")
+                                    self.gui.units_list.addItem(item)
 
                     # Update buildable strikecraft list
                     self.gui.strikecraft_list.clear()

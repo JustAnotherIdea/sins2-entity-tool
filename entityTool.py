@@ -5995,7 +5995,7 @@ class EntityToolGUI(QMainWindow):
                 return
                 
             # Add command to stack for undo/redo
-            self.command_stack.push(command)
+            # self.command_stack.push(command)
 
             # Update the buttons
             self.update_save_button()
@@ -6089,7 +6089,7 @@ class EntityToolGUI(QMainWindow):
                     return
                     
                 # Add command to stack for undo/redo
-                self.command_stack.push(copy_command)
+                # self.command_stack.push(copy_command)
                 
                 copy_dialog.accept()
                 
