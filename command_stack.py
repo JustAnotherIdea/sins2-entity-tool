@@ -1641,68 +1641,9 @@ class CreateFileFromCopy(Command):
                             self.gui.uniforms_list.addItem(item)
                 return
 
-            # Special handling for units to filter by type
-            if self.source_type == 'unit':
-                # Update all units list first
-                self.gui.all_units_list.clear()
-                # Add mod files first
-                for file_id in sorted(self.gui.manifest_data['mod'].get('unit', {})):
-                    item = QListWidgetItem(file_id)
-                    item.setToolTip("Mod version")
-                    self.gui.all_units_list.addItem(item)
-                # Then add base game files (grayed out)
-                for file_id in sorted(self.gui.manifest_data['base_game'].get('unit', {})):
-                    # Always add base game files, even if they exist in mod folder
-                    item = QListWidgetItem(file_id)
-                    item.setForeground(QColor(150, 150, 150))
-                    font = item.font()
-                    font.setItalic(True)
-                    item.setFont(font)
-                    item.setToolTip("Base game version")
-                    self.gui.all_units_list.addItem(item)
-
-                # Update buildable units list
-                if hasattr(self.gui, 'current_data') and self.gui.current_data:
-                    self.gui.units_list.clear()
-                    buildable_units = self.gui.current_data.get('buildable_units', [])
-                    for unit_id in sorted(buildable_units):
-                        # Add mod version if it exists
-                        if unit_id in self.gui.manifest_data['mod'].get('unit', {}):
-                            item = QListWidgetItem(unit_id)
-                            item.setToolTip("Mod version")
-                            self.gui.units_list.addItem(item)
-                        # Add base game version if it exists
-                        if unit_id in self.gui.manifest_data['base_game'].get('unit', {}):
-                            item = QListWidgetItem(unit_id)
-                            item.setForeground(QColor(150, 150, 150))
-                            font = item.font()
-                            font.setItalic(True)
-                            item.setFont(font)
-                            item.setToolTip("Base game version")
-                            self.gui.units_list.addItem(item)
-
-                    # Update buildable strikecraft list
-                    self.gui.strikecraft_list.clear()
-                    buildable_strikecraft = self.gui.current_data.get('buildable_strikecraft', [])
-                    for unit_id in sorted(buildable_strikecraft):
-                        # Add mod version if it exists
-                        if unit_id in self.gui.manifest_data['mod'].get('unit', {}):
-                            item = QListWidgetItem(unit_id)
-                            item.setToolTip("Mod version")
-                            self.gui.strikecraft_list.addItem(item)
-                        # Add base game version if it exists
-                        if unit_id in self.gui.manifest_data['base_game'].get('unit', {}):
-                            item = QListWidgetItem(unit_id)
-                            item.setForeground(QColor(150, 150, 150))
-                            font = item.font()
-                            font.setItalic(True)
-                            item.setFont(font)
-                            item.setToolTip("Base game version")
-                            self.gui.strikecraft_list.addItem(item)
-                return
-
             # For other types, use the standard mapping
             type_to_list = {
+                'unit': [self.gui.all_units_list, self.gui.units_list, self.gui.strikecraft_list],
                 'unit_item': [self.gui.items_list],
                 'ability': [self.gui.ability_list],
                 'action_data_source': [self.gui.action_list],
@@ -1717,6 +1658,77 @@ class CreateFileFromCopy(Command):
             list_widgets = type_to_list.get(self.source_type, [])
             if not list_widgets:
                 return
+
+            # Special handling for units to filter by type
+            if self.source_type == 'unit':
+                # Update all units list first
+                self.gui.all_units_list.clear()
+                # Add mod files first
+                mod_entities = self.gui.current_folder / "entities"
+                if mod_entities.exists():
+                    for file in sorted(mod_entities.glob("*.unit")):
+                        item = QListWidgetItem(file.stem)
+                        item.setToolTip("Mod version")
+                        self.gui.all_units_list.addItem(item)
+                # Then add base game files (grayed out)
+                if self.gui.base_game_folder:
+                    base_entities = self.gui.base_game_folder / "entities"
+                    if base_entities.exists():
+                        for file in sorted(base_entities.glob("*.unit")):
+                            # Always add base game files, even if they exist in mod folder
+                            item = QListWidgetItem(file.stem)
+                            item.setForeground(QColor(150, 150, 150))
+                            font = item.font()
+                            font.setItalic(True)
+                            item.setFont(font)
+                            item.setToolTip("Base game version")
+                            self.gui.all_units_list.addItem(item)
+
+                # Update buildable units list
+                if hasattr(self.gui, 'current_data') and self.gui.current_data:
+                    self.gui.units_list.clear()
+                    buildable_units = self.gui.current_data.get('buildable_units', [])
+                    for unit_id in sorted(buildable_units):
+                        # Check mod folder first
+                        mod_file = mod_entities / f"{unit_id}.unit"
+                        if mod_file.exists():
+                            item = QListWidgetItem(unit_id)
+                            item.setToolTip("Mod version")
+                            self.gui.units_list.addItem(item)
+                        # Then check base game folder
+                        elif self.gui.base_game_folder:
+                            base_file = base_entities / f"{unit_id}.unit"
+                            if base_file.exists():
+                                item = QListWidgetItem(unit_id)
+                                item.setForeground(QColor(150, 150, 150))
+                                font = item.font()
+                                font.setItalic(True)
+                                item.setFont(font)
+                                item.setToolTip("Base game version")
+                                self.gui.units_list.addItem(item)
+
+                    # Update buildable strikecraft list
+                    self.gui.strikecraft_list.clear()
+                    buildable_strikecraft = self.gui.current_data.get('buildable_strikecraft', [])
+                    for unit_id in sorted(buildable_strikecraft):
+                        # Check mod folder first
+                        mod_file = mod_entities / f"{unit_id}.unit"
+                        if mod_file.exists():
+                            item = QListWidgetItem(unit_id)
+                            item.setToolTip("Mod version")
+                            self.gui.strikecraft_list.addItem(item)
+                        # Then check base game folder
+                        elif self.gui.base_game_folder:
+                            base_file = base_entities / f"{unit_id}.unit"
+                            if base_file.exists():
+                                item = QListWidgetItem(unit_id)
+                                item.setForeground(QColor(150, 150, 150))
+                                font = item.font()
+                                font.setItalic(True)
+                                item.setFont(font)
+                                item.setToolTip("Base game version")
+                                self.gui.strikecraft_list.addItem(item)
+                return
                 
             # Update each list widget
             for list_widget in list_widgets:
@@ -1724,22 +1736,26 @@ class CreateFileFromCopy(Command):
                 list_widget.clear()
                 
                 # Add mod files first
-                for file_id in sorted(self.gui.manifest_data['mod'].get(self.source_type, {})):
-                    item = QListWidgetItem(file_id)
-                    item.setToolTip("Mod version")
-                    list_widget.addItem(item)
+                mod_entities = self.gui.current_folder / "entities"
+                if mod_entities.exists():
+                    for file in sorted(mod_entities.glob(f"*.{self.source_type}")):
+                        item = QListWidgetItem(file.stem)
+                        item.setToolTip("Mod version")
+                        list_widget.addItem(item)
                 
                 # Then add base game files (grayed out)
-                for file_id in sorted(self.gui.manifest_data['base_game'].get(self.source_type, {})):
-                    # Always add base game files, even if they exist in mod folder
-                    item = QListWidgetItem(file_id)
-                    item.setForeground(QColor(150, 150, 150))
-                    font = item.font()
-                    font.setItalic(True)
-                    item.setFont(font)
-                    item.setToolTip("Base game version")
-                    list_widget.addItem(item)
-                        
+                if self.gui.base_game_folder:
+                    base_entities = self.gui.base_game_folder / "entities"
+                    if base_entities.exists():
+                        for file in sorted(base_entities.glob(f"*.{self.source_type}")):
+                            # Always add base game files, even if they exist in mod folder
+                            item = QListWidgetItem(file.stem)
+                            item.setForeground(QColor(150, 150, 150))
+                            font = item.font()
+                            font.setItalic(True)
+                            item.setFont(font)
+                            item.setToolTip("Base game version")
+                            list_widget.addItem(item)
         except Exception as e:
             print(f"Error updating list for type {self.source_type}: {str(e)}")
 
@@ -2083,70 +2099,149 @@ class DeleteFileCommand(Command):
 
     def update_list_for_type(self):
         """Update the appropriate list widget"""
-        # Special handling for uniforms
-        if self.file_type == "uniform":
-            self.gui.uniforms_list.clear()
-            # Add mod files first
-            uniforms_folder = self.gui.current_folder / "uniforms"
-            if uniforms_folder.exists():
-                for file in sorted(uniforms_folder.glob("*.uniforms")):
-                    item = QListWidgetItem(file.stem)
-                    item.setToolTip("Mod version")
-                    self.gui.uniforms_list.addItem(item)
-            # Then add base game files (grayed out)
-            if self.gui.base_game_folder:
-                base_uniforms_folder = self.gui.base_game_folder / "uniforms"
-                if base_uniforms_folder.exists():
-                    for file in sorted(base_uniforms_folder.glob("*.uniforms")):
-                        # Always add base game files, even if they exist in mod folder
+        try:
+            # Special handling for uniforms
+            if self.file_type == "uniform":
+                self.gui.uniforms_list.clear()
+                # Add mod files first
+                uniforms_folder = self.gui.current_folder / "uniforms"
+                if uniforms_folder.exists():
+                    for file in sorted(uniforms_folder.glob("*.uniforms")):
                         item = QListWidgetItem(file.stem)
-                        item.setForeground(QColor(150, 150, 150))
-                        font = item.font()
-                        font.setItalic(True)
-                        item.setFont(font)
-                        item.setToolTip("Base game version")
+                        item.setToolTip("Mod version")
                         self.gui.uniforms_list.addItem(item)
-            return
+                # Then add base game files (grayed out)
+                if self.gui.base_game_folder:
+                    base_uniforms_folder = self.gui.base_game_folder / "uniforms"
+                    if base_uniforms_folder.exists():
+                        for file in sorted(base_uniforms_folder.glob("*.uniforms")):
+                            # Always add base game files, even if they exist in mod folder
+                            item = QListWidgetItem(file.stem)
+                            item.setForeground(QColor(150, 150, 150))
+                            font = item.font()
+                            font.setItalic(True)
+                            item.setFont(font)
+                            item.setToolTip("Base game version")
+                            self.gui.uniforms_list.addItem(item)
+                return
 
-        # For other types, use the standard mapping
-        type_to_list = {
-            'unit': [self.gui.all_units_list, self.gui.units_list, self.gui.strikecraft_list],
-            'unit_item': [self.gui.items_list],
-            'ability': [self.gui.ability_list],
-            'action_data_source': [self.gui.action_list],
-            'buff': [self.gui.buff_list],
-            'formation': [self.gui.formations_list],
-            'flight_pattern': [self.gui.patterns_list],
-            'npc_reward': [self.gui.rewards_list],
-            'exotic': [self.gui.exotics_list]
-        }
-        
-        # Get the list widgets to update
-        list_widgets = type_to_list.get(self.file_type, [])
-        if not list_widgets:
-            return
+            # For other types, use the standard mapping
+            type_to_list = {
+                'unit': [self.gui.all_units_list, self.gui.units_list, self.gui.strikecraft_list],
+                'unit_item': [self.gui.items_list],
+                'ability': [self.gui.ability_list],
+                'action_data_source': [self.gui.action_list],
+                'buff': [self.gui.buff_list],
+                'formation': [self.gui.formations_list],
+                'flight_pattern': [self.gui.patterns_list],
+                'npc_reward': [self.gui.rewards_list],
+                'exotic': [self.gui.exotics_list]
+            }
             
-        # Update each list widget
-        for list_widget in list_widgets:
-            # Clear and repopulate the list
-            list_widget.clear()
-            
-            # Add mod files first
-            for file_id in sorted(self.gui.manifest_data['mod'].get(self.file_type, {})):
-                item = QListWidgetItem(file_id)
-                item.setToolTip("Mod version")
-                list_widget.addItem(item)
-            
-            # Then add base game files (grayed out)
-            for file_id in sorted(self.gui.manifest_data['base_game'].get(self.file_type, {})):
-                # Always add base game files, even if they exist in mod folder
-                item = QListWidgetItem(file_id)
-                item.setForeground(QColor(150, 150, 150))
-                font = item.font()
-                font.setItalic(True)
-                item.setFont(font)
-                item.setToolTip("Base game version")
-                list_widget.addItem(item)
+            # Get the list widgets to update
+            list_widgets = type_to_list.get(self.file_type, [])
+            if not list_widgets:
+                return
+
+            # Special handling for units to filter by type
+            if self.file_type == 'unit':
+                # Update all units list first
+                self.gui.all_units_list.clear()
+                # Add mod files first
+                mod_entities = self.gui.current_folder / "entities"
+                if mod_entities.exists():
+                    for file in sorted(mod_entities.glob("*.unit")):
+                        item = QListWidgetItem(file.stem)
+                        item.setToolTip("Mod version")
+                        self.gui.all_units_list.addItem(item)
+                # Then add base game files (grayed out)
+                if self.gui.base_game_folder:
+                    base_entities = self.gui.base_game_folder / "entities"
+                    if base_entities.exists():
+                        for file in sorted(base_entities.glob("*.unit")):
+                            # Always add base game files, even if they exist in mod folder
+                            item = QListWidgetItem(file.stem)
+                            item.setForeground(QColor(150, 150, 150))
+                            font = item.font()
+                            font.setItalic(True)
+                            item.setFont(font)
+                            item.setToolTip("Base game version")
+                            self.gui.all_units_list.addItem(item)
+
+                # Update buildable units list
+                if hasattr(self.gui, 'current_data') and self.gui.current_data:
+                    self.gui.units_list.clear()
+                    buildable_units = self.gui.current_data.get('buildable_units', [])
+                    for unit_id in sorted(buildable_units):
+                        # Check mod folder first
+                        mod_file = mod_entities / f"{unit_id}.unit"
+                        if mod_file.exists():
+                            item = QListWidgetItem(unit_id)
+                            item.setToolTip("Mod version")
+                            self.gui.units_list.addItem(item)
+                        # Then check base game folder
+                        elif self.gui.base_game_folder:
+                            base_file = base_entities / f"{unit_id}.unit"
+                            if base_file.exists():
+                                item = QListWidgetItem(unit_id)
+                                item.setForeground(QColor(150, 150, 150))
+                                font = item.font()
+                                font.setItalic(True)
+                                item.setFont(font)
+                                item.setToolTip("Base game version")
+                                self.gui.units_list.addItem(item)
+
+                    # Update buildable strikecraft list
+                    self.gui.strikecraft_list.clear()
+                    buildable_strikecraft = self.gui.current_data.get('buildable_strikecraft', [])
+                    for unit_id in sorted(buildable_strikecraft):
+                        # Check mod folder first
+                        mod_file = mod_entities / f"{unit_id}.unit"
+                        if mod_file.exists():
+                            item = QListWidgetItem(unit_id)
+                            item.setToolTip("Mod version")
+                            self.gui.strikecraft_list.addItem(item)
+                        # Then check base game folder
+                        elif self.gui.base_game_folder:
+                            base_file = base_entities / f"{unit_id}.unit"
+                            if base_file.exists():
+                                item = QListWidgetItem(unit_id)
+                                item.setForeground(QColor(150, 150, 150))
+                                font = item.font()
+                                font.setItalic(True)
+                                item.setFont(font)
+                                item.setToolTip("Base game version")
+                                self.gui.strikecraft_list.addItem(item)
+                return
+                
+            # Update each list widget
+            for list_widget in list_widgets:
+                # Clear and repopulate the list
+                list_widget.clear()
+                
+                # Add mod files first
+                mod_entities = self.gui.current_folder / "entities"
+                if mod_entities.exists():
+                    for file in sorted(mod_entities.glob(f"*.{self.file_type}")):
+                        item = QListWidgetItem(file.stem)
+                        item.setToolTip("Mod version")
+                        list_widget.addItem(item)
+                
+                # Then add base game files (grayed out)
+                if self.gui.base_game_folder:
+                    base_entities = self.gui.base_game_folder / "entities"
+                    if base_entities.exists():
+                        for file in sorted(base_entities.glob(f"*.{self.file_type}")):
+                            # Always add base game files, even if they exist in mod folder
+                            item = QListWidgetItem(file.stem)
+                            item.setForeground(QColor(150, 150, 150))
+                            font = item.font()
+                            font.setItalic(True)
+                            item.setFont(font)
+                            item.setToolTip("Base game version")
+                            list_widget.addItem(item)
+        except Exception as e:
+            print(f"Error updating list for type {self.file_type}: {str(e)}")
 
 class DeleteResearchSubjectCommand(Command):
     """Command for deleting a research subject from the research tree and optionally the file system"""

@@ -5953,11 +5953,12 @@ class EntityToolGUI(QMainWindow):
                         lambda: self.delete_file(file_id, file_type, True)
                     )
                     menu.addSeparator()
+                else:
+                    delete_file = menu.addAction("Delete File Only")
+                    delete_file.triggered.connect(
+                        lambda: self.delete_file(file_id, file_type, False)
+                    )
 
-                delete_file = menu.addAction("Delete File Only")
-                delete_file.triggered.connect(
-                    lambda: self.delete_file(file_id, file_type, False)
-                )
             
         menu.exec(list_widget.mapToGlobal(position))
 
