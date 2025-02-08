@@ -38,7 +38,18 @@ jobs:
       run: |
         python -m PyInstaller entity-tool.spec
     
-    - name: Upload Release Asset
+    - name: Create source zip
+      run: |
+        # Create a temporary directory for the source files
+        mkdir source_temp
+        # Copy all files except those not needed in source distribution
+        robocopy . source_temp /E /XD .git .github dist build __pycache__ venv /XF .gitignore
+        # Create the zip file
+        Compress-Archive -Path source_temp\* -DestinationPath entity-tool-source.zip
+        # Clean up
+        Remove-Item -Recurse -Force source_temp
+    
+    - name: Upload Executable
       uses: actions/upload-release-asset@v1
       env:
         GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
@@ -46,4 +57,14 @@ jobs:
         upload_url: ${{ github.event.release.upload_url }}
         asset_path: ./dist/entity-tool.exe
         asset_name: entity-tool.exe
-        asset_content_type: application/octet-stream 
+        asset_content_type: application/octet-stream
+        
+    - name: Upload Source Code
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ./entity-tool-source.zip
+        asset_name: entity-tool-source.zip
+        asset_content_type: application/zip 
