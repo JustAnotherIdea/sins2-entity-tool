@@ -102,7 +102,6 @@ pip install -r requirements.txt
 
 ## Known Issues
 
-- There is currently no way to create a uniforms file or add a new entry to the localized text file (these features will be added soon).
 - Sometimes the context menu does not appear (or does not show the correct options). If this happens, try refreshing the view.
 - Adding or removing a root property to a large entity may take a second or two.
 - Strings may become a button to an exotic file when that doesn't make sense.
@@ -110,13 +109,12 @@ pip install -r requirements.txt
 - It is possible to undo/redo past what you should be able to do. If this happens, the application may crash.
 - Invalid properties will not be shown in the view at all (in the future they will be shown in a different color).
 - Player icons, portrait files, and sound files are not yet supported.
-- Not an issue per se, but the only way to create new files is through the context menu or the add player button (there will be other ways in the future).
 
 ## Development
 
 ### Project Structure
 
-- `main.py` - Application entry point
+- `main.py` - Application entry point (use --dev to disable version checking)
 - `entityTool.py` - Main application logic and GUI (this file is way too long, I apologize in advance)
 - `research_view.py` - Research tree visualization and editing
 - `command_stack.py` - Undo/redo functionality implementation
