@@ -3275,9 +3275,13 @@ class EntityToolGUI(QMainWindow):
         
         # Get the schema name
         if file_type == "uniform":
-            # Convert from snake_case to kebab-case and append -uniforms-schema
-            schema_name = file_path.stem.replace("_", "-") + "-uniforms-schema"
-            print(f"Looking for uniform schema: {schema_name}")
+            # For uniforms, use the file name to determine the schema
+            if file_path:
+                # Convert from snake_case to kebab-case and append -uniforms-schema
+                schema_name = file_path.stem.replace("_", "-") + "-uniforms-schema"
+                print(f"Looking for uniform schema: {schema_name}")
+            else:
+                schema_name = "uniforms-schema"  # Default schema if no file path
         else:
             # Convert from snake_case to kebab-case for schema lookup
             schema_name = file_type.replace("_", "-") + "-schema"
@@ -5935,33 +5939,49 @@ class EntityToolGUI(QMainWindow):
             return
             
         # Check if source file is from base game
-        is_base_game = (source_file not in self.manifest_data['mod'].get(file_type, {}) and 
-                       source_file in self.manifest_data['base_game'].get(file_type, {}))
+        if file_type == "uniform":
+            # For uniforms, check if file exists in mod folder
+            mod_file = self.current_folder / "uniforms" / f"{source_file}.uniforms"
+            base_file = None if not self.base_game_folder else self.base_game_folder / "uniforms" / f"{source_file}.uniforms"
+            is_base_game = not mod_file.exists() and base_file and base_file.exists()
+        else:
+            is_base_game = (source_file not in self.manifest_data['mod'].get(file_type, {}) and 
+                          source_file in self.manifest_data['base_game'].get(file_type, {}))
         
         # Show copy dialog
         copy_dialog = QDialog(self)
+        copy_dialog.setWindowTitle("Copy File")
         copy_layout = QVBoxLayout(copy_dialog)
         
-        # Add option to overwrite if it's a base game file
-        overwrite = False
-        if is_base_game:
-            overwrite_check = QCheckBox("Overwrite in mod (keep same name)")
-            copy_layout.addWidget(overwrite_check)
-            
-            def on_overwrite_changed(state):
-                nonlocal overwrite
-                overwrite = state == Qt.CheckState.Checked.value
-                name_edit.setEnabled(not overwrite)
-                name_edit.setText(source_file if overwrite else "")
+        # For uniforms, we only allow overwriting base game files
+        if file_type == "uniform":
+            if not is_base_game:
+                QMessageBox.warning(self, "Error", "Uniforms files can only be copied from base game")
+                return
+            overwrite = True
+            name_edit = QLineEdit(source_file)  # Use source name for uniforms
+            name_edit.setEnabled(False)  # Disable name editing for uniforms
+        else:
+            # Add option to overwrite if it's a base game file
+            overwrite = False
+            if is_base_game:
+                overwrite_check = QCheckBox("Overwrite in mod (keep same name)")
+                copy_layout.addWidget(overwrite_check)
                 
-            overwrite_check.stateChanged.connect(on_overwrite_changed)
-        
-        # Add name input
-        name_layout = QHBoxLayout()
-        name_layout.addWidget(QLabel("New Name:"))
-        name_edit = QLineEdit()
-        name_layout.addWidget(name_edit)
-        copy_layout.addLayout(name_layout)
+                def on_overwrite_changed(state):
+                    nonlocal overwrite
+                    overwrite = state == Qt.CheckState.Checked.value
+                    name_edit.setEnabled(not overwrite)
+                    name_edit.setText(source_file if overwrite else "")
+                    
+                overwrite_check.stateChanged.connect(on_overwrite_changed)
+            
+            # Add name input
+            name_layout = QHBoxLayout()
+            name_layout.addWidget(QLabel("New Name:"))
+            name_edit = QLineEdit()
+            name_layout.addWidget(name_edit)
+            copy_layout.addLayout(name_layout)
         
         # Add copy/cancel buttons
         copy_buttons = QHBoxLayout()
