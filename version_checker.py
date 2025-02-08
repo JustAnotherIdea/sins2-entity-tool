@@ -5,6 +5,7 @@ import sys
 import os
 import logging
 from packaging import version
+import markdown
 
 class VersionChecker:
     def __init__(self, dev_mode=False):
@@ -24,6 +25,12 @@ class VersionChecker:
         if getattr(sys, 'frozen', False):
             return Path(sys._MEIPASS) / resource_name
         return Path(__file__).parent / resource_name
+
+    def _process_markdown(self, text):
+        """Convert markdown to HTML with GitHub-style formatting"""
+        # Configure markdown extensions for GitHub-style formatting
+        md = markdown.Markdown(extensions=['extra', 'nl2br', 'sane_lists'])
+        return md.convert(text)
 
     def check_for_updates(self):
         # Skip update check in dev mode
@@ -55,7 +62,10 @@ class VersionChecker:
                     # Fallback to zipball if no specific asset found
                     download_url = latest['zipball_url']
                 
-                return True, download_url, latest['body'], current_version, latest_version, is_frozen
+                # Convert release notes from markdown to HTML
+                release_notes_html = self._process_markdown(latest['body'])
+                
+                return True, download_url, release_notes_html, current_version, latest_version, is_frozen
             return False, None, None, current_version, latest_version, getattr(sys, 'frozen', False)
             
         except Exception as e:

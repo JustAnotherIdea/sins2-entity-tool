@@ -1,10 +1,44 @@
-from PyQt6.QtWidgets import QApplication, QMessageBox, QDialog, QVBoxLayout, QTextBrowser
+from PyQt6.QtWidgets import (QApplication, QMessageBox, QDialog, QVBoxLayout, 
+                            QTextBrowser, QDialogButtonBox)
 from entityTool import EntityToolGUI
 from version_checker import VersionChecker
 import sys
 import logging
 from pathlib import Path
 import argparse
+
+class UpdateDialog(QDialog):
+    def __init__(self, current_version, latest_version, release_notes_html, update_type, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Update Available")
+        self.setMinimumWidth(600)
+        self.setMinimumHeight(400)
+        
+        # Create layout
+        layout = QVBoxLayout(self)
+        
+        # Create text browser for the entire content
+        text_browser = QTextBrowser()
+        text_browser.setOpenExternalLinks(True)
+        
+        # Combine version info and release notes in HTML
+        html_content = f'''
+        <h2>Update Available</h2>
+        <p>A new version is available: <b>v{current_version}</b> → <b>v{latest_version}</b></p>
+        <h3>Release Notes</h3>
+        {release_notes_html}
+        <p><br>Would you like to download and install the updated {update_type}?</p>
+        '''
+        text_browser.setHtml(html_content)
+        layout.addWidget(text_browser)
+        
+        # Add buttons
+        button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Yes | QDialogButtonBox.StandardButton.No
+        )
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
 
 def main():
     # Parse command line arguments
@@ -38,7 +72,7 @@ def main():
 
     # Check for updates (skip in dev mode)
     version_checker = VersionChecker(dev_mode=args.dev)
-    has_update, download_url, release_message, current_version, latest_version, is_frozen = version_checker.check_for_updates()
+    has_update, download_url, release_notes_html, current_version, latest_version, is_frozen = version_checker.check_for_updates()
     
     # Set window title with version
     title = f'Sins 2 Entity Tool v{current_version}'
@@ -50,15 +84,8 @@ def main():
     
     if has_update:
         update_type = "executable" if is_frozen else "source code"
-        message = f'A new version is available (v{current_version} → v{latest_version}).\n\nRelease Notes:\n{release_message}\n\nWould you like to download and install the updated {update_type}?'
-        reply = QMessageBox.question(
-            window,
-            'Update Available',
-            message,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes
-        )
-        if reply == QMessageBox.StandardButton.Yes:
+        dialog = UpdateDialog(current_version, latest_version, release_notes_html, update_type, window)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             version_checker.download_update(download_url)
     
     sys.exit(app.exec())

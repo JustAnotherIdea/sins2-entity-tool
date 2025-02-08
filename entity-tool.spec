@@ -9,7 +9,7 @@ a = Analysis(
         ('icons', 'icons'),
         ('config.json', '.')
     ],
-    hiddenimports=['pygame'],
+    hiddenimports=['pygame', 'markdown'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
