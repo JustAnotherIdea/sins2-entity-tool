@@ -1,4 +1,5 @@
 import requests
+from PyQt6.QtWidgets import QMessageBox
 from pathlib import Path
 import sys
 import os
@@ -10,8 +11,8 @@ class VersionChecker:
         self.github_api = "https://api.github.com/repos/JustAnotherIdea/sins2-entity-tool/releases/latest"
         self.current_version = "0.0.1"  # This will be updated during build
         self.app_dir = self._get_app_directory()
-        self.dev_mode = dev_mode        
-
+        self.dev_mode = dev_mode
+        
     def _get_app_directory(self):
         """Get the appropriate app directory based on whether we're frozen"""
         if getattr(sys, 'frozen', False):
@@ -29,7 +30,6 @@ class VersionChecker:
         if self.dev_mode:
             logging.info("Skipping update check (dev mode)")
             return False, None, None, self.current_version, None, getattr(sys, 'frozen', False)
-
         try:
             response = requests.get(self.github_api)
             response.raise_for_status()
@@ -63,15 +63,24 @@ class VersionChecker:
             return False, None, None, self.current_version, None, getattr(sys, 'frozen', False)
 
     def download_update(self, url):
+        is_frozen = getattr(sys, 'frozen', False)
+        
         try:
             response = requests.get(url, stream=True)
             response.raise_for_status()
             
-            # Get the path to the current executable
-            if not getattr(sys, 'frozen', False):
-                logging.error("Update only supported for frozen executables")
-                return False
-                
+            if is_frozen:
+                return self._update_executable(response)
+            else:
+                return self._update_source(response, url)
+    
+        except Exception as e:
+            logging.error(f"Failed to download update: {e}")
+            return False
+            
+    def _update_executable(self, response):
+        """Handle updating the frozen executable"""
+        try:
             current_exe = Path(sys.executable)
             temp_update = current_exe.with_name('update.exe.tmp')
             
@@ -89,7 +98,6 @@ tasklist /FI "IMAGENAME eq {current_exe.name}" 2>NUL | find /I /N "{current_exe.
 if "%ERRORLEVEL%"=="0" goto wait
 del /f "{current_exe}"
 move "{temp_update}" "{current_exe}"
-start "" "{current_exe}"
 del "%~f0"
 '''
             batch_file.write_text(batch_contents)
@@ -99,10 +107,72 @@ del "%~f0"
             sys.exit(0)
             
         except Exception as e:
-            logging.error(f"Failed to download update: {e}")
+            logging.error(f"Failed to update executable: {e}")
             if 'temp_update' in locals() and temp_update.exists():
                 try:
                     temp_update.unlink()
+                except:
+                    pass
+            return False
+            
+    def _update_source(self, response, url):
+        """Handle updating source installation"""
+        try:
+            import zipfile
+            import io
+            import shutil
+            
+            # Create a temporary directory for the update
+            temp_dir = self.app_dir / 'update_temp'
+            if temp_dir.exists():
+                shutil.rmtree(temp_dir)
+            temp_dir.mkdir()
+            
+            # Download and extract the zip
+            zip_data = io.BytesIO()
+            for chunk in response.iter_content(chunk_size=8192):
+                zip_data.write(chunk)
+            
+            zip_data.seek(0)
+            with zipfile.ZipFile(zip_data) as zip_ref:
+                # Get the root directory name in the zip
+                root_dir = zip_ref.namelist()[0].split('/')[0]
+                # Extract everything
+                zip_ref.extractall(temp_dir)
+            
+            # Move files from the extracted directory to the app directory
+            extracted_dir = temp_dir / root_dir
+            
+            # Copy all files except those that should be preserved
+            preserve_files = {'.git', '.github', '.gitignore', 'config.json', 'venv', '__pycache__'}
+            
+            for item in extracted_dir.iterdir():
+                if item.name not in preserve_files:
+                    target = self.app_dir / item.name
+                    if target.exists():
+                        if target.is_dir():
+                            shutil.rmtree(target)
+                        else:
+                            target.unlink()
+                    if item.is_dir():
+                        shutil.copytree(item, target)
+                    else:
+                        shutil.copy2(item, target)
+            
+            # Clean up
+            shutil.rmtree(temp_dir)
+            
+            # Show success message and prompt for restart
+            QMessageBox.information(None, "Update Successful", 
+                "The update has been downloaded and installed. Please restart the application for the changes to take effect.")
+            
+            return True
+            
+        except Exception as e:
+            logging.error(f"Failed to update source: {e}")
+            if 'temp_dir' in locals() and temp_dir.exists():
+                try:
+                    shutil.rmtree(temp_dir)
                 except:
                     pass
             return False 
