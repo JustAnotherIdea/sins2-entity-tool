@@ -29,13 +29,14 @@ def main():
 
     # Check for updates
     version_checker = VersionChecker()
-    has_update, download_url, release_message, current_version, latest_version = version_checker.check_for_updates()
+    has_update, download_url, release_message, current_version, latest_version, is_frozen = version_checker.check_for_updates()
     
     # Set window title with version
-    window.setWindowTitle(f'Sins 2 Entity Tool v{current_version}')
+    window.setWindowTitle(f'Sins 2 Entity Tool v{current_version}{"" if is_frozen else " (Source)"}')
     
     if has_update:
-        message = f'A new version is available (v{current_version} → v{latest_version}).\n\nRelease Notes:\n{release_message}\n\nWould you like to download and install it?'
+        update_type = "executable" if is_frozen else "source code"
+        message = f'A new version is available (v{current_version} → v{latest_version}).\n\nRelease Notes:\n{release_message}\n\nWould you like to download and install the updated {update_type}?'
         reply = QMessageBox.question(
             window,
             'Update Available',
