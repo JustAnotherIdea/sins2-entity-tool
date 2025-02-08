@@ -29,12 +29,13 @@ def main():
 
     # Check for updates
     version_checker = VersionChecker()
-    has_update, download_url = version_checker.check_for_updates()
+    has_update, download_url, release_message = version_checker.check_for_updates()
     if has_update:
+        message = 'A new version is available.\n\nRelease Notes:\n' + release_message + '\n\nWould you like to download and install it?'
         reply = QMessageBox.question(
             window,
             'Update Available',
-            'A new version is available. Would you like to download and install it?',
+            message,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.Yes
         )

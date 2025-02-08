@@ -33,12 +33,12 @@ class VersionChecker:
             current_version = ''.join(c for c in self.current_version if c.isdigit() or c == '.')
             
             if version.parse(latest_version) > version.parse(current_version):
-                return True, latest['assets'][0]['browser_download_url']
-            return False, None
+                return True, latest['assets'][0]['browser_download_url'], latest['body']
+            return False, None, None
             
         except Exception as e:
             logging.error(f"Failed to check for updates: {e}")
-            return False, None
+            return False, None, None
 
     def download_update(self, url):
         try:
