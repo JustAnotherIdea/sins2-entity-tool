@@ -6,11 +6,12 @@ import logging
 from packaging import version
 
 class VersionChecker:
-    def __init__(self):
+    def __init__(self, dev_mode=False):
         self.github_api = "https://api.github.com/repos/JustAnotherIdea/sins2-entity-tool/releases/latest"
         self.current_version = "0.0.1"  # This will be updated during build
         self.app_dir = self._get_app_directory()
-        
+        self.dev_mode = dev_mode        
+
     def _get_app_directory(self):
         """Get the appropriate app directory based on whether we're frozen"""
         if getattr(sys, 'frozen', False):
@@ -24,6 +25,11 @@ class VersionChecker:
         return Path(__file__).parent / resource_name
 
     def check_for_updates(self):
+        # Skip update check in dev mode
+        if self.dev_mode:
+            logging.info("Skipping update check (dev mode)")
+            return False, None, None, self.current_version, None, getattr(sys, 'frozen', False)
+
         try:
             response = requests.get(self.github_api)
             response.raise_for_status()
@@ -33,12 +39,28 @@ class VersionChecker:
             current_version = ''.join(c for c in self.current_version if c.isdigit() or c == '.')
             
             if version.parse(latest_version) > version.parse(current_version):
-                return True, latest['assets'][0]['browser_download_url']
-            return False, None
+                # Find the appropriate download URL based on installation type
+                download_url = None
+                is_frozen = getattr(sys, 'frozen', False)
+                
+                for asset in latest['assets']:
+                    if is_frozen and asset['name'].endswith('.exe'):
+                        download_url = asset['browser_download_url']
+                        break
+                    elif not is_frozen and asset['name'].endswith('.zip'):
+                        download_url = asset['browser_download_url']
+                        break
+                
+                if not download_url:
+                    # Fallback to zipball if no specific asset found
+                    download_url = latest['zipball_url']
+                
+                return True, download_url, latest['body'], current_version, latest_version, is_frozen
+            return False, None, None, current_version, latest_version, getattr(sys, 'frozen', False)
             
         except Exception as e:
             logging.error(f"Failed to check for updates: {e}")
-            return False, None
+            return False, None, None, self.current_version, None, getattr(sys, 'frozen', False)
 
     def download_update(self, url):
         try:

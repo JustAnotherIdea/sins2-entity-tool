@@ -2,4 +2,5 @@ PyQt6
 requests
 packaging
 jsonschema
-pygame 
+pygame
+markdown 
