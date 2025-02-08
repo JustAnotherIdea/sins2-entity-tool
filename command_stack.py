@@ -1458,43 +1458,65 @@ class CreateFileFromCopy(Command):
             # Determine source and target paths
             self.source_data = None
             is_base_game = False
-            
-            # Try to get source data from mod first
-            if self.source_file in self.gui.manifest_data['mod'].get(self.source_type, {}):
-                self.source_data = self.gui.manifest_data['mod'][self.source_type][self.source_file]
-                is_base_game = False
-            # Then try base game
-            elif self.source_file in self.gui.manifest_data['base_game'].get(self.source_type, {}):
-                self.source_data = self.gui.manifest_data['base_game'][self.source_type][self.source_file]
-                is_base_game = True
+
+            # Special handling for uniforms files
+            if self.source_type == "uniform":
+                # Try to get source data from mod first
+                mod_file = self.gui.current_folder / "uniforms" / f"{self.source_file}.uniforms"
+                base_file = None if not self.gui.base_game_folder else self.gui.base_game_folder / "uniforms" / f"{self.source_file}.uniforms"
+
+                if mod_file.exists():
+                    with open(mod_file, 'r', encoding='utf-8') as f:
+                        self.source_data = json.load(f)
+                    is_base_game = False
+                elif base_file and base_file.exists():
+                    with open(base_file, 'r', encoding='utf-8') as f:
+                        self.source_data = json.load(f)
+                    is_base_game = True
+
+                # Create target file path
+                self.created_file_path = self.gui.current_folder / "uniforms" / f"{self.new_name}.uniforms"
+                
+                # No manifest file for uniforms
+                self.manifest_file_path = None
+            else:
+                # Try to get source data from mod first
+                if self.source_file in self.gui.manifest_data['mod'].get(self.source_type, {}):
+                    self.source_data = self.gui.manifest_data['mod'][self.source_type][self.source_file]
+                    is_base_game = False
+                # Then try base game
+                elif self.source_file in self.gui.manifest_data['base_game'].get(self.source_type, {}):
+                    self.source_data = self.gui.manifest_data['base_game'][self.source_type][self.source_file]
+                    is_base_game = True
+                    
+                # Create target file path
+                self.created_file_path = self.gui.current_folder / "entities" / f"{self.new_name}.{self.source_type}"
+                
+                # Create manifest file path
+                self.manifest_file_path = self.gui.current_folder / "entities" / f"{self.source_type}.entity_manifest"
                 
             if not self.source_data:
                 raise ValueError(f"Could not find source file {self.source_file} of type {self.source_type}")
                 
-            # Create target file path
-            self.created_file_path = self.gui.current_folder / "entities" / f"{self.new_name}.{self.source_type}"
-            
             # Check if target exists and we're not overwriting
             if self.created_file_path.exists() and not self.overwrite:
                 raise ValueError(f"Target file {self.created_file_path} already exists")
                 
-            # Create manifest file path
-            self.manifest_file_path = self.gui.current_folder / "entities" / f"{self.source_type}.entity_manifest"
-            
-            # Load or create manifest data
-            manifest_data = {"ids": []}
-            if self.manifest_file_path.exists():
-                with open(self.manifest_file_path, 'r', encoding='utf-8') as f:
-                    manifest_data = json.load(f)
-                    
-            # Store old manifest data for undo (deep copy)
-            self.old_manifest_data = json.loads(json.dumps(manifest_data))
-            
-            # Create new manifest data (deep copy)
-            self.new_manifest_data = json.loads(json.dumps(manifest_data))
-            if not self.overwrite and self.new_name not in self.new_manifest_data["ids"]:
-                self.new_manifest_data["ids"].append(self.new_name)
-                self.new_manifest_data["ids"].sort()  # Keep IDs sorted
+            # Load or create manifest data if needed
+            if self.manifest_file_path:
+                manifest_data = {"ids": []}
+                if self.manifest_file_path.exists():
+                    with open(self.manifest_file_path, 'r', encoding='utf-8') as f:
+                        manifest_data = json.load(f)
+                        
+                # Store old manifest data for undo (deep copy)
+                self.old_manifest_data = json.loads(json.dumps(manifest_data))
+                
+                # Create new manifest data (deep copy)
+                self.new_manifest_data = json.loads(json.dumps(manifest_data))
+                if not self.overwrite and self.new_name not in self.new_manifest_data["ids"]:
+                    self.new_manifest_data["ids"].append(self.new_name)
+                    self.new_manifest_data["ids"].sort()  # Keep IDs sorted
                 
             return True
             
@@ -1509,21 +1531,22 @@ class CreateFileFromCopy(Command):
                 if not self.prepare():
                     return False
                     
-            # Create entities folder if it doesn't exist
+            # Create parent folder if it doesn't exist
             self.created_file_path.parent.mkdir(parents=True, exist_ok=True)
             
             # Write the new file
             with open(self.created_file_path, 'w', encoding='utf-8') as f:
                 json.dump(self.source_data, f, indent=4)
                 
-            # Write the manifest file
-            with open(self.manifest_file_path, 'w', encoding='utf-8') as f:
-                json.dump(self.new_manifest_data, f, indent=4)
+            # Write the manifest file if it exists
+            if self.manifest_file_path:
+                with open(self.manifest_file_path, 'w', encoding='utf-8') as f:
+                    json.dump(self.new_manifest_data, f, indent=4)
                 
-            # Update the GUI's manifest data
-            if self.source_type not in self.gui.manifest_data['mod']:
-                self.gui.manifest_data['mod'][self.source_type] = {}
-            self.gui.manifest_data['mod'][self.source_type][self.new_name] = self.source_data
+                # Update the GUI's manifest data
+                if self.source_type not in self.gui.manifest_data['mod']:
+                    self.gui.manifest_data['mod'][self.source_type] = {}
+                self.gui.manifest_data['mod'][self.source_type][self.new_name] = self.source_data
             
             # Update the appropriate list based on file type
             self.update_list_for_type()
@@ -1543,17 +1566,17 @@ class CreateFileFromCopy(Command):
                 print(f"Deleting created file: {self.created_file_path}")
                 self.created_file_path.unlink()
                 
-            # Restore old manifest data
+            # Restore old manifest data if it exists
             if self.manifest_file_path and self.old_manifest_data:
                 print(f"Restoring old manifest data to: {self.manifest_file_path}")
                 print(f"Old manifest data: {self.old_manifest_data}")
                 with open(self.manifest_file_path, 'w', encoding='utf-8') as f:
                     json.dump(self.old_manifest_data, f, indent=4)
                     
-            # Remove from GUI's manifest data
-            if self.source_type in self.gui.manifest_data['mod']:
-                print(f"Removing {self.new_name} from GUI manifest data")
-                self.gui.manifest_data['mod'][self.source_type].pop(self.new_name, None)
+                # Remove from GUI's manifest data
+                if self.source_type in self.gui.manifest_data['mod']:
+                    print(f"Removing {self.new_name} from GUI manifest data")
+                    self.gui.manifest_data['mod'][self.source_type].pop(self.new_name, None)
                 
             # Update the appropriate list based on file type
             self.update_list_for_type()
@@ -1572,8 +1595,7 @@ class CreateFileFromCopy(Command):
                 print(f"Removing manifest from modified files set")
                 self.gui.command_stack.modified_files.discard(self.manifest_file_path)
                 
-            # Update command stack data for manifest file
-            if self.manifest_file_path:
+                # Update command stack data for manifest file
                 print(f"Updating manifest data in command stack")
                 self.gui.command_stack.update_file_data(self.manifest_file_path, self.old_manifest_data)
                 
@@ -1596,6 +1618,31 @@ class CreateFileFromCopy(Command):
     def update_list_for_type(self):
         """Update the appropriate list widget based on the file type"""
         try:
+            # Special handling for uniforms
+            if self.source_type == "uniform":
+                self.gui.uniforms_list.clear()
+                # Add mod files first
+                uniforms_folder = self.gui.current_folder / "uniforms"
+                if uniforms_folder.exists():
+                    for file in sorted(uniforms_folder.glob("*.uniforms")):
+                        item = QListWidgetItem(file.stem)
+                        item.setToolTip("Mod version")
+                        self.gui.uniforms_list.addItem(item)
+                # Then add base game files (grayed out)
+                if self.gui.base_game_folder:
+                    base_uniforms_folder = self.gui.base_game_folder / "uniforms"
+                    if base_uniforms_folder.exists():
+                        for file in sorted(base_uniforms_folder.glob("*.uniforms")):
+                            # Always add base game files, even if they exist in mod folder
+                            item = QListWidgetItem(file.stem)
+                            item.setForeground(QColor(150, 150, 150))
+                            font = item.font()
+                            font.setItalic(True)
+                            item.setFont(font)
+                            item.setToolTip("Base game version")
+                            self.gui.uniforms_list.addItem(item)
+                return
+
             # Special handling for units to filter by type
             if self.source_type == 'unit':
                 # Update all units list first
@@ -1603,45 +1650,57 @@ class CreateFileFromCopy(Command):
                 # Add mod files first
                 for file_id in sorted(self.gui.manifest_data['mod'].get('unit', {})):
                     item = QListWidgetItem(file_id)
+                    item.setToolTip("Mod version")
                     self.gui.all_units_list.addItem(item)
                 # Then add base game files (grayed out)
                 for file_id in sorted(self.gui.manifest_data['base_game'].get('unit', {})):
-                    if file_id not in self.gui.manifest_data['mod'].get('unit', {}):
-                        item = QListWidgetItem(file_id)
-                        item.setForeground(QColor(150, 150, 150))
-                        font = item.font()
-                        font.setItalic(True)
-                        item.setFont(font)
-                        self.gui.all_units_list.addItem(item)
+                    # Always add base game files, even if they exist in mod folder
+                    item = QListWidgetItem(file_id)
+                    item.setForeground(QColor(150, 150, 150))
+                    font = item.font()
+                    font.setItalic(True)
+                    item.setFont(font)
+                    item.setToolTip("Base game version")
+                    self.gui.all_units_list.addItem(item)
 
                 # Update buildable units list
                 if hasattr(self.gui, 'current_data') and self.gui.current_data:
                     self.gui.units_list.clear()
                     buildable_units = self.gui.current_data.get('buildable_units', [])
                     for unit_id in sorted(buildable_units):
-                        item = QListWidgetItem(unit_id)
-                        # Style as base game if it doesn't exist in mod folder
-                        if (unit_id not in self.gui.manifest_data['mod'].get('unit', {}) and 
-                            unit_id in self.gui.manifest_data['base_game'].get('unit', {})):
+                        # Add mod version if it exists
+                        if unit_id in self.gui.manifest_data['mod'].get('unit', {}):
+                            item = QListWidgetItem(unit_id)
+                            item.setToolTip("Mod version")
+                            self.gui.units_list.addItem(item)
+                        # Add base game version if it exists
+                        if unit_id in self.gui.manifest_data['base_game'].get('unit', {}):
+                            item = QListWidgetItem(unit_id)
                             item.setForeground(QColor(150, 150, 150))
                             font = item.font()
                             font.setItalic(True)
                             item.setFont(font)
-                        self.gui.units_list.addItem(item)
+                            item.setToolTip("Base game version")
+                            self.gui.units_list.addItem(item)
 
                     # Update buildable strikecraft list
                     self.gui.strikecraft_list.clear()
                     buildable_strikecraft = self.gui.current_data.get('buildable_strikecraft', [])
                     for unit_id in sorted(buildable_strikecraft):
-                        item = QListWidgetItem(unit_id)
-                        # Style as base game if it doesn't exist in mod folder
-                        if (unit_id not in self.gui.manifest_data['mod'].get('unit', {}) and 
-                            unit_id in self.gui.manifest_data['base_game'].get('unit', {})):
+                        # Add mod version if it exists
+                        if unit_id in self.gui.manifest_data['mod'].get('unit', {}):
+                            item = QListWidgetItem(unit_id)
+                            item.setToolTip("Mod version")
+                            self.gui.strikecraft_list.addItem(item)
+                        # Add base game version if it exists
+                        if unit_id in self.gui.manifest_data['base_game'].get('unit', {}):
+                            item = QListWidgetItem(unit_id)
                             item.setForeground(QColor(150, 150, 150))
                             font = item.font()
                             font.setItalic(True)
                             item.setFont(font)
-                        self.gui.strikecraft_list.addItem(item)
+                            item.setToolTip("Base game version")
+                            self.gui.strikecraft_list.addItem(item)
                 return
 
             # For other types, use the standard mapping
@@ -1653,8 +1712,7 @@ class CreateFileFromCopy(Command):
                 'formation': [self.gui.formations_list],
                 'flight_pattern': [self.gui.patterns_list],
                 'npc_reward': [self.gui.rewards_list],
-                'exotic': [self.gui.exotics_list],
-                'uniform': [self.gui.uniforms_list]
+                'exotic': [self.gui.exotics_list]
             }
             
             # Get the list widgets to update
@@ -1670,17 +1728,19 @@ class CreateFileFromCopy(Command):
                 # Add mod files first
                 for file_id in sorted(self.gui.manifest_data['mod'].get(self.source_type, {})):
                     item = QListWidgetItem(file_id)
+                    item.setToolTip("Mod version")
                     list_widget.addItem(item)
                 
                 # Then add base game files (grayed out)
                 for file_id in sorted(self.gui.manifest_data['base_game'].get(self.source_type, {})):
-                    if file_id not in self.gui.manifest_data['mod'].get(self.source_type, {}):
-                        item = QListWidgetItem(file_id)
-                        item.setForeground(QColor(150, 150, 150))
-                        font = item.font()
-                        font.setItalic(True)
-                        item.setFont(font)
-                        list_widget.addItem(item)
+                    # Always add base game files, even if they exist in mod folder
+                    item = QListWidgetItem(file_id)
+                    item.setForeground(QColor(150, 150, 150))
+                    font = item.font()
+                    font.setItalic(True)
+                    item.setFont(font)
+                    item.setToolTip("Base game version")
+                    list_widget.addItem(item)
                         
         except Exception as e:
             print(f"Error updating list for type {self.source_type}: {str(e)}")

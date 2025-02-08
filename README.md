@@ -12,6 +12,8 @@ This is a beta release, and as such, there are no guarantees that it will work a
 
 Create a copy of your mod folder before using this tool, and save your changes often.
 
+## [Demo Video](https://youtu.be/2VGNgComdik?si=5GnYF6CmZ_XoJkFS)
+
 ## Features
 
 - 🎮 Edit game entities, research trees, and other game data with a user-friendly interface
