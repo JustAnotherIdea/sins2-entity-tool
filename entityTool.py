@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                             QPushButton, QLabel, QFileDialog, QHBoxLayout, 
                             QLineEdit, QListWidget, QComboBox, QTabWidget, QScrollArea, QGroupBox, QDialog, QSplitter, QToolButton,
                             QSpinBox, QDoubleSpinBox, QCheckBox, QMessageBox, QListWidgetItem, QMenu, QTreeWidget, QTreeWidgetItem, QPlainTextEdit, QProgressBar, QApplication, QFormLayout, QInputDialog)
-from PyQt6.QtCore import (Qt, QTimer, QObject, QEvent)
+from PyQt6.QtCore import (Qt, QTimer, QObject, QEvent, QPoint)
 from PyQt6.QtGui import (QDragEnterEvent, QDropEvent, QPixmap, QIcon, QKeySequence,
                         QColor, QShortcut, QFont)
 import json
@@ -317,6 +317,7 @@ class EntityToolGUI(QMainWindow):
         units_list_layout = QVBoxLayout()
         self.units_list = QListWidget()
         self.units_list.itemClicked.connect(self.on_unit_selected)
+        self.setup_list_context_menu(self.units_list, "unit")
         units_list_layout.addWidget(self.units_list)
         units_list_group.setLayout(units_list_layout)
         lists_layout.addWidget(units_list_group)
@@ -326,6 +327,7 @@ class EntityToolGUI(QMainWindow):
         strikecraft_list_layout = QVBoxLayout()
         self.strikecraft_list = QListWidget()
         self.strikecraft_list.itemClicked.connect(self.on_unit_selected)
+        self.setup_list_context_menu(self.strikecraft_list, "unit")
         strikecraft_list_layout.addWidget(self.strikecraft_list)
         strikecraft_list_group.setLayout(strikecraft_list_layout)
         lists_layout.addWidget(strikecraft_list_group)
@@ -335,6 +337,7 @@ class EntityToolGUI(QMainWindow):
         all_units_layout = QVBoxLayout()
         self.all_units_list = QListWidget()
         self.all_units_list.itemClicked.connect(self.on_unit_selected)
+        self.setup_list_context_menu(self.all_units_list, "unit")
         all_units_layout.addWidget(self.all_units_list)
         all_units_group.setLayout(all_units_layout)
         lists_layout.addWidget(all_units_group)
@@ -406,6 +409,7 @@ class EntityToolGUI(QMainWindow):
         items_list_layout = QVBoxLayout()
         self.items_list = QListWidget()
         self.items_list.itemClicked.connect(self.on_item_selected)
+        self.setup_list_context_menu(self.items_list, "unit_item")
         items_list_layout.addWidget(self.items_list)
         items_list_group.setLayout(items_list_layout)
         unit_items_split.addWidget(items_list_group)
@@ -439,6 +443,7 @@ class EntityToolGUI(QMainWindow):
         ability_layout = QVBoxLayout()
         self.ability_list = QListWidget()
         self.ability_list.itemClicked.connect(self.on_ability_selected)
+        self.setup_list_context_menu(self.ability_list, "ability")
         ability_layout.addWidget(self.ability_list)
         ability_group.setLayout(ability_layout)
         left_layout.addWidget(ability_group)
@@ -448,6 +453,7 @@ class EntityToolGUI(QMainWindow):
         action_layout = QVBoxLayout()
         self.action_list = QListWidget()
         self.action_list.itemClicked.connect(self.on_action_selected)
+        self.setup_list_context_menu(self.action_list, "action_data_source")
         action_layout.addWidget(self.action_list)
         action_group.setLayout(action_layout)
         left_layout.addWidget(action_group)
@@ -457,6 +463,7 @@ class EntityToolGUI(QMainWindow):
         buff_layout = QVBoxLayout()
         self.buff_list = QListWidget()
         self.buff_list.itemClicked.connect(self.on_buff_selected)
+        self.setup_list_context_menu(self.buff_list, "buff")
         buff_layout.addWidget(self.buff_list)
         buff_group.setLayout(buff_layout)
         left_layout.addWidget(buff_group)
@@ -521,6 +528,7 @@ class EntityToolGUI(QMainWindow):
         formations_list_layout = QVBoxLayout()
         self.formations_list = QListWidget()
         self.formations_list.itemClicked.connect(self.on_formation_selected)
+        self.setup_list_context_menu(self.formations_list, "formation")
         formations_list_layout.addWidget(self.formations_list)
         formations_group.setLayout(formations_list_layout)
         formations_left_layout.addWidget(formations_group)
@@ -530,6 +538,7 @@ class EntityToolGUI(QMainWindow):
         patterns_list_layout = QVBoxLayout()
         self.patterns_list = QListWidget()
         self.patterns_list.itemClicked.connect(self.on_pattern_selected)
+        self.setup_list_context_menu(self.patterns_list, "flight_pattern")
         patterns_list_layout.addWidget(self.patterns_list)
         patterns_group.setLayout(patterns_list_layout)
         formations_left_layout.addWidget(patterns_group)
@@ -576,6 +585,7 @@ class EntityToolGUI(QMainWindow):
         rewards_list_layout = QVBoxLayout()
         self.rewards_list = QListWidget()
         self.rewards_list.itemClicked.connect(self.on_reward_selected)
+        self.setup_list_context_menu(self.rewards_list, "npc_reward")
         rewards_list_layout.addWidget(self.rewards_list)
         rewards_list_group.setLayout(rewards_list_layout)
         rewards_split.addWidget(rewards_list_group)
@@ -605,6 +615,7 @@ class EntityToolGUI(QMainWindow):
         exotics_list_layout = QVBoxLayout()
         self.exotics_list = QListWidget()
         self.exotics_list.itemClicked.connect(self.on_exotic_selected)
+        self.setup_list_context_menu(self.exotics_list, "exotic")
         exotics_list_layout.addWidget(self.exotics_list)
         exotics_list_group.setLayout(exotics_list_layout)
         exotics_split.addWidget(exotics_list_group)
@@ -634,6 +645,7 @@ class EntityToolGUI(QMainWindow):
         uniforms_list_layout = QVBoxLayout()
         self.uniforms_list = QListWidget()
         self.uniforms_list.itemClicked.connect(self.on_uniform_selected)
+        self.setup_list_context_menu(self.uniforms_list, "uniform")
         uniforms_list_layout.addWidget(self.uniforms_list)
         uniforms_list_group.setLayout(uniforms_list_layout)
         uniforms_split.addWidget(uniforms_list_group)
@@ -5895,3 +5907,105 @@ class EntityToolGUI(QMainWindow):
             return float_val
         except (ValueError, TypeError):
             return value
+
+    def setup_list_context_menu(self, list_widget: QListWidget, file_type: str):
+        """Add context menu support to a list widget"""
+        list_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        list_widget.customContextMenuRequested.connect(
+            lambda pos, w=list_widget, t=file_type: self.show_list_context_menu(w, pos, t)
+        )
+
+    def show_list_context_menu(self, list_widget: QListWidget, position: QPoint, file_type: str):
+        """Show context menu for list widgets"""
+        menu = QMenu()
+        
+        # Only show copy option if an item is selected
+        if list_widget.currentItem():
+            copy_action = menu.addAction("Create Copy...")
+            copy_action.triggered.connect(
+                lambda: self.show_copy_dialog(list_widget.currentItem().text(), file_type)
+            )
+            
+        menu.exec(list_widget.mapToGlobal(position))
+
+    def show_copy_dialog(self, source_file: str, file_type: str):
+        """Show dialog to create a copy of a file"""
+        if not self.current_folder:
+            QMessageBox.warning(self, "Error", "Please open a mod folder first")
+            return
+            
+        # Check if source file is from base game
+        is_base_game = (source_file not in self.manifest_data['mod'].get(file_type, {}) and 
+                       source_file in self.manifest_data['base_game'].get(file_type, {}))
+        
+        # Show copy dialog
+        copy_dialog = QDialog(self)
+        copy_layout = QVBoxLayout(copy_dialog)
+        
+        # Add option to overwrite if it's a base game file
+        overwrite = False
+        if is_base_game:
+            overwrite_check = QCheckBox("Overwrite in mod (keep same name)")
+            copy_layout.addWidget(overwrite_check)
+            
+            def on_overwrite_changed(state):
+                nonlocal overwrite
+                overwrite = state == Qt.CheckState.Checked.value
+                name_edit.setEnabled(not overwrite)
+                name_edit.setText(source_file if overwrite else "")
+                
+            overwrite_check.stateChanged.connect(on_overwrite_changed)
+        
+        # Add name input
+        name_layout = QHBoxLayout()
+        name_layout.addWidget(QLabel("New Name:"))
+        name_edit = QLineEdit()
+        name_layout.addWidget(name_edit)
+        copy_layout.addLayout(name_layout)
+        
+        # Add copy/cancel buttons
+        copy_buttons = QHBoxLayout()
+        copy_ok = QPushButton("Copy")
+        copy_cancel = QPushButton("Cancel")
+        copy_buttons.addWidget(copy_ok)
+        copy_buttons.addWidget(copy_cancel)
+        copy_layout.addLayout(copy_buttons)
+        
+        def do_copy():
+            new_name = name_edit.text().strip()
+            if not new_name:
+                QMessageBox.warning(copy_dialog, "Error", "Please enter a name for the copy")
+                return
+                
+            try:
+                # Create copy command
+                copy_command = CreateFileFromCopy(
+                    self,
+                    source_file,
+                    file_type,
+                    new_name,
+                    overwrite
+                )
+                
+                # Prepare and validate the command
+                if not copy_command.prepare():
+                    QMessageBox.warning(copy_dialog, "Error", "Failed to prepare file copy")
+                    return
+                    
+                # Execute the copy command
+                if not copy_command.execute():
+                    QMessageBox.warning(copy_dialog, "Error", "Failed to create file copy")
+                    return
+                    
+                # Add command to stack for undo/redo
+                self.command_stack.push(copy_command)
+                
+                copy_dialog.accept()
+                
+            except Exception as e:
+                QMessageBox.warning(copy_dialog, "Error", str(e))
+        
+        copy_ok.clicked.connect(do_copy)
+        copy_cancel.clicked.connect(copy_dialog.reject)
+        
+        copy_dialog.exec()
