@@ -2024,9 +2024,10 @@ class DeleteFileCommand(Command):
                 with open(self.manifest_file_path, 'w', encoding='utf-8') as f:
                     json.dump(self.new_manifest_data, f, indent=4)
 
-                # Remove from GUI's manifest data
-                if self.file_type in self.gui.manifest_data['mod']:
-                    self.gui.manifest_data['mod'][self.file_type].pop(self.file_id, None)
+            # Always remove from GUI's manifest data when deleting the file
+            # This ensures the item is removed from the list view
+            if self.file_type in self.gui.manifest_data['mod']:
+                self.gui.manifest_data['mod'][self.file_type].pop(self.file_id, None)
 
             # Update the appropriate list
             self.update_list_for_type()
@@ -2072,9 +2073,70 @@ class DeleteFileCommand(Command):
 
     def update_list_for_type(self):
         """Update the appropriate list widget"""
-        # Create a temporary CreateFileFromCopy command to use its update_list_for_type method
-        temp_cmd = CreateFileFromCopy(self.gui, "", self.file_type, "")
-        temp_cmd.update_list_for_type()
+        # Special handling for uniforms
+        if self.file_type == "uniform":
+            self.gui.uniforms_list.clear()
+            # Add mod files first
+            uniforms_folder = self.gui.current_folder / "uniforms"
+            if uniforms_folder.exists():
+                for file in sorted(uniforms_folder.glob("*.uniforms")):
+                    item = QListWidgetItem(file.stem)
+                    item.setToolTip("Mod version")
+                    self.gui.uniforms_list.addItem(item)
+            # Then add base game files (grayed out)
+            if self.gui.base_game_folder:
+                base_uniforms_folder = self.gui.base_game_folder / "uniforms"
+                if base_uniforms_folder.exists():
+                    for file in sorted(base_uniforms_folder.glob("*.uniforms")):
+                        # Always add base game files, even if they exist in mod folder
+                        item = QListWidgetItem(file.stem)
+                        item.setForeground(QColor(150, 150, 150))
+                        font = item.font()
+                        font.setItalic(True)
+                        item.setFont(font)
+                        item.setToolTip("Base game version")
+                        self.gui.uniforms_list.addItem(item)
+            return
+
+        # For other types, use the standard mapping
+        type_to_list = {
+            'unit': [self.gui.all_units_list, self.gui.units_list, self.gui.strikecraft_list],
+            'unit_item': [self.gui.items_list],
+            'ability': [self.gui.ability_list],
+            'action_data_source': [self.gui.action_list],
+            'buff': [self.gui.buff_list],
+            'formation': [self.gui.formations_list],
+            'flight_pattern': [self.gui.patterns_list],
+            'npc_reward': [self.gui.rewards_list],
+            'exotic': [self.gui.exotics_list]
+        }
+        
+        # Get the list widgets to update
+        list_widgets = type_to_list.get(self.file_type, [])
+        if not list_widgets:
+            return
+            
+        # Update each list widget
+        for list_widget in list_widgets:
+            # Clear and repopulate the list
+            list_widget.clear()
+            
+            # Add mod files first
+            for file_id in sorted(self.gui.manifest_data['mod'].get(self.file_type, {})):
+                item = QListWidgetItem(file_id)
+                item.setToolTip("Mod version")
+                list_widget.addItem(item)
+            
+            # Then add base game files (grayed out)
+            for file_id in sorted(self.gui.manifest_data['base_game'].get(self.file_type, {})):
+                # Always add base game files, even if they exist in mod folder
+                item = QListWidgetItem(file_id)
+                item.setForeground(QColor(150, 150, 150))
+                font = item.font()
+                font.setItalic(True)
+                item.setFont(font)
+                item.setToolTip("Base game version")
+                list_widget.addItem(item)
 
 class DeleteResearchSubjectCommand(Command):
     """Command for deleting a research subject from the research tree and optionally the file system"""

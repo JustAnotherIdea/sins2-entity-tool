@@ -3867,6 +3867,7 @@ class EntityToolGUI(QMainWindow):
                 "action_data_source": "action_data_source",
                 "buffs": "buff",
                 "buff": "buff",
+                "item": "unit_item",
                 "unit_items": "unit_item",
                 "unit_item": "unit_item",
                 "formations": "formation",
@@ -5926,7 +5927,7 @@ class EntityToolGUI(QMainWindow):
         # Only show options if an item is selected
         if list_widget.currentItem():
             file_id = list_widget.currentItem().text()
-            is_mod_version = list_widget.currentItem().toolTip() == "Mod version"
+            is_mod_version = not list_widget.currentItem().font().italic()
             has_base_game_version = False
 
             # Check if there's a base game version
