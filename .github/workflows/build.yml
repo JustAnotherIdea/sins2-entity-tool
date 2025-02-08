@@ -39,15 +39,17 @@ jobs:
         python -m PyInstaller entity-tool.spec
     
     - name: Create source zip
+      shell: cmd
       run: |
-        # Create a temporary directory for the source files
         mkdir source_temp
-        # Copy all files except those not needed in source distribution
         robocopy . source_temp /E /XD .git .github dist build __pycache__ venv /XF .gitignore
-        # Create the zip file
-        Compress-Archive -Path source_temp\* -DestinationPath entity-tool-source.zip
-        # Clean up
-        Remove-Item -Recurse -Force source_temp
+        IF %ERRORLEVEL% LEQ 7 (
+          powershell Compress-Archive -Path source_temp\* -DestinationPath entity-tool-source.zip
+          rmdir /S /Q source_temp
+          exit /b 0
+        ) ELSE (
+          exit /b 1
+        )
     
     - name: Upload Executable
       uses: actions/upload-release-asset@v1
