@@ -4,13 +4,22 @@ from version_checker import VersionChecker
 import sys
 import logging
 from pathlib import Path
+import argparse
 
 def main():
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Sins 2 Entity Tool')
+    parser.add_argument('--dev', action='store_true', help='Run in development mode (disables version check)')
+    args = parser.parse_args()
+    
     # Setup logging
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
+    
+    if args.dev:
+        logging.info("Running in development mode")
     
     app = QApplication(sys.argv)
     
@@ -27,12 +36,17 @@ def main():
     window = EntityToolGUI()
     window.show()
 
-    # Check for updates
-    version_checker = VersionChecker()
+    # Check for updates (skip in dev mode)
+    version_checker = VersionChecker(dev_mode=args.dev)
     has_update, download_url, release_message, current_version, latest_version, is_frozen = version_checker.check_for_updates()
     
     # Set window title with version
-    window.setWindowTitle(f'Sins 2 Entity Tool v{current_version}{"" if is_frozen else " (Source)"}')
+    title = f'Sins 2 Entity Tool v{current_version}'
+    if args.dev:
+        title += ' (Dev)'
+    elif not is_frozen:
+        title += ' (Source)'
+    window.setWindowTitle(title)
     
     if has_update:
         update_type = "executable" if is_frozen else "source code"

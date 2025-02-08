@@ -7,10 +7,11 @@ import logging
 from packaging import version
 
 class VersionChecker:
-    def __init__(self):
+    def __init__(self, dev_mode=False):
         self.github_api = "https://api.github.com/repos/JustAnotherIdea/sins2-entity-tool/releases/latest"
         self.current_version = "0.0.1"  # This will be updated during build
         self.app_dir = self._get_app_directory()
+        self.dev_mode = dev_mode
         
     def _get_app_directory(self):
         """Get the appropriate app directory based on whether we're frozen"""
@@ -25,6 +26,10 @@ class VersionChecker:
         return Path(__file__).parent / resource_name
 
     def check_for_updates(self):
+        # Skip update check in dev mode
+        if self.dev_mode:
+            logging.info("Skipping update check (dev mode)")
+            return False, None, None, self.current_version, None, getattr(sys, 'frozen', False)
         try:
             response = requests.get(self.github_api)
             response.raise_for_status()
