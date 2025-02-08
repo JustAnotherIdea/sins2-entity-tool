@@ -93,7 +93,6 @@ tasklist /FI "IMAGENAME eq {current_exe.name}" 2>NUL | find /I /N "{current_exe.
 if "%ERRORLEVEL%"=="0" goto wait
 del /f "{current_exe}"
 move "{temp_update}" "{current_exe}"
-start "" "{current_exe}"
 del "%~f0"
 '''
             batch_file.write_text(batch_contents)
