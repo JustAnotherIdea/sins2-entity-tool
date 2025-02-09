@@ -5051,16 +5051,23 @@ class EntityToolGUI(QMainWindow):
         
         # Convert None to empty string for comparison
         old_value_str = str(old_value) if old_value is not None else ""
+
+        def set_text_and_preserve_cursor(widget: QLineEdit, value: str):
+            cursor_pos = widget.cursorPosition()
+            widget.setText(str(value) if value is not None else "")
+            widget.setCursorPosition(cursor_pos)
         
         print(f"data_path: {data_path}, old_value_str: {old_value_str}, new_text: {new_text}")
         if data_path is not None and old_value_str != new_text:
+
             command = EditValueCommand(
                 file_path,
                 data_path,
                 old_value,
                 new_text,
-                lambda value: widget.setText(str(value) if value is not None else ""),
+                lambda value: set_text_and_preserve_cursor(widget, value),
                 self.update_data_value
+
             )
             command.source_widget = widget  # Track which widget initiated the change
             self.command_stack.push(command)
